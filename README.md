@@ -1,8 +1,10 @@
-# Welcome to your Expo app 👋
+# Defender
 
-This is an [Expo](https://expo.dev) project created with [`create-expo-app`](https://www.npmjs.com/package/create-expo-app).
+Tower-defense game prototype built with Expo and React Native.
 
-## Get started
+## Development Build Workflow
+
+This project is configured to use Expo development builds (`expo-dev-client`) instead of Expo Go.
 
 1. Install dependencies
 
@@ -10,41 +12,34 @@ This is an [Expo](https://expo.dev) project created with [`create-expo-app`](htt
    npm install
    ```
 
-2. Start the app
+2. Generate native projects (first time, and after native config changes)
 
    ```bash
-   npx expo start
+   npm run prebuild
    ```
 
-In the output, you'll find options to open the app in a
+3. Build and run the development client
 
-- [development build](https://docs.expo.dev/develop/development-builds/introduction/)
-- [Android emulator](https://docs.expo.dev/workflow/android-studio-emulator/)
-- [iOS simulator](https://docs.expo.dev/workflow/ios-simulator/)
-- [Expo Go](https://expo.dev/go), a limited sandbox for trying out app development with Expo
+   ```bash
+   npm run run:ios
+   ```
 
-You can start developing by editing the files inside the **app** directory. This project uses [file-based routing](https://docs.expo.dev/router/introduction).
+   or
 
-## Get a fresh project
+   ```bash
+   npm run run:android
+   ```
 
-When you're ready, run:
+4. Start Metro for the dev client
 
-```bash
-npm run reset-project
-```
+   ```bash
+   npm run dev
+   ```
 
-This command will move the starter code to the **app-example** directory and create a blank **app** directory where you can start developing.
+## Scripts
 
-## Learn more
-
-To learn more about developing your project with Expo, look at the following resources:
-
-- [Expo documentation](https://docs.expo.dev/): Learn fundamentals, or go into advanced topics with our [guides](https://docs.expo.dev/guides).
-- [Learn Expo tutorial](https://docs.expo.dev/tutorial/introduction/): Follow a step-by-step tutorial where you'll create a project that runs on Android, iOS, and the web.
-
-## Join the community
-
-Join our community of developers creating universal apps.
-
-- [Expo on GitHub](https://github.com/expo/expo): View our open source platform and contribute.
-- [Discord community](https://chat.expo.dev): Chat with Expo users and ask questions.
+- `npm run dev` starts Metro in dev-client mode.
+- `npm run prebuild` regenerates native iOS/Android folders.
+- `npm run run:ios` builds/runs the iOS development build.
+- `npm run run:android` builds/runs the Android development build.
+- `npm run lint` runs lint checks.
