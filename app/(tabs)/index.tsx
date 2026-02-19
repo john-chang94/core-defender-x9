@@ -3,7 +3,7 @@ import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import type { GestureResponderEvent } from 'react-native';
 import { Pressable, SafeAreaView, StyleSheet, Text, View, useWindowDimensions } from 'react-native';
 
-import { TOWER_TYPES, WAVES } from '@/src/game/config';
+import { FIXED_STEP_SECONDS, TOWER_TYPES } from '@/src/game/config';
 import {
   canPlaceTower,
   canUpgradeTower,
@@ -14,12 +14,21 @@ import {
   getTowerUpgradeCost,
   placeTower,
   sellTower,
-  stepGame,
+  tickGame,
   upgradeTower,
 } from '@/src/game/engine';
+import { getDefaultGameLevelIdForMap, listGameLevels, loadGameLevel } from '@/src/game/levels';
 import { DEFAULT_GAME_MAP_ID, listGameMaps, loadGameMap } from '@/src/game/maps';
 import { cellCenter, toCellKey } from '@/src/game/path';
-import type { Cell, EnemyShape, GameEventType, GameMapId, TargetMode, TowerTypeId } from '@/src/game/types';
+import type {
+  Cell,
+  EnemyShape,
+  GameEvent,
+  GameLevelId,
+  GameMapId,
+  TargetMode,
+  TowerTypeId,
+} from '@/src/game/types';
 
 const BOARD_PADDING = 14;
 const TARGET_MODE_LABELS: Record<TargetMode, string> = {
@@ -29,9 +38,21 @@ const TARGET_MODE_LABELS: Record<TargetMode, string> = {
 };
 
 type SimulationSpeed = 1 | 2 | 3;
-type SoundEffectKey = 'spawn' | 'hit' | 'place' | 'upgrade' | 'sell' | 'targetMode';
-
-const SPEED_OPTIONS: SimulationSpeed[] = [1, 2, 3];
+type SoundEffectKey =
+  | 'spawn'
+  | 'hit'
+  | 'place'
+  | 'upgrade'
+  | 'sell'
+  | 'targetMode'
+  | 'pulseFire'
+  | 'lanceFire'
+  | 'sprayFire'
+  | 'bombFire'
+  | 'coldFire'
+  | 'laserFire'
+  | 'bombImpact'
+  | 'coldImpact';
 
 const SOUND_FILES: Record<SoundEffectKey, number> = {
   spawn: require('../../assets/sfx/spawn.wav'),
@@ -40,6 +61,14 @@ const SOUND_FILES: Record<SoundEffectKey, number> = {
   upgrade: require('../../assets/sfx/upgrade.wav'),
   sell: require('../../assets/sfx/sell.wav'),
   targetMode: require('../../assets/sfx/target-mode.wav'),
+  pulseFire: require('../../assets/sfx/hit.wav'),
+  lanceFire: require('../../assets/sfx/lance-fire.wav'),
+  sprayFire: require('../../assets/sfx/hit.wav'),
+  bombFire: require('../../assets/sfx/bomb-fire.wav'),
+  coldFire: require('../../assets/sfx/cold-fire.wav'),
+  laserFire: require('../../assets/sfx/laser-fire.wav'),
+  bombImpact: require('../../assets/sfx/bomb-hit.wav'),
+  coldImpact: require('../../assets/sfx/cold-hit.wav'),
 };
 
 const SOUND_POOL_SIZE: Record<SoundEffectKey, number> = {
@@ -49,6 +78,14 @@ const SOUND_POOL_SIZE: Record<SoundEffectKey, number> = {
   upgrade: 2,
   sell: 2,
   targetMode: 1,
+  pulseFire: 4,
+  lanceFire: 2,
+  sprayFire: 4,
+  bombFire: 2,
+  coldFire: 3,
+  laserFire: 2,
+  bombImpact: 2,
+  coldImpact: 3,
 };
 
 const SOUND_VOLUMES: Record<SoundEffectKey, number> = {
@@ -58,6 +95,31 @@ const SOUND_VOLUMES: Record<SoundEffectKey, number> = {
   upgrade: 0.36,
   sell: 0.28,
   targetMode: 0.22,
+  pulseFire: 0.14,
+  lanceFire: 0.24,
+  sprayFire: 0.1,
+  bombFire: 0.22,
+  coldFire: 0.16,
+  laserFire: 0.14,
+  bombImpact: 0.28,
+  coldImpact: 0.18,
+};
+
+const SOUND_MIN_INTERVAL_MS: Record<SoundEffectKey, number> = {
+  spawn: 80,
+  hit: 55,
+  place: 0,
+  upgrade: 0,
+  sell: 0,
+  targetMode: 0,
+  pulseFire: 85,
+  lanceFire: 120,
+  sprayFire: 45,
+  bombFire: 140,
+  coldFire: 100,
+  laserFire: 160,
+  bombImpact: 120,
+  coldImpact: 90,
 };
 
 function createEmptySoundPool(): Record<SoundEffectKey, Audio.Sound[]> {
@@ -68,6 +130,14 @@ function createEmptySoundPool(): Record<SoundEffectKey, Audio.Sound[]> {
     upgrade: [],
     sell: [],
     targetMode: [],
+    pulseFire: [],
+    lanceFire: [],
+    sprayFire: [],
+    bombFire: [],
+    coldFire: [],
+    laserFire: [],
+    bombImpact: [],
+    coldImpact: [],
   };
 }
 
@@ -79,11 +149,63 @@ function createEmptySoundCursor(): Record<SoundEffectKey, number> {
     upgrade: 0,
     sell: 0,
     targetMode: 0,
+    pulseFire: 0,
+    lanceFire: 0,
+    sprayFire: 0,
+    bombFire: 0,
+    coldFire: 0,
+    laserFire: 0,
+    bombImpact: 0,
+    coldImpact: 0,
   };
 }
 
-function mapEventTypeToSound(type: GameEventType): SoundEffectKey {
-  return type === 'targetMode' ? 'targetMode' : type;
+function mapGameEventToSound(event: GameEvent): SoundEffectKey | null {
+  if (event.type === 'targetMode') {
+    return 'targetMode';
+  }
+
+  if (event.type === 'fire') {
+    if (event.towerType === 'bomb') {
+      return 'bombFire';
+    }
+    if (event.towerType === 'cold') {
+      return 'coldFire';
+    }
+    if (event.towerType === 'laser') {
+      return 'laserFire';
+    }
+    if (event.towerType === 'lance') {
+      return 'lanceFire';
+    }
+    if (event.towerType === 'spray') {
+      return 'sprayFire';
+    }
+    if (event.towerType === 'pulse') {
+      return 'pulseFire';
+    }
+    return null;
+  }
+
+  if (event.type === 'hit') {
+    if (event.towerType === 'bomb') {
+      return 'bombImpact';
+    }
+    if (event.towerType === 'cold') {
+      return 'coldImpact';
+    }
+    return 'hit';
+  }
+
+  if (event.type === 'splash') {
+    return 'bombImpact';
+  }
+
+  if (event.type === 'chill') {
+    return 'coldImpact';
+  }
+
+  return event.type;
 }
 
 function buildGridCells(cols: number, rows: number): Cell[] {
@@ -151,6 +273,142 @@ function EnemyGlyph({ shape, color, size }: { shape: EnemyShape; color: string; 
   );
 }
 
+function TowerGlyph({
+  towerType,
+  color,
+  size,
+  aimAngle,
+}: {
+  towerType: TowerTypeId;
+  color: string;
+  size: number;
+  aimAngle: number;
+}) {
+  const rotation = `${aimAngle + Math.PI / 2}rad`;
+  const barrelColor = '#DCEBFF';
+
+  if (towerType === 'lance') {
+    return (
+      <View
+        style={{
+          width: size,
+          height: size,
+          alignItems: 'center',
+          justifyContent: 'center',
+          transform: [{ rotate: rotation }],
+        }}>
+        <View
+          style={{
+            position: 'absolute',
+            width: size * 0.2,
+            height: size * 0.42,
+            borderRadius: size * 0.08,
+            backgroundColor: '#BFD3F4',
+            borderWidth: 1,
+            borderColor: '#0E1D2F',
+            transform: [{ translateY: size * 0.18 }],
+          }}
+        />
+        <View
+          style={{
+            width: 0,
+            height: 0,
+            borderLeftWidth: size * 0.21,
+            borderRightWidth: size * 0.21,
+            borderBottomWidth: size * 0.86,
+            borderLeftColor: 'transparent',
+            borderRightColor: 'transparent',
+            borderBottomColor: color,
+            transform: [{ translateY: size * 0.02 }],
+          }}
+        />
+      </View>
+    );
+  }
+
+  if (towerType === 'spray') {
+    return (
+      <View
+        style={{
+          width: size,
+          height: size,
+          alignItems: 'center',
+          justifyContent: 'center',
+          transform: [{ rotate: rotation }],
+        }}>
+        <View
+          style={{
+            width: size * 0.62,
+            height: size * 0.58,
+            borderRadius: size * 0.14,
+            backgroundColor: color,
+            borderWidth: 1,
+            borderColor: '#101827',
+          }}
+        />
+        <View
+          style={{
+            position: 'absolute',
+            top: size * 0.03,
+            width: size * 0.2,
+            height: size * 0.32,
+            borderRadius: size * 0.1,
+            backgroundColor: barrelColor,
+            borderWidth: 1,
+            borderColor: '#0F1E31',
+          }}
+        />
+      </View>
+    );
+  }
+
+  return (
+    <View
+      style={{
+        width: size,
+        height: size,
+        alignItems: 'center',
+        justifyContent: 'center',
+        transform: [{ rotate: rotation }],
+      }}>
+      <View
+        style={{
+          width: size * 0.88,
+          height: size * 0.88,
+          borderRadius: (size * 0.88) / 2,
+          backgroundColor: color,
+          borderWidth: 1,
+          borderColor: '#101827',
+          alignItems: 'center',
+          justifyContent: 'center',
+        }}>
+        <View
+          style={{
+            width: size * 0.38,
+            height: size * 0.38,
+            borderRadius: (size * 0.38) / 2,
+            borderWidth: 1.5,
+            borderColor: '#0A1A2A',
+            opacity: 0.45,
+          }}
+        />
+      </View>
+      <View
+        style={{
+          position: 'absolute',
+          top: size * 0.02,
+          width: size * 0.2,
+          height: size * 0.32,
+          borderRadius: size * 0.1,
+          backgroundColor: barrelColor,
+          borderWidth: 1,
+          borderColor: '#0F1E31',
+        }}
+      />
+    </View>
+  );
+}
+
 export default function DefenseScreen() {
   const [gameState, setGameState] = useState(() => createInitialGameState(DEFAULT_GAME_MAP_ID));
   const [selectedBuildTower, setSelectedBuildTower] = useState<TowerTypeId>('pulse');
@@ -158,19 +416,83 @@ export default function DefenseScreen() {
   const [simulationSpeed, setSimulationSpeed] = useState<SimulationSpeed>(1);
   const [hasStarted, setHasStarted] = useState(false);
   const [isPaused, setIsPaused] = useState(true);
+  const [isMenuOpen, setIsMenuOpen] = useState(false);
   const [soundEnabled, setSoundEnabled] = useState(true);
   const [soundsReady, setSoundsReady] = useState(false);
 
   const soundPoolsRef = useRef<Record<SoundEffectKey, Audio.Sound[]>>(createEmptySoundPool());
   const soundCursorRef = useRef<Record<SoundEffectKey, number>>(createEmptySoundCursor());
+  const lastSoundAtRef = useRef<Record<SoundEffectKey, number>>({
+    spawn: 0,
+    hit: 0,
+    place: 0,
+    upgrade: 0,
+    sell: 0,
+    targetMode: 0,
+    pulseFire: 0,
+    lanceFire: 0,
+    sprayFire: 0,
+    bombFire: 0,
+    coldFire: 0,
+    laserFire: 0,
+    bombImpact: 0,
+    coldImpact: 0,
+  });
   const gameMaps = useMemo(() => listGameMaps(), []);
+  const activeLevel = useMemo(
+    () => loadGameLevel(gameState.levelId ?? getDefaultGameLevelIdForMap(gameState.mapId)),
+    [gameState.levelId, gameState.mapId]
+  );
+  const mapLevels = useMemo(() => listGameLevels(gameState.mapId), [gameState.mapId]);
+  const waves = activeLevel.waves;
   const activeMap = useMemo(() => loadGameMap(gameState.mapId), [gameState.mapId]);
   const gridCells = useMemo(() => buildGridCells(activeMap.cols, activeMap.rows), [activeMap.cols, activeMap.rows]);
 
-  const { width } = useWindowDimensions();
-  const boardWidth = Math.min(width - 24, 560);
-  const cellSize = boardWidth / activeMap.cols;
+  const { width, height } = useWindowDimensions();
+  const sidePanelWidth = Math.min(336, Math.max(260, width * 0.31));
+  const boardMaxWidth = Math.max(260, width - sidePanelWidth - 42);
+  const boardMaxHeight = Math.max(220, height - 96);
+  const cellSize = Math.max(14, Math.min(boardMaxWidth / activeMap.cols, boardMaxHeight / activeMap.rows));
+  const boardWidth = activeMap.cols * cellSize;
   const boardHeight = activeMap.rows * cellSize;
+  const gridLayer = useMemo(
+    () =>
+      gridCells.map((cell) => (
+        <View
+          key={`grid-${toCellKey(cell)}`}
+          pointerEvents="none"
+          style={[
+            styles.gridCell,
+            {
+              left: cell.col * cellSize,
+              top: cell.row * cellSize,
+              width: cellSize,
+              height: cellSize,
+            },
+          ]}
+        />
+      )),
+    [gridCells, cellSize]
+  );
+  const pathLayer = useMemo(
+    () =>
+      activeMap.pathCells.map((cell) => (
+        <View
+          key={`path-${toCellKey(cell)}`}
+          pointerEvents="none"
+          style={[
+            styles.pathCell,
+            {
+              left: cell.col * cellSize,
+              top: cell.row * cellSize,
+              width: cellSize,
+              height: cellSize,
+            },
+          ]}
+        />
+      )),
+    [activeMap.pathCells, cellSize]
+  );
 
   const playSound = useCallback(
     async (soundKey: SoundEffectKey) => {
@@ -182,6 +504,14 @@ export default function DefenseScreen() {
       if (!pool.length) {
         return;
       }
+
+      const now = Date.now();
+      const minInterval = SOUND_MIN_INTERVAL_MS[soundKey];
+      const lastPlayedAt = lastSoundAtRef.current[soundKey];
+      if (minInterval > 0 && now - lastPlayedAt < minInterval) {
+        return;
+      }
+      lastSoundAtRef.current[soundKey] = now;
 
       const nextCursor = soundCursorRef.current[soundKey] % pool.length;
       soundCursorRef.current[soundKey] = (nextCursor + 1) % pool.length;
@@ -243,6 +573,22 @@ export default function DefenseScreen() {
       disposed = true;
       setSoundsReady(false);
       soundCursorRef.current = createEmptySoundCursor();
+      lastSoundAtRef.current = {
+        spawn: 0,
+        hit: 0,
+        place: 0,
+        upgrade: 0,
+        sell: 0,
+        targetMode: 0,
+        pulseFire: 0,
+        lanceFire: 0,
+        sprayFire: 0,
+        bombFire: 0,
+        coldFire: 0,
+        laserFire: 0,
+        bombImpact: 0,
+        coldImpact: 0,
+      };
 
       const keys = Object.keys(SOUND_FILES) as SoundEffectKey[];
       const pools = soundPoolsRef.current;
@@ -263,11 +609,7 @@ export default function DefenseScreen() {
       }
 
       setGameState((previousState) => {
-        let nextState = previousState;
-        for (let step = 0; step < simulationSpeed; step += 1) {
-          nextState = stepGame(nextState);
-        }
-        return nextState;
+        return tickGame(previousState, FIXED_STEP_SECONDS * simulationSpeed);
       });
     }, 1000 / 30);
 
@@ -293,7 +635,10 @@ export default function DefenseScreen() {
     }
 
     for (const event of gameState.recentEvents) {
-      void playSound(mapEventTypeToSound(event.type));
+      const soundKey = mapGameEventToSound(event);
+      if (soundKey) {
+        void playSound(soundKey);
+      }
     }
   }, [gameState.recentEvents, playSound]);
 
@@ -306,7 +651,7 @@ export default function DefenseScreen() {
       return 'Core breached. Press restart.';
     }
 
-    const wave = WAVES[gameState.waveIndex];
+    const wave = waves[gameState.waveIndex];
     if (!wave) {
       return 'Finishing simulation...';
     }
@@ -320,7 +665,7 @@ export default function DefenseScreen() {
     }
 
     return `Cleanup phase: ${gameState.enemies.length} enemies left`;
-  }, [gameState]);
+  }, [gameState, waves]);
 
   const countdownSeconds = gameState.timeUntilWaveStart;
   const isCountdownActive = hasStarted && gameState.status === 'running' && countdownSeconds > 0;
@@ -348,7 +693,20 @@ export default function DefenseScreen() {
     ? canUpgradeTower(gameState, selectedPlacedTower.id)
     : false;
 
+  const handleRestart = () => {
+    setGameState(createInitialGameState(gameState.mapId, gameState.levelId));
+    setSelectedPlacedTowerId(null);
+    setHasStarted(false);
+    setIsPaused(true);
+    setSimulationSpeed(1);
+    setIsMenuOpen(false);
+  };
+
   const handleBoardPress = (event: GestureResponderEvent) => {
+    if (isMenuOpen) {
+      setIsMenuOpen(false);
+    }
+
     const col = Math.floor(event.nativeEvent.locationX / cellSize);
     const row = Math.floor(event.nativeEvent.locationY / cellSize);
 
@@ -398,249 +756,94 @@ export default function DefenseScreen() {
   };
 
   const handleSwitchMap = (mapId: GameMapId) => {
-    setGameState(createInitialGameState(mapId));
+    const nextLevelId = getDefaultGameLevelIdForMap(mapId);
+    setGameState(createInitialGameState(mapId, nextLevelId));
     setSelectedPlacedTowerId(null);
     setHasStarted(false);
     setIsPaused(true);
+    setSimulationSpeed(1);
+    setIsMenuOpen(false);
+  };
+
+  const handleSwitchLevel = (levelId: GameLevelId) => {
+    const level = loadGameLevel(levelId);
+    setGameState(createInitialGameState(level.mapId, levelId));
+    setSelectedPlacedTowerId(null);
+    setHasStarted(false);
+    setIsPaused(true);
+    setSimulationSpeed(1);
+    setIsMenuOpen(false);
   };
 
   return (
     <SafeAreaView style={styles.container}>
-      <View style={styles.header}>
-        <Text style={styles.title}>Defender Prototype</Text>
-        <Pressable
-          onPress={() => {
-            setGameState(createInitialGameState(gameState.mapId));
-            setSelectedPlacedTowerId(null);
-            setHasStarted(false);
-            setIsPaused(true);
-          }}
-          style={styles.restartButton}>
-          <Text style={styles.restartButtonText}>Restart</Text>
-        </Pressable>
-      </View>
-
-      <View style={styles.hudRow}>
-        <View style={styles.hudChip}>
-          <Text style={styles.hudLabel}>Credits</Text>
-          <Text style={styles.hudValue}>${gameState.money}</Text>
-        </View>
-        <View style={styles.hudChip}>
-          <Text style={styles.hudLabel}>Lives</Text>
-          <Text style={styles.hudValue}>{gameState.lives}</Text>
-        </View>
-        <View style={styles.hudChip}>
-          <Text style={styles.hudLabel}>Wave</Text>
-          <Text style={styles.hudValue}>
-            {Math.min(gameState.waveIndex + 1, WAVES.length)}/{WAVES.length}
-          </Text>
-        </View>
-        <View style={styles.hudChip}>
-          <Text style={styles.hudLabel}>Enemies</Text>
-          <Text style={styles.hudValue}>{gameState.enemies.length}</Text>
-        </View>
-      </View>
-
-      <View style={styles.mapRow}>
-        {gameMaps.map((map) => {
-          const isActive = map.id === gameState.mapId;
-          return (
+      <View style={styles.gameShell}>
+        <View style={styles.boardPane}>
+          <View style={styles.topBar}>
             <Pressable
-              key={map.id}
-              onPress={() => handleSwitchMap(map.id)}
-              style={[styles.mapButton, isActive && styles.mapButtonActive]}>
-              <Text style={styles.mapButtonText}>{map.label}</Text>
-            </Pressable>
-          );
-        })}
-      </View>
-
-      <View style={styles.runtimeControls}>
-        <View style={styles.speedButtons}>
-          {SPEED_OPTIONS.map((speed) => {
-            const isSelected = simulationSpeed === speed;
-            return (
-              <Pressable
-                key={`speed-${speed}`}
-                onPress={() => setSimulationSpeed(speed)}
-                style={[styles.speedButton, isSelected && styles.speedButtonSelected]}>
-                <Text style={styles.speedButtonText}>{`${speed}x`}</Text>
-              </Pressable>
-            );
-          })}
-        </View>
-
-        <Pressable
-          onPress={() => {
-            if (!hasStarted) {
-              setHasStarted(true);
-              setIsPaused(false);
-              return;
-            }
-            setIsPaused((previousValue) => !previousValue);
-          }}
-          style={[
-            styles.pauseButton,
-            !hasStarted && styles.pauseButtonStart,
-            hasStarted && isPaused && styles.pauseButtonActive,
-          ]}>
-          <Text style={styles.pauseButtonText}>
-            {!hasStarted ? 'Start' : isPaused ? 'Resume' : 'Pause'}
-          </Text>
-        </Pressable>
-
-        <Pressable
-          onPress={() => setSoundEnabled((enabled) => !enabled)}
-          style={[styles.soundButton, !soundEnabled && styles.soundButtonMuted]}>
-          <Text style={styles.soundButtonText}>
-            {soundEnabled ? (soundsReady ? 'SFX On' : 'SFX Loading') : 'SFX Off'}
-          </Text>
-        </Pressable>
-      </View>
-
-      {isCountdownActive && (
-        <View
-          style={[
-            styles.countdownBanner,
-            isCountdownCritical && styles.countdownBannerCritical,
-            isCountdownDanger && styles.countdownBannerDanger,
-          ]}>
-          <Text
-            style={[
-              styles.countdownLabel,
-              isCountdownCritical && styles.countdownLabelCritical,
-              isCountdownDanger && styles.countdownLabelDanger,
-            ]}>
-            Next Wave
-          </Text>
-          <Text
-            style={[
-              styles.countdownValue,
-              isCountdownCritical && styles.countdownValueCritical,
-              isCountdownDanger && styles.countdownValueDanger,
-            ]}>
-            {countdownSeconds.toFixed(1)}s
-          </Text>
-        </View>
-      )}
-
-      <Text
-        style={[
-          styles.statusText,
-          isCountdownCritical && styles.statusTextCritical,
-          isCountdownDanger && styles.statusTextDanger,
-        ]}>
-        {displayStatusText}
-      </Text>
-
-      <View style={styles.toolbar}>
-        {(Object.keys(TOWER_TYPES) as TowerTypeId[]).map((towerTypeId) => {
-          const towerType = TOWER_TYPES[towerTypeId];
-          const isSelected = selectedBuildTower === towerTypeId;
-          const isAffordable = gameState.money >= towerType.cost;
-
-          return (
-            <Pressable
-              key={towerTypeId}
-              onPress={() => setSelectedBuildTower(towerTypeId)}
+              onPress={() => {
+                if (!hasStarted) {
+                  setHasStarted(true);
+                  setIsPaused(false);
+                  return;
+                }
+                setIsPaused((previousValue) => !previousValue);
+              }}
               style={[
-                styles.towerCard,
-                { borderColor: towerType.color },
-                isSelected && styles.towerCardSelected,
-                !isAffordable && styles.towerCardDisabled,
+                styles.pauseButton,
+                !hasStarted && styles.pauseButtonStart,
+                hasStarted && isPaused && styles.pauseButtonActive,
               ]}>
-              <Text style={styles.towerCardTitle}>{towerType.label}</Text>
-              <Text style={styles.towerCardMeta}>${towerType.cost}</Text>
-            </Pressable>
-          );
-        })}
-      </View>
-
-      {selectedPlacedTower && selectedPlacedTowerStats && selectedSellValue !== null ? (
-        <View style={styles.selectedPanel}>
-          <Text style={styles.selectedPanelTitle}>
-            {TOWER_TYPES[selectedPlacedTower.towerType].label} {selectedPlacedTower.id} Lv {selectedPlacedTower.level}
-          </Text>
-
-          <Text style={styles.selectedPanelStats}>
-            Dmg {selectedPlacedTowerStats.damage} · Range {selectedPlacedTowerStats.range.toFixed(1)} · RoF{' '}
-            {selectedPlacedTowerStats.fireRate.toFixed(2)}
-          </Text>
-
-          <Pressable
-            onPress={handleCycleTargetMode}
-            style={[styles.panelButton, gameState.status !== 'running' && styles.panelButtonDisabled]}
-            disabled={gameState.status !== 'running'}>
-            <Text style={styles.panelButtonText}>
-              Target: {TARGET_MODE_LABELS[selectedPlacedTower.targetMode]}
-            </Text>
-          </Pressable>
-
-          <View style={styles.selectedPanelActions}>
-            <Pressable
-              onPress={handleUpgradeTower}
-              style={[styles.panelButton, !canUpgradeSelectedTower && styles.panelButtonDisabled]}
-              disabled={!canUpgradeSelectedTower}>
-              <Text style={styles.panelButtonText}>
-                {selectedUpgradeCost === null ? 'Max Level' : `Upgrade $${selectedUpgradeCost}`}
+              <Text style={styles.pauseButtonText}>
+                {!hasStarted ? 'Start' : isPaused ? 'Resume' : 'Pause'}
               </Text>
             </Pressable>
 
-            <Pressable
-              onPress={handleSellTower}
-              style={[styles.panelButton, gameState.status !== 'running' && styles.panelButtonDisabled]}
-              disabled={gameState.status !== 'running'}>
-              <Text style={styles.panelButtonText}>Sell +${selectedSellValue}</Text>
-            </Pressable>
+            <View
+              style={[
+                styles.timerPill,
+                isCountdownCritical && styles.timerPillCritical,
+                isCountdownDanger && styles.timerPillDanger,
+              ]}>
+              <Text
+                style={[
+                  styles.timerText,
+                  isCountdownCritical && styles.timerTextCritical,
+                  isCountdownDanger && styles.timerTextDanger,
+                ]}>
+                {isCountdownActive
+                  ? `Next ${countdownSeconds.toFixed(1)}s`
+                  : `Wave ${Math.min(gameState.waveIndex + 1, waves.length)}/${waves.length}`}
+              </Text>
+            </View>
+
+            <View style={styles.topBarRight}>
+              <Pressable
+                onPress={() => setSimulationSpeed((value) => (value === 2 ? 1 : 2))}
+                style={[styles.quickButton, simulationSpeed === 2 && styles.quickButtonActive]}>
+                <Text style={styles.quickButtonText}>2x {'>>'}</Text>
+              </Pressable>
+
+              <Pressable
+                onPress={() => setIsMenuOpen((value) => !value)}
+                style={[styles.quickButton, isMenuOpen && styles.quickButtonActive]}>
+                <Text style={styles.quickButtonText}>Menu</Text>
+              </Pressable>
+            </View>
           </View>
-        </View>
-      ) : (
-        <Text style={styles.helperText}>
-          Tap grid to place {selectedTowerType.label} (${selectedTowerType.cost}). Tap placed towers to manage.
-        </Text>
-      )}
 
-      <View style={styles.boardFrame}>
-        <Pressable
-          onPress={handleBoardPress}
-          style={[
-            styles.board,
-            {
-              width: boardWidth,
-              height: boardHeight,
-            },
-          ]}>
-          {gridCells.map((cell) => (
-            <View
-              key={`grid-${toCellKey(cell)}`}
-              pointerEvents="none"
+          <View style={styles.boardFrame}>
+            <Pressable
+              onPress={handleBoardPress}
               style={[
-                styles.gridCell,
+                styles.board,
                 {
-                  left: cell.col * cellSize,
-                  top: cell.row * cellSize,
-                  width: cellSize,
-                  height: cellSize,
+                  width: boardWidth,
+                  height: boardHeight,
                 },
-              ]}
-            />
-          ))}
-
-          {activeMap.pathCells.map((cell) => (
-            <View
-              key={`path-${toCellKey(cell)}`}
-              pointerEvents="none"
-              style={[
-                styles.pathCell,
-                {
-                  left: cell.col * cellSize,
-                  top: cell.row * cellSize,
-                  width: cellSize,
-                  height: cellSize,
-                },
-              ]}
-            />
-          ))}
+              ]}>
+          {gridLayer}
+          {pathLayer}
 
           {gameState.effects.map((effect) => {
             const progress = Math.min(1, effect.age / effect.duration);
@@ -670,9 +873,13 @@ export default function DefenseScreen() {
 
           {gameState.towers.map((tower) => {
             const towerType = TOWER_TYPES[tower.towerType];
-            const radius = towerType.radius * cellSize;
+            const towerStats = getTowerStats(tower);
+            const levelScale = 1 + Math.max(0, tower.level - 1) * 0.08;
+            const radius = towerType.radius * cellSize * levelScale;
+            const rangeRadius = towerStats.range * cellSize;
             const center = cellCenter(tower.cell);
             const isActive = tower.id === selectedPlacedTowerId;
+            const aimAngle = Number.isFinite(tower.aimAngle) ? tower.aimAngle : -Math.PI / 2;
 
             return (
               <View
@@ -685,13 +892,67 @@ export default function DefenseScreen() {
                     width: radius * 2,
                     height: radius * 2,
                     borderRadius: radius,
-                    backgroundColor: towerType.color,
                     left: center.x * cellSize - radius,
                     top: center.y * cellSize - radius,
                   },
                 ]}>
-                <Text style={styles.towerLevel}>L{tower.level}</Text>
+                {isActive ? (
+                  <View
+                    style={[
+                      styles.towerRangeIndicator,
+                      {
+                        width: rangeRadius * 2,
+                        height: rangeRadius * 2,
+                        borderRadius: rangeRadius,
+                        left: radius - rangeRadius,
+                        top: radius - rangeRadius,
+                        borderColor: towerType.color,
+                        backgroundColor: `${towerType.color}22`,
+                      },
+                    ]}
+                  />
+                ) : null}
+                <TowerGlyph
+                  towerType={tower.towerType}
+                  color={towerType.color}
+                  size={radius * 2}
+                  aimAngle={aimAngle}
+                />
+                {isActive ? (
+                  <View style={styles.towerLevelBadge}>
+                    <Text style={styles.towerLevel}>L{tower.level}</Text>
+                  </View>
+                ) : null}
               </View>
+            );
+          })}
+
+          {gameState.beams.map((beam) => {
+            const dx = beam.end.x - beam.start.x;
+            const dy = beam.end.y - beam.start.y;
+            const angle = Math.atan2(dy, dx);
+            const length = Math.hypot(dx, dy) * cellSize;
+            const thickness = Math.max(2, beam.width * cellSize);
+            const centerX = ((beam.start.x + beam.end.x) / 2) * cellSize;
+            const centerY = ((beam.start.y + beam.end.y) / 2) * cellSize;
+
+            return (
+              <View
+                key={beam.id}
+                pointerEvents="none"
+                style={[
+                  styles.beam,
+                  {
+                    width: length,
+                    height: thickness,
+                    borderRadius: thickness / 2,
+                    backgroundColor: beam.color,
+                    left: centerX - length / 2,
+                    top: centerY - thickness / 2,
+                    transform: [{ rotate: `${angle}rad` }],
+                  },
+                ]}
+              />
             );
           })}
 
@@ -721,6 +982,7 @@ export default function DefenseScreen() {
             const left = enemy.position.x * cellSize - size / 2;
             const top = enemy.position.y * cellSize - size / 2;
             const healthPercent = Math.max(0, enemy.health / enemy.maxHealth);
+            const isSlowed = enemy.slowTimeRemaining > 0 && enemy.slowMultiplier < 1;
 
             return (
               <View
@@ -738,11 +1000,177 @@ export default function DefenseScreen() {
                 <View style={styles.healthTrack}>
                   <View style={[styles.healthFill, { width: `${healthPercent * 100}%` }]} />
                 </View>
+                {isSlowed ? (
+                  <View
+                    style={[
+                      styles.slowAura,
+                      {
+                        width: size * 1.24,
+                        height: size * 1.24,
+                        borderRadius: (size * 1.24) / 2,
+                        opacity: Math.min(0.72, 1 - enemy.slowMultiplier),
+                      },
+                    ]}
+                  />
+                ) : null}
                 <EnemyGlyph shape={enemy.shape} color={enemy.color} size={size} />
               </View>
             );
           })}
-        </Pressable>
+            </Pressable>
+
+            <Text
+              style={[
+                styles.statusText,
+                isCountdownCritical && styles.statusTextCritical,
+                isCountdownDanger && styles.statusTextDanger,
+              ]}>
+              {displayStatusText}
+            </Text>
+          </View>
+
+          {isMenuOpen ? (
+            <View style={styles.menuPanel}>
+              <Text style={styles.menuTitle}>Menu</Text>
+              <Text style={styles.menuLabel}>Map</Text>
+              <View style={styles.menuMapRow}>
+                {gameMaps.map((map) => {
+                  const isActive = map.id === gameState.mapId;
+                  return (
+                    <Pressable
+                      key={`menu-map-${map.id}`}
+                      onPress={() => handleSwitchMap(map.id)}
+                      style={[styles.menuMapButton, isActive && styles.menuMapButtonActive]}>
+                      <Text style={styles.menuMapButtonText}>{map.label}</Text>
+                    </Pressable>
+                  );
+                })}
+              </View>
+
+              <Text style={styles.menuLabel}>Level</Text>
+              <View style={styles.menuLevelGrid}>
+                {mapLevels.map((level) => {
+                  const isActive = level.id === gameState.levelId;
+                  return (
+                    <Pressable
+                      key={`menu-level-${level.id}`}
+                      onPress={() => handleSwitchLevel(level.id)}
+                      style={[styles.menuLevelButton, isActive && styles.menuLevelButtonActive]}>
+                      <Text style={styles.menuLevelButtonText}>{level.label}</Text>
+                    </Pressable>
+                  );
+                })}
+              </View>
+
+              <View style={styles.menuActions}>
+                <Pressable
+                  onPress={() => setSoundEnabled((enabled) => !enabled)}
+                  style={[styles.menuActionButton, !soundEnabled && styles.menuActionButtonMuted]}>
+                  <Text style={styles.menuActionButtonText}>
+                    {soundEnabled ? (soundsReady ? 'SFX On' : 'SFX Loading') : 'SFX Off'}
+                  </Text>
+                </Pressable>
+
+                <Pressable onPress={handleRestart} style={[styles.menuActionButton, styles.menuRestartButton]}>
+                  <Text style={styles.menuActionButtonText}>Restart</Text>
+                </Pressable>
+              </View>
+            </View>
+          ) : null}
+        </View>
+
+        <View style={[styles.sidePanel, { width: sidePanelWidth }]}>
+          <View style={styles.hudRow}>
+            <View style={styles.hudChip}>
+              <Text style={styles.hudLabel}>Credits</Text>
+              <Text style={styles.hudValue}>${gameState.money}</Text>
+            </View>
+            <View style={styles.hudChip}>
+              <Text style={styles.hudLabel}>Lives</Text>
+              <Text style={styles.hudValue}>{gameState.lives}</Text>
+            </View>
+            <View style={styles.hudChip}>
+              <Text style={styles.hudLabel}>Wave</Text>
+              <Text style={styles.hudValue}>
+                {Math.min(gameState.waveIndex + 1, waves.length)}/{waves.length}
+              </Text>
+            </View>
+            <View style={styles.hudChip}>
+              <Text style={styles.hudLabel}>Enemies</Text>
+              <Text style={styles.hudValue}>{gameState.enemies.length}</Text>
+            </View>
+          </View>
+
+          <View style={styles.toolbar}>
+            {(Object.keys(TOWER_TYPES) as TowerTypeId[]).map((towerTypeId) => {
+              const towerType = TOWER_TYPES[towerTypeId];
+              const isSelected = selectedBuildTower === towerTypeId;
+              const isAffordable = gameState.money >= towerType.cost;
+
+              return (
+                <Pressable
+                  key={towerTypeId}
+                  onPress={() => setSelectedBuildTower(towerTypeId)}
+                  style={[
+                    styles.towerCard,
+                    { borderColor: towerType.color },
+                    isSelected && styles.towerCardSelected,
+                    !isAffordable && styles.towerCardDisabled,
+                  ]}>
+                  <Text style={styles.towerCardTitle}>{towerType.label}</Text>
+                  <Text style={styles.towerCardMeta}>${towerType.cost}</Text>
+                </Pressable>
+              );
+            })}
+          </View>
+
+          <View style={styles.detailsShell}>
+            {selectedPlacedTower && selectedPlacedTowerStats && selectedSellValue !== null ? (
+              <View style={styles.selectedPanel}>
+                <Text style={styles.selectedPanelTitle}>
+                  {TOWER_TYPES[selectedPlacedTower.towerType].label} {selectedPlacedTower.id} Lv{' '}
+                  {selectedPlacedTower.level}
+                </Text>
+
+                <Text style={styles.selectedPanelStats}>
+                  Dmg {selectedPlacedTowerStats.damage} · Range {selectedPlacedTowerStats.range.toFixed(1)} · RoF{' '}
+                  {selectedPlacedTowerStats.fireRate.toFixed(2)}
+                </Text>
+
+                <Pressable
+                  onPress={handleCycleTargetMode}
+                  style={[styles.panelButton, gameState.status !== 'running' && styles.panelButtonDisabled]}
+                  disabled={gameState.status !== 'running'}>
+                  <Text style={styles.panelButtonText}>
+                    Target: {TARGET_MODE_LABELS[selectedPlacedTower.targetMode]}
+                  </Text>
+                </Pressable>
+
+                <View style={styles.selectedPanelActions}>
+                  <Pressable
+                    onPress={handleUpgradeTower}
+                    style={[styles.panelButton, !canUpgradeSelectedTower && styles.panelButtonDisabled]}
+                    disabled={!canUpgradeSelectedTower}>
+                    <Text style={styles.panelButtonText}>
+                      {selectedUpgradeCost === null ? 'Max Level' : `Upgrade $${selectedUpgradeCost}`}
+                    </Text>
+                  </Pressable>
+
+                  <Pressable
+                    onPress={handleSellTower}
+                    style={[styles.panelButton, gameState.status !== 'running' && styles.panelButtonDisabled]}
+                    disabled={gameState.status !== 'running'}>
+                    <Text style={styles.panelButtonText}>Sell +${selectedSellValue}</Text>
+                  </Pressable>
+                </View>
+              </View>
+            ) : (
+              <Text style={styles.helperText}>
+                Tap grid to place {selectedTowerType.label} (${selectedTowerType.cost}). Tap placed towers to manage.
+              </Text>
+            )}
+          </View>
+        </View>
       </View>
     </SafeAreaView>
   );
@@ -753,132 +1181,28 @@ const styles = StyleSheet.create({
     flex: 1,
     backgroundColor: '#070C14',
     paddingHorizontal: 12,
-    paddingBottom: 16,
+    paddingBottom: 10,
   },
-  header: {
-    marginTop: 8,
-    flexDirection: 'row',
-    alignItems: 'center',
-    justifyContent: 'space-between',
-  },
-  title: {
-    color: '#ECF4FF',
-    fontSize: 24,
-    fontWeight: '700',
-  },
-  restartButton: {
-    borderWidth: 1,
-    borderColor: '#2F3D56',
-    paddingHorizontal: 12,
-    paddingVertical: 8,
-    borderRadius: 8,
-    backgroundColor: '#121B2A',
-  },
-  restartButtonText: {
-    color: '#CFDEFF',
-    fontSize: 13,
-    fontWeight: '600',
-  },
-  hudRow: {
-    marginTop: 12,
-    flexDirection: 'row',
-    gap: 8,
-    flexWrap: 'wrap',
-  },
-  hudChip: {
-    minWidth: 76,
-    paddingHorizontal: 10,
-    paddingVertical: 6,
-    borderRadius: 8,
-    borderWidth: 1,
-    borderColor: '#22314A',
-    backgroundColor: '#0D1522',
-  },
-  hudLabel: {
-    color: '#7E91B0',
-    fontSize: 11,
-    fontWeight: '600',
-    textTransform: 'uppercase',
-  },
-  hudValue: {
-    color: '#EAF3FF',
-    marginTop: 2,
-    fontSize: 16,
-    fontWeight: '700',
-  },
-  mapRow: {
-    marginTop: 10,
-    flexDirection: 'row',
-    gap: 8,
-  },
-  mapButton: {
-    flex: 1,
-    borderWidth: 1,
-    borderColor: '#334462',
-    borderRadius: 8,
-    backgroundColor: '#101B2D',
-    paddingVertical: 7,
-    alignItems: 'center',
-  },
-  mapButtonActive: {
-    borderColor: '#90B8FF',
-    backgroundColor: '#1A2A45',
-  },
-  mapButtonText: {
-    color: '#DFEAFF',
-    fontSize: 12,
-    fontWeight: '700',
-  },
-  runtimeControls: {
-    marginTop: 10,
-    flexDirection: 'row',
-    gap: 8,
-    alignItems: 'center',
-  },
-  speedButtons: {
+  gameShell: {
     flex: 1,
     flexDirection: 'row',
-    gap: 6,
+    gap: 10,
   },
-  speedButton: {
+  boardPane: {
     flex: 1,
-    borderWidth: 1,
-    borderColor: '#2C4164',
-    backgroundColor: '#101D31',
-    borderRadius: 7,
-    paddingVertical: 7,
+    minWidth: 0,
+  },
+  topBar: {
+    height: 44,
+    flexDirection: 'row',
     alignItems: 'center',
   },
-  speedButtonSelected: {
-    borderColor: '#89AFFF',
-    backgroundColor: '#1B2D49',
-  },
-  speedButtonText: {
-    color: '#DEEAFF',
-    fontSize: 12,
-    fontWeight: '700',
-  },
-  soundButton: {
-    minWidth: 92,
-    borderWidth: 1,
-    borderColor: '#2A5878',
-    backgroundColor: '#11314A',
-    borderRadius: 7,
-    paddingVertical: 7,
-    paddingHorizontal: 10,
-    alignItems: 'center',
-  },
-  soundButtonMuted: {
-    borderColor: '#4F425C',
-    backgroundColor: '#2A2133',
-  },
-  soundButtonText: {
-    color: '#E3F3FF',
-    fontSize: 12,
-    fontWeight: '700',
+  topBarRight: {
+    flexDirection: 'row',
+    gap: 8,
   },
   pauseButton: {
-    minWidth: 78,
+    minWidth: 82,
     borderWidth: 1,
     borderColor: '#4A5D88',
     backgroundColor: '#222C44',
@@ -900,55 +1224,77 @@ const styles = StyleSheet.create({
     fontSize: 12,
     fontWeight: '700',
   },
-  countdownBanner: {
-    marginTop: 10,
+  timerPill: {
+    marginHorizontal: 8,
+    flex: 1,
+    height: 32,
     borderWidth: 1,
     borderColor: '#34598B',
     backgroundColor: '#132846',
-    borderRadius: 9,
-    paddingVertical: 8,
-    paddingHorizontal: 12,
-    flexDirection: 'row',
-    alignItems: 'baseline',
-    justifyContent: 'space-between',
+    borderRadius: 8,
+    justifyContent: 'center',
+    paddingHorizontal: 10,
   },
-  countdownBannerCritical: {
+  timerPillCritical: {
     borderColor: '#D18D3E',
     backgroundColor: '#442C13',
   },
-  countdownBannerDanger: {
+  timerPillDanger: {
     borderColor: '#DE5D5D',
     backgroundColor: '#4A1E1E',
   },
-  countdownLabel: {
-    color: '#BBD0F2',
-    fontSize: 12,
+  timerText: {
+    color: '#ECF5FF',
+    fontSize: 13,
     fontWeight: '700',
-    textTransform: 'uppercase',
+    textAlign: 'center',
   },
-  countdownLabelCritical: {
+  timerTextCritical: {
     color: '#FFDFA8',
   },
-  countdownLabelDanger: {
+  timerTextDanger: {
     color: '#FFD2D2',
   },
-  countdownValue: {
-    color: '#ECF5FF',
-    fontSize: 22,
-    fontWeight: '800',
+  quickButton: {
+    minWidth: 78,
+    borderWidth: 1,
+    borderColor: '#2A5878',
+    backgroundColor: '#11314A',
+    borderRadius: 7,
+    paddingVertical: 7,
+    paddingHorizontal: 10,
+    alignItems: 'center',
   },
-  countdownValueCritical: {
-    color: '#FFD68A',
-    fontSize: 24,
+  quickButtonActive: {
+    borderColor: '#5F93D2',
+    backgroundColor: '#1B4061',
   },
-  countdownValueDanger: {
-    color: '#FFB4B4',
-    fontSize: 28,
+  quickButtonText: {
+    color: '#E3F3FF',
+    fontSize: 12,
+    fontWeight: '700',
+  },
+  boardFrame: {
+    marginTop: 8,
+    flex: 1,
+    alignItems: 'center',
+    justifyContent: 'center',
+    position: 'relative',
   },
   statusText: {
-    marginTop: 10,
+    position: 'absolute',
+    left: 8,
+    right: 8,
+    bottom: 6,
     color: '#AFC5E9',
-    fontSize: 13,
+    fontSize: 12,
+    backgroundColor: '#081221CC',
+    borderWidth: 1,
+    borderColor: '#243855',
+    borderRadius: 8,
+    paddingVertical: 5,
+    paddingHorizontal: 8,
+    textAlign: 'center',
   },
   statusTextCritical: {
     color: '#FFD6A1',
@@ -958,17 +1304,144 @@ const styles = StyleSheet.create({
     color: '#FFB3B3',
     fontWeight: '800',
   },
-  toolbar: {
-    marginTop: 10,
-    flexDirection: 'row',
-    gap: 10,
+  menuPanel: {
+    position: 'absolute',
+    top: 50,
+    right: 0,
+    width: 300,
+    maxWidth: '75%',
+    borderWidth: 1,
+    borderColor: '#334A70',
+    backgroundColor: '#0C1626',
+    borderRadius: 10,
+    padding: 10,
+    gap: 8,
+    zIndex: 4,
   },
-  towerCard: {
+  menuTitle: {
+    color: '#EAF4FF',
+    fontSize: 14,
+    fontWeight: '700',
+  },
+  menuLabel: {
+    color: '#9AB1D2',
+    fontSize: 11,
+    fontWeight: '700',
+    textTransform: 'uppercase',
+  },
+  menuMapRow: {
+    flexDirection: 'row',
+    gap: 8,
+  },
+  menuMapButton: {
     flex: 1,
     borderWidth: 1,
-    borderRadius: 10,
-    paddingHorizontal: 12,
+    borderColor: '#334462',
+    borderRadius: 8,
+    backgroundColor: '#101B2D',
     paddingVertical: 8,
+    alignItems: 'center',
+  },
+  menuMapButtonActive: {
+    borderColor: '#90B8FF',
+    backgroundColor: '#1A2A45',
+  },
+  menuMapButtonText: {
+    color: '#DFEAFF',
+    fontSize: 12,
+    fontWeight: '700',
+  },
+  menuLevelGrid: {
+    flexDirection: 'row',
+    flexWrap: 'wrap',
+    gap: 8,
+  },
+  menuLevelButton: {
+    width: '48%',
+    borderWidth: 1,
+    borderColor: '#334462',
+    borderRadius: 8,
+    backgroundColor: '#101B2D',
+    paddingVertical: 8,
+    alignItems: 'center',
+  },
+  menuLevelButtonActive: {
+    borderColor: '#9ED88C',
+    backgroundColor: '#1F3A2B',
+  },
+  menuLevelButtonText: {
+    color: '#DFEAFF',
+    fontSize: 12,
+    fontWeight: '700',
+  },
+  menuActions: {
+    flexDirection: 'row',
+    gap: 8,
+  },
+  menuActionButton: {
+    flex: 1,
+    borderWidth: 1,
+    borderColor: '#2A5878',
+    backgroundColor: '#11314A',
+    borderRadius: 7,
+    paddingVertical: 8,
+    paddingHorizontal: 8,
+    alignItems: 'center',
+  },
+  menuActionButtonMuted: {
+    borderColor: '#4F425C',
+    backgroundColor: '#2A2133',
+  },
+  menuRestartButton: {
+    borderColor: '#4A5D88',
+    backgroundColor: '#222C44',
+  },
+  menuActionButtonText: {
+    color: '#E3F3FF',
+    fontSize: 12,
+    fontWeight: '700',
+  },
+  sidePanel: {
+    gap: 8,
+  },
+  hudRow: {
+    flexDirection: 'row',
+    flexWrap: 'wrap',
+    gap: 8,
+  },
+  hudChip: {
+    width: '48%',
+    paddingHorizontal: 8,
+    paddingVertical: 5,
+    borderRadius: 8,
+    borderWidth: 1,
+    borderColor: '#22314A',
+    backgroundColor: '#0D1522',
+  },
+  hudLabel: {
+    color: '#7E91B0',
+    fontSize: 11,
+    fontWeight: '600',
+    textTransform: 'uppercase',
+  },
+  hudValue: {
+    color: '#EAF3FF',
+    marginTop: 1,
+    fontSize: 14,
+    fontWeight: '700',
+  },
+  toolbar: {
+    flexDirection: 'row',
+    flexWrap: 'wrap',
+    gap: 8,
+  },
+  towerCard: {
+    width: '31%',
+    minWidth: 78,
+    borderWidth: 1,
+    borderRadius: 9,
+    paddingHorizontal: 8,
+    paddingVertical: 7,
     backgroundColor: '#0E1725',
   },
   towerCardSelected: {
@@ -979,27 +1452,33 @@ const styles = StyleSheet.create({
   },
   towerCardTitle: {
     color: '#F4F8FF',
-    fontSize: 15,
+    fontSize: 13,
     fontWeight: '700',
   },
   towerCardMeta: {
-    marginTop: 2,
+    marginTop: 1,
     color: '#B9C9E5',
-    fontSize: 12,
+    fontSize: 11,
     fontWeight: '600',
   },
-  helperText: {
-    marginTop: 10,
-    color: '#90A6C8',
-    fontSize: 12,
-  },
-  selectedPanel: {
-    marginTop: 10,
+  detailsShell: {
+    flex: 1,
     borderWidth: 1,
     borderColor: '#2A3C5A',
     backgroundColor: '#0E1827',
     borderRadius: 10,
-    padding: 10,
+    padding: 9,
+    minHeight: 150,
+    justifyContent: 'center',
+  },
+  helperText: {
+    color: '#90A6C8',
+    fontSize: 12,
+    textAlign: 'center',
+  },
+  selectedPanel: {
+    flex: 1,
+    flexDirection: 'column',
     gap: 8,
   },
   selectedPanelTitle: {
@@ -1033,13 +1512,6 @@ const styles = StyleSheet.create({
     textAlign: 'center',
     fontWeight: '600',
   },
-  boardFrame: {
-    marginTop: 10,
-    alignItems: 'center',
-    justifyContent: 'center',
-    flex: 1,
-    paddingBottom: 10,
-  },
   board: {
     backgroundColor: '#0D1523',
     borderWidth: 1,
@@ -1066,16 +1538,40 @@ const styles = StyleSheet.create({
     position: 'absolute',
     borderWidth: 2,
     borderColor: '#0B101B',
+    backgroundColor: '#0B132080',
     alignItems: 'center',
     justifyContent: 'center',
+    overflow: 'visible',
   },
   towerActive: {
     borderColor: '#E7F28D',
   },
+  towerRangeIndicator: {
+    position: 'absolute',
+    borderWidth: 1.5,
+  },
+  towerLevelBadge: {
+    position: 'absolute',
+    bottom: -4,
+    right: -4,
+    minWidth: 17,
+    height: 14,
+    borderRadius: 7,
+    borderWidth: 1,
+    borderColor: '#08111D',
+    backgroundColor: '#EAF3FF',
+    alignItems: 'center',
+    justifyContent: 'center',
+    paddingHorizontal: 3,
+  },
   towerLevel: {
-    color: '#04121F',
-    fontSize: 10,
+    color: '#122237',
+    fontSize: 9,
     fontWeight: '800',
+  },
+  beam: {
+    position: 'absolute',
+    opacity: 0.85,
   },
   projectile: {
     position: 'absolute',
@@ -1083,6 +1579,12 @@ const styles = StyleSheet.create({
   enemyWrapper: {
     position: 'absolute',
     alignItems: 'center',
+  },
+  slowAura: {
+    position: 'absolute',
+    borderWidth: 2,
+    borderColor: '#8FE8FF',
+    backgroundColor: '#6FDFFF22',
   },
   healthTrack: {
     width: '100%',

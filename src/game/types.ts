@@ -12,11 +12,21 @@ export type EnemyShape = 'circle' | 'square' | 'triangle';
 
 export type EnemyTypeId = 'spark' | 'block' | 'spike';
 
-export type TowerTypeId = 'pulse' | 'lance';
+export type TowerTypeId = 'pulse' | 'lance' | 'spray' | 'bomb' | 'cold' | 'laser';
 export type TargetMode = 'first' | 'last' | 'strong';
-export type EffectKind = 'spawn' | 'hit' | 'place' | 'upgrade' | 'sell';
-export type GameEventType = EffectKind | 'targetMode';
+export type EffectKind = 'spawn' | 'hit' | 'place' | 'upgrade' | 'sell' | 'splash' | 'chill';
+export type GameEventType = EffectKind | 'targetMode' | 'fire';
 export type GameMapId = 'relay' | 'switchback';
+export type GameLevelId =
+  | 'relay-1'
+  | 'relay-2'
+  | 'relay-3'
+  | 'relay-4'
+  | 'switchback-1'
+  | 'switchback-2'
+  | 'switchback-3'
+  | 'switchback-4';
+export type AttackKind = 'projectile' | 'splash' | 'slow' | 'beam';
 
 export type EnemyType = {
   id: EnemyTypeId;
@@ -34,6 +44,7 @@ export type TowerType = {
   id: TowerTypeId;
   label: string;
   color: string;
+  attackKind: AttackKind;
   range: number;
   fireRate: number;
   projectileSpeed: number;
@@ -41,6 +52,11 @@ export type TowerType = {
   cost: number;
   radius: number;
   projectileRadius: number;
+  splashRadius?: number;
+  slowMultiplier?: number;
+  slowDuration?: number;
+  beamWidth?: number;
+  beamColor?: string;
 };
 
 export type WaveDefinition = {
@@ -64,6 +80,15 @@ export type GameMapDefinition = {
   initialTowers: InitialTowerPlacement[];
 };
 
+export type GameLevelDefinition = {
+  id: GameLevelId;
+  label: string;
+  mapId: GameMapId;
+  waves: WaveDefinition[];
+  startingMoney?: number;
+  startingLives?: number;
+};
+
 export type MatchStatus = 'running' | 'won' | 'lost';
 
 export type Enemy = {
@@ -79,6 +104,8 @@ export type Enemy = {
   health: number;
   progress: number;
   position: Vector2;
+  slowMultiplier: number;
+  slowTimeRemaining: number;
 };
 
 export type Tower = {
@@ -88,6 +115,7 @@ export type Tower = {
   level: number;
   targetMode: TargetMode;
   cooldown: number;
+  aimAngle: number;
 };
 
 export type Projectile = {
@@ -100,6 +128,18 @@ export type Projectile = {
   radius: number;
   color: string;
   position: Vector2;
+  splashRadius?: number;
+  slowMultiplier?: number;
+  slowDuration?: number;
+};
+
+export type Beam = {
+  id: string;
+  sourceTowerId: string;
+  color: string;
+  width: number;
+  start: Vector2;
+  end: Vector2;
 };
 
 export type VisualEffect = {
@@ -116,10 +156,12 @@ export type VisualEffect = {
 export type GameEvent = {
   id: number;
   type: GameEventType;
+  towerType?: TowerTypeId;
 };
 
 export type GameState = {
   mapId: GameMapId;
+  levelId: GameLevelId;
   status: MatchStatus;
   elapsed: number;
   money: number;
@@ -131,6 +173,7 @@ export type GameState = {
   enemies: Enemy[];
   towers: Tower[];
   projectiles: Projectile[];
+  beams: Beam[];
   effects: VisualEffect[];
   recentEvents: GameEvent[];
   nextEnemyId: number;

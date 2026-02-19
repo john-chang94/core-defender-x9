@@ -12,17 +12,22 @@ import {
   TOWER_SELL_REFUND_RATIO,
   TOWER_TYPES,
   TOWER_UPGRADE_COST_MULTIPLIERS,
-  WAVES,
 } from '@/src/game/config';
+import {
+  getDefaultGameLevelIdForMap,
+  loadGameLevel,
+} from '@/src/game/levels';
 import { cellCenter, isCellInBounds, samplePolyline, toCellKey } from '@/src/game/path';
 import { DEFAULT_GAME_MAP_ID, loadGameMap, type LoadedGameMap } from '@/src/game/maps';
 import type {
+  Beam,
   Cell,
   EffectKind,
   Enemy,
   EnemyTypeId,
   GameEvent,
   GameEventType,
+  GameLevelId,
   GameMapId,
   GameState,
   MatchStatus,
@@ -36,6 +41,8 @@ import type {
 } from '@/src/game/types';
 
 const TARGET_MODE_ORDER: TargetMode[] = ['first', 'last', 'strong'];
+const DEFAULT_TOWER_AIM_ANGLE = -Math.PI / 2;
+const BEAM_FIRE_EVENT_INTERVAL_SECONDS = 0.12;
 
 type EffectPreset = {
   duration: number;
@@ -75,12 +82,30 @@ const EFFECT_PRESETS: Record<EffectKind, EffectPreset> = {
     endRadius: 0.54,
     color: '#FF9B9B',
   },
+  splash: {
+    duration: 0.34,
+    startRadius: 0.2,
+    endRadius: 1.15,
+    color: '#FF9C65',
+  },
+  chill: {
+    duration: 0.42,
+    startRadius: 0.14,
+    endRadius: 0.78,
+    color: '#8EEBFF',
+  },
 };
 
-function appendEvent(events: GameEvent[], nextEventId: number, type: GameEventType): number {
+function appendEvent(
+  events: GameEvent[],
+  nextEventId: number,
+  type: GameEventType,
+  towerType?: TowerTypeId
+): number {
   events.push({
     id: nextEventId,
     type,
+    towerType,
   });
   return nextEventId + 1;
 }
@@ -115,6 +140,8 @@ function createEnemy(enemyTypeId: EnemyTypeId, nextEnemyId: number, map: LoadedG
     health: template.maxHealth,
     progress: 0,
     position: samplePolyline(map.route, 0),
+    slowMultiplier: 1,
+    slowTimeRemaining: 0,
   };
 }
 
@@ -180,6 +207,7 @@ function createInitialTowers(map: LoadedGameMap): Tower[] {
     level: 1,
     targetMode: 'first',
     cooldown: 0,
+    aimAngle: DEFAULT_TOWER_AIM_ANGLE,
   }));
 }
 
@@ -229,22 +257,29 @@ export function getTowerSellValue(tower: Tower): number {
   return Math.max(1, Math.round(totalInvested * TOWER_SELL_REFUND_RATIO));
 }
 
-export function createInitialGameState(mapId: GameMapId = DEFAULT_GAME_MAP_ID): GameState {
-  const map = loadGameMap(mapId);
+export function createInitialGameState(
+  mapId: GameMapId = DEFAULT_GAME_MAP_ID,
+  levelId?: GameLevelId
+): GameState {
+  const resolvedLevelId = levelId ?? getDefaultGameLevelIdForMap(mapId);
+  const level = loadGameLevel(resolvedLevelId);
+  const map = loadGameMap(level.mapId);
 
   return {
-    mapId,
+    mapId: level.mapId,
+    levelId: level.id,
     status: 'running',
     elapsed: 0,
-    money: STARTING_MONEY,
-    lives: STARTING_LIVES,
+    money: level.startingMoney ?? STARTING_MONEY,
+    lives: level.startingLives ?? STARTING_LIVES,
     waveIndex: 0,
     spawnedInWave: 0,
-    timeUntilWaveStart: WAVES[0]?.startDelay ?? 0,
+    timeUntilWaveStart: level.waves[0]?.startDelay ?? 0,
     timeUntilNextSpawn: 0,
     enemies: [],
     towers: createInitialTowers(map),
     projectiles: [],
+    beams: [],
     effects: [],
     recentEvents: [],
     nextEnemyId: 1,
@@ -292,6 +327,7 @@ export function placeTower(state: GameState, cell: Cell, towerTypeId: TowerTypeI
     level: 1,
     targetMode: 'first',
     cooldown: 0,
+    aimAngle: DEFAULT_TOWER_AIM_ANGLE,
   };
 
   const nextEvents: GameEvent[] = [];
@@ -382,6 +418,7 @@ export function sellTower(state: GameState, towerId: string): GameState {
     money: state.money + sellValue,
     towers: state.towers.filter((item) => item.id !== towerId),
     projectiles: state.projectiles.filter((projectile) => projectile.sourceTowerId !== towerId),
+    beams: state.beams.filter((beam) => beam.sourceTowerId !== towerId),
     effects: [...state.effects, effect],
     recentEvents: nextEvents,
     nextEffectId: state.nextEffectId + 1,
@@ -436,10 +473,15 @@ export function tickGame(state: GameState, deltaSeconds: number): GameState {
     return state;
   }
 
-  const map = loadGameMap(state.mapId);
+  const levelId = state.levelId ?? getDefaultGameLevelIdForMap(state.mapId);
+  const level = loadGameLevel(levelId);
+  const waves = level.waves;
+  const map = loadGameMap(level.mapId);
 
   const events: GameEvent[] = [];
   let hitEventBudget = 3;
+  let fireEventBudget = 4;
+  let impactEffectBudget = 8;
 
   let status: MatchStatus = state.status;
   let lives = state.lives;
@@ -458,7 +500,7 @@ export function tickGame(state: GameState, deltaSeconds: number): GameState {
   let enemies: Enemy[] = [...state.enemies];
   const spawnedEffects: VisualEffect[] = [];
 
-  const currentWave = WAVES[waveIndex];
+  const currentWave = waves[waveIndex];
   if (currentWave) {
     if (timeUntilWaveStart > 0) {
       timeUntilWaveStart = Math.max(0, timeUntilWaveStart - dt);
@@ -481,7 +523,9 @@ export function tickGame(state: GameState, deltaSeconds: number): GameState {
 
   const movedEnemies: Enemy[] = [];
   for (const enemy of enemies) {
-    const nextProgress = enemy.progress + enemy.speed * dt;
+    const nextSlowTimeRemaining = Math.max(0, enemy.slowTimeRemaining - dt);
+    const nextSlowMultiplier = nextSlowTimeRemaining > 0 ? enemy.slowMultiplier : 1;
+    const nextProgress = enemy.progress + enemy.speed * nextSlowMultiplier * dt;
     if (nextProgress >= map.route.totalLength) {
       lives -= enemy.coreDamage;
       continue;
@@ -491,45 +535,106 @@ export function tickGame(state: GameState, deltaSeconds: number): GameState {
       ...enemy,
       progress: nextProgress,
       position: samplePolyline(map.route, nextProgress),
+      slowMultiplier: nextSlowMultiplier,
+      slowTimeRemaining: nextSlowTimeRemaining,
     });
   }
   enemies = movedEnemies;
 
   const towers: Tower[] = [];
   const spawnedProjectiles: Projectile[] = [];
+  const activeBeams: Beam[] = [];
+  const damageByEnemy = new Map<string, number>();
+  const slowByEnemy = new Map<string, { multiplier: number; duration: number }>();
+
+  const applyDamage = (enemyId: string, damage: number) => {
+    if (damage <= 0) {
+      return;
+    }
+    const currentDamage = damageByEnemy.get(enemyId) ?? 0;
+    damageByEnemy.set(enemyId, currentDamage + damage);
+  };
+
+  const applySlow = (enemyId: string, multiplier: number, duration: number) => {
+    if (multiplier <= 0 || multiplier >= 1 || duration <= 0) {
+      return;
+    }
+
+    const existing = slowByEnemy.get(enemyId);
+    if (!existing) {
+      slowByEnemy.set(enemyId, { multiplier, duration });
+      return;
+    }
+
+    slowByEnemy.set(enemyId, {
+      multiplier: Math.min(existing.multiplier, multiplier),
+      duration: Math.max(existing.duration, duration),
+    });
+  };
 
   for (const tower of state.towers) {
     const towerStats = getTowerStats(tower);
     let cooldown = Math.max(0, tower.cooldown - dt);
+    const towerPosition = cellCenter(tower.cell);
+    const target = selectTarget(enemies, tower.cell, towerStats, tower.targetMode);
+    let aimAngle = Number.isFinite(tower.aimAngle) ? tower.aimAngle : DEFAULT_TOWER_AIM_ANGLE;
 
-    if (cooldown <= 0) {
-      const target = selectTarget(enemies, tower.cell, towerStats, tower.targetMode);
-      if (target) {
-        spawnedProjectiles.push({
-          id: `P${nextProjectileId}`,
-          sourceTowerId: tower.id,
-          towerType: tower.towerType,
-          targetEnemyId: target.id,
-          damage: towerStats.damage,
-          speed: towerStats.projectileSpeed,
-          radius: towerStats.projectileRadius,
-          color: towerStats.color,
-          position: cellCenter(tower.cell),
-        });
-        nextProjectileId += 1;
-        cooldown += 1 / towerStats.fireRate;
+    if (target) {
+      const dx = target.position.x - towerPosition.x;
+      const dy = target.position.y - towerPosition.y;
+      aimAngle = Math.atan2(dy, dx);
+    }
+
+    if (towerStats.attackKind === 'beam' && target) {
+      const beamDamage = towerStats.damage * dt;
+      applyDamage(target.id, beamDamage);
+
+      activeBeams.push({
+        id: `B-${tower.id}`,
+        sourceTowerId: tower.id,
+        color: towerStats.beamColor ?? towerStats.color,
+        width: towerStats.beamWidth ?? 0.1,
+        start: towerPosition,
+        end: target.position,
+      });
+
+      if (cooldown <= 0 && fireEventBudget > 0) {
+        nextEventId = appendEvent(events, nextEventId, 'fire', tower.towerType);
+        fireEventBudget -= 1;
+        cooldown += BEAM_FIRE_EVENT_INTERVAL_SECONDS;
       }
+    } else if (cooldown <= 0 && target) {
+      spawnedProjectiles.push({
+        id: `P${nextProjectileId}`,
+        sourceTowerId: tower.id,
+        towerType: tower.towerType,
+        targetEnemyId: target.id,
+        damage: towerStats.damage,
+        speed: towerStats.projectileSpeed,
+        radius: towerStats.projectileRadius,
+        color: towerStats.color,
+        position: towerPosition,
+        splashRadius: towerStats.splashRadius,
+        slowMultiplier: towerStats.slowMultiplier,
+        slowDuration: towerStats.slowDuration,
+      });
+      nextProjectileId += 1;
+      if (fireEventBudget > 0) {
+        nextEventId = appendEvent(events, nextEventId, 'fire', tower.towerType);
+        fireEventBudget -= 1;
+      }
+      cooldown += 1 / towerStats.fireRate;
     }
 
     towers.push({
       ...tower,
       cooldown,
+      aimAngle,
     });
   }
 
   const incomingProjectiles = [...state.projectiles, ...spawnedProjectiles];
   const enemiesById = new Map(enemies.map((enemy) => [enemy.id, enemy]));
-  const damageByEnemy = new Map<string, number>();
   const nextProjectiles: Projectile[] = [];
   const hitEffects: VisualEffect[] = [];
 
@@ -545,13 +650,45 @@ export function tickGame(state: GameState, deltaSeconds: number): GameState {
     const travel = projectile.speed * dt;
 
     if (distance <= travel || distance === 0) {
-      const currentDamage = damageByEnemy.get(target.id) ?? 0;
-      damageByEnemy.set(target.id, currentDamage + projectile.damage);
+      const impactPosition = target.position;
+      const impactedEnemies =
+        projectile.splashRadius && projectile.splashRadius > 0
+          ? enemies.filter((enemy) => {
+              const splashDx = enemy.position.x - impactPosition.x;
+              const splashDy = enemy.position.y - impactPosition.y;
+              return Math.hypot(splashDx, splashDy) <= projectile.splashRadius!;
+            })
+          : [target];
 
-      hitEffects.push(createEffect('hit', target.position, nextEffectId));
-      nextEffectId += 1;
+      for (const impactedEnemy of impactedEnemies) {
+        applyDamage(impactedEnemy.id, projectile.damage);
+
+        if (
+          projectile.slowMultiplier !== undefined &&
+          projectile.slowDuration !== undefined &&
+          projectile.slowDuration > 0
+        ) {
+          applySlow(impactedEnemy.id, projectile.slowMultiplier, projectile.slowDuration);
+        }
+      }
+
+      if (impactEffectBudget > 0) {
+        if (projectile.splashRadius && projectile.splashRadius > 0) {
+          hitEffects.push(createEffect('splash', impactPosition, nextEffectId));
+        } else if (
+          projectile.slowMultiplier !== undefined &&
+          projectile.slowDuration !== undefined &&
+          projectile.slowDuration > 0
+        ) {
+          hitEffects.push(createEffect('chill', impactPosition, nextEffectId));
+        } else {
+          hitEffects.push(createEffect('hit', impactPosition, nextEffectId));
+        }
+        nextEffectId += 1;
+        impactEffectBudget -= 1;
+      }
       if (hitEventBudget > 0) {
-        nextEventId = appendEvent(events, nextEventId, 'hit');
+        nextEventId = appendEvent(events, nextEventId, 'hit', projectile.towerType);
         hitEventBudget -= 1;
       }
       continue;
@@ -569,20 +706,38 @@ export function tickGame(state: GameState, deltaSeconds: number): GameState {
   const survivingEnemies: Enemy[] = [];
   for (const enemy of enemies) {
     const damage = damageByEnemy.get(enemy.id) ?? 0;
-    if (damage <= 0) {
-      survivingEnemies.push(enemy);
+    let nextEnemy: Enemy | null = enemy;
+
+    if (damage > 0) {
+      const health = enemy.health - damage;
+      if (health > 0) {
+        nextEnemy = {
+          ...enemy,
+          health,
+        };
+      } else {
+        nextEnemy = null;
+      }
+    }
+
+    if (!nextEnemy) {
+      money += enemy.reward;
       continue;
     }
 
-    const health = enemy.health - damage;
-    if (health > 0) {
-      survivingEnemies.push({
-        ...enemy,
-        health,
-      });
-    } else {
-      money += enemy.reward;
+    const slowStatus = slowByEnemy.get(enemy.id);
+    if (slowStatus) {
+      nextEnemy = {
+        ...nextEnemy,
+        slowMultiplier:
+          nextEnemy.slowTimeRemaining > 0
+            ? Math.min(nextEnemy.slowMultiplier, slowStatus.multiplier)
+            : slowStatus.multiplier,
+        slowTimeRemaining: Math.max(nextEnemy.slowTimeRemaining, slowStatus.duration),
+      };
     }
+
+    survivingEnemies.push(nextEnemy);
   }
 
   enemies = survivingEnemies;
@@ -591,13 +746,13 @@ export function tickGame(state: GameState, deltaSeconds: number): GameState {
     status = 'lost';
     lives = 0;
   } else {
-    const activeWave = WAVES[waveIndex];
+    const activeWave = waves[waveIndex];
     if (activeWave && spawnedInWave >= activeWave.count && enemies.length === 0) {
       waveIndex += 1;
       spawnedInWave = 0;
       timeUntilNextSpawn = 0;
 
-      const nextWave = WAVES[waveIndex];
+      const nextWave = waves[waveIndex];
       if (nextWave) {
         timeUntilWaveStart = INTER_WAVE_DELAY_SECONDS + (nextWave.startDelay ?? 0);
       } else {
@@ -605,7 +760,7 @@ export function tickGame(state: GameState, deltaSeconds: number): GameState {
       }
     }
 
-    if (waveIndex >= WAVES.length && enemies.length === 0) {
+    if (waveIndex >= waves.length && enemies.length === 0) {
       status = 'won';
     }
   }
@@ -630,6 +785,7 @@ export function tickGame(state: GameState, deltaSeconds: number): GameState {
     enemies,
     towers,
     projectiles: nextProjectiles,
+    beams: activeBeams,
     effects,
     recentEvents: events,
     nextEnemyId,
