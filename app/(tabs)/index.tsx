@@ -17,18 +17,11 @@ import {
   tickGame,
   upgradeTower,
 } from '@/src/game/engine';
+import { BoardCanvas } from '@/src/game/BoardCanvas';
 import { getDefaultGameLevelIdForMap, listGameLevels, loadGameLevel } from '@/src/game/levels';
 import { DEFAULT_GAME_MAP_ID, listGameMaps, loadGameMap } from '@/src/game/maps';
-import { cellCenter, toCellKey } from '@/src/game/path';
-import type {
-  Cell,
-  EnemyShape,
-  GameEvent,
-  GameLevelId,
-  GameMapId,
-  TargetMode,
-  TowerTypeId,
-} from '@/src/game/types';
+import { cellCenter } from '@/src/game/path';
+import type { GameEvent, GameLevelId, GameMapId, TargetMode, TowerTypeId } from '@/src/game/types';
 
 const BOARD_PADDING = 14;
 const TARGET_MODE_LABELS: Record<TargetMode, string> = {
@@ -208,207 +201,6 @@ function mapGameEventToSound(event: GameEvent): SoundEffectKey | null {
   return event.type;
 }
 
-function buildGridCells(cols: number, rows: number): Cell[] {
-  const cells: Cell[] = [];
-  for (let row = 0; row < rows; row += 1) {
-    for (let col = 0; col < cols; col += 1) {
-      cells.push({ col, row });
-    }
-  }
-  return cells;
-}
-
-function EnemyGlyph({ shape, color, size }: { shape: EnemyShape; color: string; size: number }) {
-  if (shape === 'circle') {
-    return (
-      <View
-        style={{
-          width: size,
-          height: size,
-          borderRadius: size / 2,
-          backgroundColor: color,
-          borderWidth: 1,
-          borderColor: '#101827',
-        }}
-      />
-    );
-  }
-
-  if (shape === 'square') {
-    return (
-      <View
-        style={{
-          width: size,
-          height: size,
-          backgroundColor: color,
-          borderWidth: 1,
-          borderColor: '#101827',
-        }}
-      />
-    );
-  }
-
-  return (
-    <View
-      style={{
-        width: size,
-        height: size,
-        alignItems: 'center',
-        justifyContent: 'center',
-      }}>
-      <View
-        style={{
-          width: 0,
-          height: 0,
-          borderLeftWidth: size / 2,
-          borderRightWidth: size / 2,
-          borderBottomWidth: size,
-          borderLeftColor: 'transparent',
-          borderRightColor: 'transparent',
-          borderBottomColor: color,
-          transform: [{ translateY: size * 0.08 }],
-        }}
-      />
-    </View>
-  );
-}
-
-function TowerGlyph({
-  towerType,
-  color,
-  size,
-  aimAngle,
-}: {
-  towerType: TowerTypeId;
-  color: string;
-  size: number;
-  aimAngle: number;
-}) {
-  const rotation = `${aimAngle + Math.PI / 2}rad`;
-  const barrelColor = '#DCEBFF';
-
-  if (towerType === 'lance') {
-    return (
-      <View
-        style={{
-          width: size,
-          height: size,
-          alignItems: 'center',
-          justifyContent: 'center',
-          transform: [{ rotate: rotation }],
-        }}>
-        <View
-          style={{
-            position: 'absolute',
-            width: size * 0.2,
-            height: size * 0.42,
-            borderRadius: size * 0.08,
-            backgroundColor: '#BFD3F4',
-            borderWidth: 1,
-            borderColor: '#0E1D2F',
-            transform: [{ translateY: size * 0.18 }],
-          }}
-        />
-        <View
-          style={{
-            width: 0,
-            height: 0,
-            borderLeftWidth: size * 0.21,
-            borderRightWidth: size * 0.21,
-            borderBottomWidth: size * 0.86,
-            borderLeftColor: 'transparent',
-            borderRightColor: 'transparent',
-            borderBottomColor: color,
-            transform: [{ translateY: size * 0.02 }],
-          }}
-        />
-      </View>
-    );
-  }
-
-  if (towerType === 'spray') {
-    return (
-      <View
-        style={{
-          width: size,
-          height: size,
-          alignItems: 'center',
-          justifyContent: 'center',
-          transform: [{ rotate: rotation }],
-        }}>
-        <View
-          style={{
-            width: size * 0.62,
-            height: size * 0.58,
-            borderRadius: size * 0.14,
-            backgroundColor: color,
-            borderWidth: 1,
-            borderColor: '#101827',
-          }}
-        />
-        <View
-          style={{
-            position: 'absolute',
-            top: size * 0.03,
-            width: size * 0.2,
-            height: size * 0.32,
-            borderRadius: size * 0.1,
-            backgroundColor: barrelColor,
-            borderWidth: 1,
-            borderColor: '#0F1E31',
-          }}
-        />
-      </View>
-    );
-  }
-
-  return (
-    <View
-      style={{
-        width: size,
-        height: size,
-        alignItems: 'center',
-        justifyContent: 'center',
-        transform: [{ rotate: rotation }],
-      }}>
-      <View
-        style={{
-          width: size * 0.88,
-          height: size * 0.88,
-          borderRadius: (size * 0.88) / 2,
-          backgroundColor: color,
-          borderWidth: 1,
-          borderColor: '#101827',
-          alignItems: 'center',
-          justifyContent: 'center',
-        }}>
-        <View
-          style={{
-            width: size * 0.38,
-            height: size * 0.38,
-            borderRadius: (size * 0.38) / 2,
-            borderWidth: 1.5,
-            borderColor: '#0A1A2A',
-            opacity: 0.45,
-          }}
-        />
-      </View>
-      <View
-        style={{
-          position: 'absolute',
-          top: size * 0.02,
-          width: size * 0.2,
-          height: size * 0.32,
-          borderRadius: size * 0.1,
-          backgroundColor: barrelColor,
-          borderWidth: 1,
-          borderColor: '#0F1E31',
-        }}
-      />
-    </View>
-  );
-}
-
 export default function DefenseScreen() {
   const [gameState, setGameState] = useState(() => createInitialGameState(DEFAULT_GAME_MAP_ID));
   const [selectedBuildTower, setSelectedBuildTower] = useState<TowerTypeId>('pulse');
@@ -446,7 +238,6 @@ export default function DefenseScreen() {
   const mapLevels = useMemo(() => listGameLevels(gameState.mapId), [gameState.mapId]);
   const waves = activeLevel.waves;
   const activeMap = useMemo(() => loadGameMap(gameState.mapId), [gameState.mapId]);
-  const gridCells = useMemo(() => buildGridCells(activeMap.cols, activeMap.rows), [activeMap.cols, activeMap.rows]);
 
   const { width, height } = useWindowDimensions();
   const sidePanelWidth = Math.min(336, Math.max(260, width * 0.31));
@@ -455,44 +246,6 @@ export default function DefenseScreen() {
   const cellSize = Math.max(14, Math.min(boardMaxWidth / activeMap.cols, boardMaxHeight / activeMap.rows));
   const boardWidth = activeMap.cols * cellSize;
   const boardHeight = activeMap.rows * cellSize;
-  const gridLayer = useMemo(
-    () =>
-      gridCells.map((cell) => (
-        <View
-          key={`grid-${toCellKey(cell)}`}
-          pointerEvents="none"
-          style={[
-            styles.gridCell,
-            {
-              left: cell.col * cellSize,
-              top: cell.row * cellSize,
-              width: cellSize,
-              height: cellSize,
-            },
-          ]}
-        />
-      )),
-    [gridCells, cellSize]
-  );
-  const pathLayer = useMemo(
-    () =>
-      activeMap.pathCells.map((cell) => (
-        <View
-          key={`path-${toCellKey(cell)}`}
-          pointerEvents="none"
-          style={[
-            styles.pathCell,
-            {
-              left: cell.col * cellSize,
-              top: cell.row * cellSize,
-              width: cellSize,
-              height: cellSize,
-            },
-          ]}
-        />
-      )),
-    [activeMap.pathCells, cellSize]
-  );
 
   const playSound = useCallback(
     async (soundKey: SoundEffectKey) => {
@@ -688,6 +441,21 @@ export default function DefenseScreen() {
   const selectedPlacedTowerStats = selectedPlacedTower ? getTowerStats(selectedPlacedTower) : null;
   const selectedUpgradeCost = selectedPlacedTower ? getTowerUpgradeCost(selectedPlacedTower) : null;
   const selectedSellValue = selectedPlacedTower ? getTowerSellValue(selectedPlacedTower) : null;
+  const selectedTowerBadgePosition = useMemo(() => {
+    if (!selectedPlacedTower) {
+      return null;
+    }
+
+    const towerType = TOWER_TYPES[selectedPlacedTower.towerType];
+    const levelScale = 1 + Math.max(0, selectedPlacedTower.level - 1) * 0.08;
+    const radius = towerType.radius * cellSize * levelScale;
+    const center = cellCenter(selectedPlacedTower.cell);
+
+    return {
+      left: center.x * cellSize + radius - 16,
+      top: center.y * cellSize + radius - 14,
+    };
+  }, [cellSize, selectedPlacedTower]);
 
   const canUpgradeSelectedTower = selectedPlacedTower
     ? canUpgradeTower(gameState, selectedPlacedTower.id)
@@ -842,181 +610,27 @@ export default function DefenseScreen() {
                   height: boardHeight,
                 },
               ]}>
-          {gridLayer}
-          {pathLayer}
-
-          {gameState.effects.map((effect) => {
-            const progress = Math.min(1, effect.age / effect.duration);
-            const radius = (effect.startRadius + (effect.endRadius - effect.startRadius) * progress) * cellSize;
-            const alphaHex = effect.kind === 'hit' ? '44' : '22';
-
-            return (
-              <View
-                key={effect.id}
-                pointerEvents="none"
-                style={[
-                  styles.effect,
-                  {
-                    width: radius * 2,
-                    height: radius * 2,
-                    borderRadius: radius,
-                    left: effect.position.x * cellSize - radius,
-                    top: effect.position.y * cellSize - radius,
-                    borderColor: effect.color,
-                    backgroundColor: `${effect.color}${alphaHex}`,
-                    opacity: 1 - progress,
-                  },
-                ]}
-              />
-            );
-          })}
-
-          {gameState.towers.map((tower) => {
-            const towerType = TOWER_TYPES[tower.towerType];
-            const towerStats = getTowerStats(tower);
-            const levelScale = 1 + Math.max(0, tower.level - 1) * 0.08;
-            const radius = towerType.radius * cellSize * levelScale;
-            const rangeRadius = towerStats.range * cellSize;
-            const center = cellCenter(tower.cell);
-            const isActive = tower.id === selectedPlacedTowerId;
-            const aimAngle = Number.isFinite(tower.aimAngle) ? tower.aimAngle : -Math.PI / 2;
-
-            return (
-              <View
-                key={tower.id}
-                pointerEvents="none"
-                style={[
-                  styles.tower,
-                  isActive && styles.towerActive,
-                  {
-                    width: radius * 2,
-                    height: radius * 2,
-                    borderRadius: radius,
-                    left: center.x * cellSize - radius,
-                    top: center.y * cellSize - radius,
-                  },
-                ]}>
-                {isActive ? (
-                  <View
-                    style={[
-                      styles.towerRangeIndicator,
-                      {
-                        width: rangeRadius * 2,
-                        height: rangeRadius * 2,
-                        borderRadius: rangeRadius,
-                        left: radius - rangeRadius,
-                        top: radius - rangeRadius,
-                        borderColor: towerType.color,
-                        backgroundColor: `${towerType.color}22`,
-                      },
-                    ]}
-                  />
-                ) : null}
-                <TowerGlyph
-                  towerType={tower.towerType}
-                  color={towerType.color}
-                  size={radius * 2}
-                  aimAngle={aimAngle}
-                />
-                {isActive ? (
-                  <View style={styles.towerLevelBadge}>
-                    <Text style={styles.towerLevel}>L{tower.level}</Text>
-                  </View>
-                ) : null}
-              </View>
-            );
-          })}
-
-          {gameState.beams.map((beam) => {
-            const dx = beam.end.x - beam.start.x;
-            const dy = beam.end.y - beam.start.y;
-            const angle = Math.atan2(dy, dx);
-            const length = Math.hypot(dx, dy) * cellSize;
-            const thickness = Math.max(2, beam.width * cellSize);
-            const centerX = ((beam.start.x + beam.end.x) / 2) * cellSize;
-            const centerY = ((beam.start.y + beam.end.y) / 2) * cellSize;
-
-            return (
-              <View
-                key={beam.id}
-                pointerEvents="none"
-                style={[
-                  styles.beam,
-                  {
-                    width: length,
-                    height: thickness,
-                    borderRadius: thickness / 2,
-                    backgroundColor: beam.color,
-                    left: centerX - length / 2,
-                    top: centerY - thickness / 2,
-                    transform: [{ rotate: `${angle}rad` }],
-                  },
-                ]}
-              />
-            );
-          })}
-
-          {gameState.projectiles.map((projectile) => {
-            const radius = projectile.radius * cellSize;
-            return (
-              <View
-                key={projectile.id}
-                pointerEvents="none"
-                style={[
-                  styles.projectile,
-                  {
-                    width: radius * 2,
-                    height: radius * 2,
-                    borderRadius: radius,
-                    backgroundColor: projectile.color,
-                    left: projectile.position.x * cellSize - radius,
-                    top: projectile.position.y * cellSize - radius,
-                  },
-                ]}
-              />
-            );
-          })}
-
-          {gameState.enemies.map((enemy) => {
-            const size = enemy.radius * 2 * cellSize;
-            const left = enemy.position.x * cellSize - size / 2;
-            const top = enemy.position.y * cellSize - size / 2;
-            const healthPercent = Math.max(0, enemy.health / enemy.maxHealth);
-            const isSlowed = enemy.slowTimeRemaining > 0 && enemy.slowMultiplier < 1;
-
-            return (
-              <View
-                key={enemy.id}
-                pointerEvents="none"
-                style={[
-                  styles.enemyWrapper,
-                  {
-                    left,
-                    top: top - 7,
-                    width: size,
-                    height: size + 7,
-                  },
-                ]}>
-                <View style={styles.healthTrack}>
-                  <View style={[styles.healthFill, { width: `${healthPercent * 100}%` }]} />
-                </View>
-                {isSlowed ? (
-                  <View
-                    style={[
-                      styles.slowAura,
-                      {
-                        width: size * 1.24,
-                        height: size * 1.24,
-                        borderRadius: (size * 1.24) / 2,
-                        opacity: Math.min(0.72, 1 - enemy.slowMultiplier),
-                      },
-                    ]}
-                  />
-                ) : null}
-                <EnemyGlyph shape={enemy.shape} color={enemy.color} size={size} />
-              </View>
-            );
-          })}
+          <BoardCanvas
+            boardWidth={boardWidth}
+            boardHeight={boardHeight}
+            cellSize={cellSize}
+            map={activeMap}
+            state={gameState}
+            selectedTowerId={selectedPlacedTowerId}
+          />
+          {selectedPlacedTower && selectedTowerBadgePosition ? (
+            <View
+              pointerEvents="none"
+              style={[
+                styles.towerLevelBadgeOverlay,
+                {
+                  left: selectedTowerBadgePosition.left,
+                  top: selectedTowerBadgePosition.top,
+                },
+              ]}>
+              <Text style={styles.towerLevel}>L{selectedPlacedTower.level}</Text>
+            </View>
+          ) : null}
             </Pressable>
 
             <Text
@@ -1550,10 +1164,8 @@ const styles = StyleSheet.create({
     position: 'absolute',
     borderWidth: 1.5,
   },
-  towerLevelBadge: {
+  towerLevelBadgeOverlay: {
     position: 'absolute',
-    bottom: -4,
-    right: -4,
     minWidth: 17,
     height: 14,
     borderRadius: 7,
