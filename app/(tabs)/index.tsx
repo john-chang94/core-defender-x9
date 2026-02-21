@@ -1,9 +1,9 @@
-import { Audio } from 'expo-av';
+import { createAudioPlayer, setAudioModeAsync, type AudioPlayer } from 'expo-audio';
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import type { GestureResponderEvent } from 'react-native';
 import { Pressable, SafeAreaView, StyleSheet, Text, View, useWindowDimensions } from 'react-native';
 
-import { FIXED_STEP_SECONDS, TOWER_TYPES } from '@/src/game/config';
+import { TOWER_TYPES } from '@/src/game/config';
 import {
   canPlaceTower,
   canUpgradeTower,
@@ -29,6 +29,9 @@ const TARGET_MODE_LABELS: Record<TargetMode, string> = {
   last: 'Last',
   strong: 'Strong',
 };
+const SIMULATION_STEP_SECONDS = 1 / 60;
+const MAX_CATCH_UP_STEPS = 4;
+const MAX_FRAME_DELTA_SECONDS = 0.1;
 
 type SimulationSpeed = 1 | 2 | 3;
 type SoundEffectKey =
@@ -115,7 +118,7 @@ const SOUND_MIN_INTERVAL_MS: Record<SoundEffectKey, number> = {
   coldImpact: 90,
 };
 
-function createEmptySoundPool(): Record<SoundEffectKey, Audio.Sound[]> {
+function createEmptySoundPool(): Record<SoundEffectKey, AudioPlayer[]> {
   return {
     spawn: [],
     hit: [],
@@ -212,7 +215,7 @@ export default function DefenseScreen() {
   const [soundEnabled, setSoundEnabled] = useState(true);
   const [soundsReady, setSoundsReady] = useState(false);
 
-  const soundPoolsRef = useRef<Record<SoundEffectKey, Audio.Sound[]>>(createEmptySoundPool());
+  const soundPoolsRef = useRef<Record<SoundEffectKey, AudioPlayer[]>>(createEmptySoundPool());
   const soundCursorRef = useRef<Record<SoundEffectKey, number>>(createEmptySoundCursor());
   const lastSoundAtRef = useRef<Record<SoundEffectKey, number>>({
     spawn: 0,
@@ -271,7 +274,8 @@ export default function DefenseScreen() {
 
       const sound = pool[nextCursor];
       try {
-        await sound.replayAsync();
+        await sound.seekTo(0);
+        sound.play();
       } catch {
         // Ignore audio playback errors; gameplay should remain unaffected.
       }
@@ -284,10 +288,10 @@ export default function DefenseScreen() {
 
     const loadSounds = async () => {
       try {
-        await Audio.setAudioModeAsync({
-          playsInSilentModeIOS: true,
-          shouldDuckAndroid: true,
-          staysActiveInBackground: false,
+        await setAudioModeAsync({
+          playsInSilentMode: true,
+          interruptionMode: 'duckOthers',
+          shouldPlayInBackground: false,
         });
 
         const nextPool = createEmptySoundPool();
@@ -296,10 +300,8 @@ export default function DefenseScreen() {
         for (const soundKey of keys) {
           const poolSize = SOUND_POOL_SIZE[soundKey];
           for (let index = 0; index < poolSize; index += 1) {
-            const sound = new Audio.Sound();
-            await sound.loadAsync(SOUND_FILES[soundKey], {
-              volume: SOUND_VOLUMES[soundKey],
-            });
+            const sound = createAudioPlayer(SOUND_FILES[soundKey]);
+            sound.volume = SOUND_VOLUMES[soundKey];
             nextPool[soundKey].push(sound);
           }
         }
@@ -307,7 +309,7 @@ export default function DefenseScreen() {
         if (disposed) {
           for (const soundKey of keys) {
             for (const sound of nextPool[soundKey]) {
-              await sound.unloadAsync();
+              sound.remove();
             }
           }
           return;
@@ -349,25 +351,49 @@ export default function DefenseScreen() {
 
       for (const soundKey of keys) {
         for (const sound of pools[soundKey]) {
-          void sound.unloadAsync();
+          sound.remove();
         }
       }
     };
   }, []);
 
   useEffect(() => {
-    const timerId = setInterval(() => {
-      if (isPaused) {
+    let animationFrameId = 0;
+    let lastFrameTimeMs = 0;
+    let accumulatedSimulationSeconds = 0;
+
+    const frame = (timeMs: number) => {
+      if (lastFrameTimeMs === 0) {
+        lastFrameTimeMs = timeMs;
+        animationFrameId = requestAnimationFrame(frame);
         return;
       }
 
-      setGameState((previousState) => {
-        return tickGame(previousState, FIXED_STEP_SECONDS * simulationSpeed);
-      });
-    }, 1000 / 30);
+      const elapsedSeconds = Math.min((timeMs - lastFrameTimeMs) / 1000, MAX_FRAME_DELTA_SECONDS);
+      lastFrameTimeMs = timeMs;
+
+      if (!isPaused) {
+        accumulatedSimulationSeconds += elapsedSeconds * simulationSpeed;
+
+        const steps = Math.min(
+          MAX_CATCH_UP_STEPS,
+          Math.floor(accumulatedSimulationSeconds / SIMULATION_STEP_SECONDS)
+        );
+
+        if (steps > 0) {
+          accumulatedSimulationSeconds -= steps * SIMULATION_STEP_SECONDS;
+          const stepDelta = steps * SIMULATION_STEP_SECONDS;
+          setGameState((previousState) => tickGame(previousState, stepDelta));
+        }
+      }
+
+      animationFrameId = requestAnimationFrame(frame);
+    };
+
+    animationFrameId = requestAnimationFrame(frame);
 
     return () => {
-      clearInterval(timerId);
+      cancelAnimationFrame(animationFrameId);
     };
   }, [isPaused, simulationSpeed]);
 
@@ -602,7 +628,7 @@ export default function DefenseScreen() {
 
           <View style={styles.boardFrame}>
             <Pressable
-              onPress={handleBoardPress}
+              onPressIn={handleBoardPress}
               style={[
                 styles.board,
                 {
@@ -634,6 +660,7 @@ export default function DefenseScreen() {
             </Pressable>
 
             <Text
+              pointerEvents="none"
               style={[
                 styles.statusText,
                 isCountdownCritical && styles.statusTextCritical,

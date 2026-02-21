@@ -29,6 +29,7 @@ type BoardCanvasProps = {
 const alphaColorCache = new Map<string, string>();
 const MAX_RENDERED_PROJECTILES = 130;
 const MAX_RENDERED_EFFECTS = 70;
+const trianglePathCache = new Map<number, ReturnType<typeof Skia.Path.Make>>();
 
 function withAlpha(color: string, alpha: number): string {
   const boundedAlpha = Math.max(0, Math.min(1, alpha));
@@ -78,6 +79,19 @@ function createTrianglePath(
   path.lineTo(bx, by);
   path.lineTo(cx, cy);
   path.close();
+  return path;
+}
+
+function getCenteredTrianglePath(size: number) {
+  const roundedSize = Math.round(size * 1000) / 1000;
+  const cachedPath = trianglePathCache.get(roundedSize);
+  if (cachedPath) {
+    return cachedPath;
+  }
+
+  const halfSize = roundedSize / 2;
+  const path = createTrianglePath(0, -halfSize, -halfSize, halfSize, halfSize, halfSize);
+  trianglePathCache.set(roundedSize, path);
   return path;
 }
 
@@ -328,7 +342,7 @@ export function BoardCanvas({
   );
 
   return (
-    <Canvas style={{ width: boardWidth, height: boardHeight }}>
+    <Canvas pointerEvents="none" style={{ width: boardWidth, height: boardHeight }}>
       {gridLayer}
       {pathLayer}
 
@@ -443,10 +457,7 @@ export function BoardCanvas({
         const healthPercent = Math.max(0, enemy.health / enemy.maxHealth);
         const isSlowed = enemy.slowTimeRemaining > 0 && enemy.slowMultiplier < 1;
 
-        const trianglePath =
-          enemy.shape === 'triangle'
-            ? createTrianglePath(cx, top, left, top + size, left + size, top + size)
-            : null;
+        const trianglePath = enemy.shape === 'triangle' ? getCenteredTrianglePath(size) : null;
 
         return (
           <Group key={enemy.id}>
@@ -505,7 +516,7 @@ export function BoardCanvas({
             ) : null}
 
             {enemy.shape === 'triangle' && trianglePath ? (
-              <Group>
+              <Group transform={[{ translateX: cx }, { translateY: cy }]}>
                 <Path path={trianglePath} color={enemy.color} />
                 {!useReducedDetail ? (
                   <Path path={trianglePath} style="stroke" strokeWidth={1} color="#101827" />
