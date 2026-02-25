@@ -41,3 +41,8 @@ app-example
 # generated native folders
 /ios
 /android
+
+/assets/kenney_sci-fi-sounds
+/assets/sci-fi-sfx
+/assets/sfx
+/assets/ui-interface
