@@ -14,6 +14,7 @@ import {
   TOWER_UPGRADE_COST_MULTIPLIERS,
 } from '@/src/game/config';
 import {
+  buildEndlessWaveDefinition,
   getDefaultGameLevelIdForMap,
   loadGameLevel,
 } from '@/src/game/levels';
@@ -28,6 +29,7 @@ import type {
   GameEvent,
   GameEventType,
   GameLevelId,
+  GameMode,
   GameMapId,
   GameState,
   MatchStatus,
@@ -43,6 +45,7 @@ import type {
 const TARGET_MODE_ORDER: TargetMode[] = ['first', 'last', 'strong'];
 const DEFAULT_TOWER_AIM_ANGLE = -Math.PI / 2;
 const BEAM_FIRE_EVENT_INTERVAL_SECONDS = 0.12;
+const MAX_ACTIVE_EFFECTS = 96;
 
 type EffectPreset = {
   duration: number;
@@ -53,15 +56,15 @@ type EffectPreset = {
 
 const EFFECT_PRESETS: Record<EffectKind, EffectPreset> = {
   spawn: {
-    duration: 0.45,
-    startRadius: 0.12,
-    endRadius: 0.56,
+    duration: 0.52,
+    startRadius: 0.1,
+    endRadius: 0.72,
     color: '#7DEBFF',
   },
   hit: {
-    duration: 0.22,
-    startRadius: 0.08,
-    endRadius: 0.34,
+    duration: 0.3,
+    startRadius: 0.06,
+    endRadius: 0.46,
     color: '#FFD67A',
   },
   place: {
@@ -83,16 +86,34 @@ const EFFECT_PRESETS: Record<EffectKind, EffectPreset> = {
     color: '#FF9B9B',
   },
   splash: {
-    duration: 0.34,
-    startRadius: 0.2,
-    endRadius: 1.15,
+    duration: 0.42,
+    startRadius: 0.22,
+    endRadius: 1.35,
     color: '#FF9C65',
   },
   chill: {
-    duration: 0.42,
+    duration: 0.48,
     startRadius: 0.14,
-    endRadius: 0.78,
+    endRadius: 0.92,
     color: '#8EEBFF',
+  },
+  muzzle: {
+    duration: 0.2,
+    startRadius: 0.04,
+    endRadius: 0.24,
+    color: '#FFF3B5',
+  },
+  burst: {
+    duration: 0.38,
+    startRadius: 0.12,
+    endRadius: 0.8,
+    color: '#FFD27F',
+  },
+  shock: {
+    duration: 0.3,
+    startRadius: 0.1,
+    endRadius: 0.62,
+    color: '#FF5E95',
   },
 };
 
@@ -259,13 +280,17 @@ export function getTowerSellValue(tower: Tower): number {
 
 export function createInitialGameState(
   mapId: GameMapId = DEFAULT_GAME_MAP_ID,
-  levelId?: GameLevelId
+  levelId?: GameLevelId,
+  gameMode: GameMode = 'classic'
 ): GameState {
-  const resolvedLevelId = levelId ?? getDefaultGameLevelIdForMap(mapId);
+  const resolvedLevelId = levelId ?? getDefaultGameLevelIdForMap(mapId, gameMode);
   const level = loadGameLevel(resolvedLevelId);
   const map = loadGameMap(level.mapId);
+  const firstWave =
+    gameMode === 'endless' ? buildEndlessWaveDefinition(0) : level.waves[0];
 
   return {
+    gameMode,
     mapId: level.mapId,
     levelId: level.id,
     status: 'running',
@@ -274,7 +299,7 @@ export function createInitialGameState(
     lives: level.startingLives ?? STARTING_LIVES,
     waveIndex: 0,
     spawnedInWave: 0,
-    timeUntilWaveStart: level.waves[0]?.startDelay ?? 0,
+    timeUntilWaveStart: firstWave?.startDelay ?? 0,
     timeUntilNextSpawn: 0,
     enemies: [],
     towers: createInitialTowers(map),
@@ -473,15 +498,20 @@ export function tickGame(state: GameState, deltaSeconds: number): GameState {
     return state;
   }
 
+  const gameMode = state.gameMode ?? 'classic';
   const levelId = state.levelId ?? getDefaultGameLevelIdForMap(state.mapId);
   const level = loadGameLevel(levelId);
-  const waves = level.waves;
+  const waves = gameMode === 'classic' ? level.waves : [];
   const map = loadGameMap(level.mapId);
 
   const events: GameEvent[] = [];
   let hitEventBudget = 3;
   let fireEventBudget = 4;
+  let spawnEventBudget = 4;
   let impactEffectBudget = 8;
+  let fireEffectBudget = 10;
+  let deathEffectBudget = 6;
+  let spawnEffectBudget = 5;
 
   let status: MatchStatus = state.status;
   let lives = state.lives;
@@ -500,7 +530,8 @@ export function tickGame(state: GameState, deltaSeconds: number): GameState {
   let enemies: Enemy[] = [...state.enemies];
   const spawnedEffects: VisualEffect[] = [];
 
-  const currentWave = waves[waveIndex];
+  const currentWave =
+    gameMode === 'endless' ? buildEndlessWaveDefinition(waveIndex) : waves[waveIndex];
   if (currentWave) {
     if (timeUntilWaveStart > 0) {
       timeUntilWaveStart = Math.max(0, timeUntilWaveStart - dt);
@@ -510,13 +541,19 @@ export function tickGame(state: GameState, deltaSeconds: number): GameState {
       while (timeUntilNextSpawn <= 0 && spawnedInWave < currentWave.count) {
         const newEnemy = createEnemy(currentWave.enemyType, nextEnemyId, map);
         enemies.push(newEnemy);
-        spawnedEffects.push(createEffect('spawn', newEnemy.position, nextEffectId));
+        if (spawnEffectBudget > 0) {
+          spawnedEffects.push(createEffect('spawn', newEnemy.position, nextEffectId));
+          nextEffectId += 1;
+          spawnEffectBudget -= 1;
+        }
 
         nextEnemyId += 1;
-        nextEffectId += 1;
         spawnedInWave += 1;
         timeUntilNextSpawn += currentWave.spawnInterval;
-        nextEventId = appendEvent(events, nextEventId, 'spawn');
+        if (spawnEventBudget > 0) {
+          nextEventId = appendEvent(events, nextEventId, 'spawn');
+          spawnEventBudget -= 1;
+        }
       }
     }
   }
@@ -601,6 +638,16 @@ export function tickGame(state: GameState, deltaSeconds: number): GameState {
       if (cooldown <= 0 && fireEventBudget > 0) {
         nextEventId = appendEvent(events, nextEventId, 'fire', tower.towerType);
         fireEventBudget -= 1;
+        if (fireEffectBudget > 0) {
+          spawnedEffects.push(createEffect('muzzle', towerPosition, nextEffectId));
+          nextEffectId += 1;
+          fireEffectBudget -= 1;
+        }
+        if (impactEffectBudget > 0) {
+          spawnedEffects.push(createEffect('shock', target.position, nextEffectId));
+          nextEffectId += 1;
+          impactEffectBudget -= 1;
+        }
         cooldown += BEAM_FIRE_EVENT_INTERVAL_SECONDS;
       }
     } else if (cooldown <= 0 && target) {
@@ -622,6 +669,11 @@ export function tickGame(state: GameState, deltaSeconds: number): GameState {
       if (fireEventBudget > 0) {
         nextEventId = appendEvent(events, nextEventId, 'fire', tower.towerType);
         fireEventBudget -= 1;
+      }
+      if (fireEffectBudget > 0) {
+        spawnedEffects.push(createEffect('muzzle', towerPosition, nextEffectId));
+        nextEffectId += 1;
+        fireEffectBudget -= 1;
       }
       cooldown += 1 / towerStats.fireRate;
     }
@@ -687,6 +739,11 @@ export function tickGame(state: GameState, deltaSeconds: number): GameState {
         nextEffectId += 1;
         impactEffectBudget -= 1;
       }
+      if (impactEffectBudget > 0 && projectile.damage >= 20) {
+        hitEffects.push(createEffect('burst', impactPosition, nextEffectId));
+        nextEffectId += 1;
+        impactEffectBudget -= 1;
+      }
       if (hitEventBudget > 0) {
         nextEventId = appendEvent(events, nextEventId, 'hit', projectile.towerType);
         hitEventBudget -= 1;
@@ -704,6 +761,7 @@ export function tickGame(state: GameState, deltaSeconds: number): GameState {
   }
 
   const survivingEnemies: Enemy[] = [];
+  const deathEffects: VisualEffect[] = [];
   for (const enemy of enemies) {
     const damage = damageByEnemy.get(enemy.id) ?? 0;
     let nextEnemy: Enemy | null = enemy;
@@ -722,6 +780,16 @@ export function tickGame(state: GameState, deltaSeconds: number): GameState {
 
     if (!nextEnemy) {
       money += enemy.reward;
+      if (deathEffectBudget > 0) {
+        deathEffects.push(createEffect('burst', enemy.position, nextEffectId));
+        nextEffectId += 1;
+        deathEffectBudget -= 1;
+      }
+      if ((enemy.enemyType === 'crusher' || enemy.enemyType === 'hex') && impactEffectBudget > 0) {
+        deathEffects.push(createEffect('shock', enemy.position, nextEffectId));
+        nextEffectId += 1;
+        impactEffectBudget -= 1;
+      }
       continue;
     }
 
@@ -746,13 +814,15 @@ export function tickGame(state: GameState, deltaSeconds: number): GameState {
     status = 'lost';
     lives = 0;
   } else {
-    const activeWave = waves[waveIndex];
+    const activeWave =
+      gameMode === 'endless' ? buildEndlessWaveDefinition(waveIndex) : waves[waveIndex];
     if (activeWave && spawnedInWave >= activeWave.count && enemies.length === 0) {
       waveIndex += 1;
       spawnedInWave = 0;
       timeUntilNextSpawn = 0;
 
-      const nextWave = waves[waveIndex];
+      const nextWave =
+        gameMode === 'endless' ? buildEndlessWaveDefinition(waveIndex) : waves[waveIndex];
       if (nextWave) {
         timeUntilWaveStart = INTER_WAVE_DELAY_SECONDS + (nextWave.startDelay ?? 0);
       } else {
@@ -760,20 +830,22 @@ export function tickGame(state: GameState, deltaSeconds: number): GameState {
       }
     }
 
-    if (waveIndex >= waves.length && enemies.length === 0) {
+    if (gameMode === 'classic' && waveIndex >= waves.length && enemies.length === 0) {
       status = 'won';
     }
   }
 
-  const effects = [...state.effects, ...spawnedEffects, ...hitEffects]
+  const effects = [...state.effects, ...spawnedEffects, ...hitEffects, ...deathEffects]
     .map((effect) => ({
       ...effect,
       age: effect.age + dt,
     }))
-    .filter((effect) => effect.age < effect.duration);
+    .filter((effect) => effect.age < effect.duration)
+    .slice(-MAX_ACTIVE_EFFECTS);
 
   return {
     ...state,
+    gameMode,
     status,
     elapsed: state.elapsed + dt,
     money,

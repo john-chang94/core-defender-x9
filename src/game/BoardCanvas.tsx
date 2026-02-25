@@ -15,7 +15,7 @@ import { TOWER_TYPES } from '@/src/game/config';
 import { getTowerStats } from '@/src/game/engine';
 import type { LoadedGameMap } from '@/src/game/maps';
 import { cellCenter } from '@/src/game/path';
-import type { GameState, TowerTypeId } from '@/src/game/types';
+import type { EffectKind, GameState, TowerTypeId } from '@/src/game/types';
 
 type BoardCanvasProps = {
   boardWidth: number;
@@ -27,13 +27,16 @@ type BoardCanvasProps = {
 };
 
 const alphaColorCache = new Map<string, string>();
-const MAX_RENDERED_PROJECTILES = 130;
-const MAX_RENDERED_EFFECTS = 70;
+const MAX_ALPHA_COLOR_CACHE_ENTRIES = 512;
+const MAX_RENDERED_PROJECTILES = 110;
+const MAX_RENDERED_EFFECTS = 48;
 const trianglePathCache = new Map<number, ReturnType<typeof Skia.Path.Make>>();
+const polygonPathCache = new Map<string, ReturnType<typeof Skia.Path.Make>>();
+const spokeIndexCache = new Map<number, number[]>();
 
 function withAlpha(color: string, alpha: number): string {
   const boundedAlpha = Math.max(0, Math.min(1, alpha));
-  const roundedAlpha = Math.round(boundedAlpha * 1000) / 1000;
+  const roundedAlpha = Math.round(boundedAlpha * 100) / 100;
   const cacheKey = `${color}|${roundedAlpha}`;
   const cachedColor = alphaColorCache.get(cacheKey);
   if (cachedColor) {
@@ -62,8 +65,22 @@ function withAlpha(color: string, alpha: number): string {
   const blue = Number.parseInt(rgbHex.slice(4, 6), 16);
 
   const rgba = `rgba(${red}, ${green}, ${blue}, ${roundedAlpha})`;
+  if (alphaColorCache.size >= MAX_ALPHA_COLOR_CACHE_ENTRIES) {
+    alphaColorCache.clear();
+  }
   alphaColorCache.set(cacheKey, rgba);
   return rgba;
+}
+
+function getSpokeIndices(count: number) {
+  const cached = spokeIndexCache.get(count);
+  if (cached) {
+    return cached;
+  }
+
+  const indices = Array.from({ length: count }, (_, index) => index);
+  spokeIndexCache.set(count, indices);
+  return indices;
 }
 
 function createTrianglePath(
@@ -82,6 +99,26 @@ function createTrianglePath(
   return path;
 }
 
+function createRegularPolygonPath(
+  sides: number,
+  radius: number,
+  rotationRadians = 0
+) {
+  const path = Skia.Path.Make();
+  for (let index = 0; index < sides; index += 1) {
+    const angle = rotationRadians + (Math.PI * 2 * index) / sides - Math.PI / 2;
+    const x = Math.cos(angle) * radius;
+    const y = Math.sin(angle) * radius;
+    if (index === 0) {
+      path.moveTo(x, y);
+    } else {
+      path.lineTo(x, y);
+    }
+  }
+  path.close();
+  return path;
+}
+
 function getCenteredTrianglePath(size: number) {
   const roundedSize = Math.round(size * 1000) / 1000;
   const cachedPath = trianglePathCache.get(roundedSize);
@@ -93,6 +130,37 @@ function getCenteredTrianglePath(size: number) {
   const path = createTrianglePath(0, -halfSize, -halfSize, halfSize, halfSize, halfSize);
   trianglePathCache.set(roundedSize, path);
   return path;
+}
+
+function getCenteredPolygonPath(sides: number, size: number, rotationRadians = 0) {
+  const roundedSize = Math.round(size * 1000) / 1000;
+  const roundedRotation = Math.round(rotationRadians * 1000) / 1000;
+  const cacheKey = `${sides}|${roundedSize}|${roundedRotation}`;
+  const cachedPath = polygonPathCache.get(cacheKey);
+  if (cachedPath) {
+    return cachedPath;
+  }
+
+  const path = createRegularPolygonPath(sides, roundedSize / 2, roundedRotation);
+  polygonPathCache.set(cacheKey, path);
+  return path;
+}
+
+function getEffectStyle(kind: EffectKind) {
+  switch (kind) {
+    case 'muzzle':
+      return { spokeCount: 4, innerScale: 0.5, outerStroke: 0.9, lineAlpha: 0.95 };
+    case 'burst':
+      return { spokeCount: 8, innerScale: 0.42, outerStroke: 1.35, lineAlpha: 0.85 };
+    case 'shock':
+      return { spokeCount: 6, innerScale: 0.35, outerStroke: 1.1, lineAlpha: 0.8 };
+    case 'splash':
+      return { spokeCount: 7, innerScale: 0.3, outerStroke: 1.4, lineAlpha: 0.7 };
+    case 'spawn':
+      return { spokeCount: 5, innerScale: 0.48, outerStroke: 1.05, lineAlpha: 0.55 };
+    default:
+      return { spokeCount: 5, innerScale: 0.4, outerStroke: 1, lineAlpha: 0.65 };
+  }
 }
 
 function sampleForRender<T>(items: T[], maxItems: number): T[] {
@@ -286,8 +354,9 @@ export function BoardCanvas({
     [state.projectiles]
   );
   const renderLoad = state.enemies.length + state.projectiles.length + state.effects.length;
-  const useReducedDetail = renderLoad > 95;
-  const hideHealthBars = state.enemies.length > 52;
+  const useReducedDetail = renderLoad > 55;
+  const useVeryReducedEffects = state.effects.length > 22 || renderLoad > 80;
+  const hideHealthBars = state.enemies.length > 44;
   const gridLayer = useMemo(
     () => (
       <>
@@ -350,24 +419,58 @@ export function BoardCanvas({
         const progress = Math.min(1, effect.age / effect.duration);
         const radius = (effect.startRadius + (effect.endRadius - effect.startRadius) * progress) * cellSize;
         const opacity = 1 - progress;
-        const fillBaseAlpha = effect.kind === 'hit' ? 0.26 : 0.13;
+        const fillBaseAlpha = effect.kind === 'hit' || effect.kind === 'burst' ? 0.28 : 0.15;
+        const style = getEffectStyle(effect.kind);
+        const cx = effect.position.x * cellSize;
+        const cy = effect.position.y * cellSize;
+        const spokeRadius = radius * (0.55 + progress * 0.65);
+        const spokeInnerRadius = radius * style.innerScale * (1 - progress * 0.25);
         return (
           <Group key={effect.id}>
             <Circle
-              cx={effect.position.x * cellSize}
-              cy={effect.position.y * cellSize}
+              cx={cx}
+              cy={cy}
               r={radius}
               color={withAlpha(effect.color, fillBaseAlpha * opacity)}
             />
+            <Circle cx={cx} cy={cy} r={radius * style.innerScale} color={withAlpha(effect.color, 0.22 * opacity)} />
             {!useReducedDetail ? (
-              <Circle
-                cx={effect.position.x * cellSize}
-                cy={effect.position.y * cellSize}
-                r={radius}
-                style="stroke"
-                strokeWidth={1.5}
-                color={withAlpha(effect.color, 0.9 * opacity)}
-              />
+              <>
+                <Circle
+                  cx={cx}
+                  cy={cy}
+                  r={radius}
+                  style="stroke"
+                  strokeWidth={1.3 * style.outerStroke}
+                  color={withAlpha(effect.color, 0.95 * opacity)}
+                />
+                <Circle
+                  cx={cx}
+                  cy={cy}
+                  r={radius * (0.62 + progress * 0.1)}
+                  style="stroke"
+                  strokeWidth={1}
+                  color={withAlpha(effect.color, 0.52 * opacity)}
+                />
+                {!useVeryReducedEffects &&
+                  getSpokeIndices(style.spokeCount).map((spokeIndex) => {
+                  const angle = (Math.PI * 2 * spokeIndex) / style.spokeCount + progress * 0.55;
+                  const x1 = cx + Math.cos(angle) * spokeInnerRadius;
+                  const y1 = cy + Math.sin(angle) * spokeInnerRadius;
+                  const x2 = cx + Math.cos(angle) * spokeRadius;
+                  const y2 = cy + Math.sin(angle) * spokeRadius;
+                  return (
+                    <Line
+                      key={`${effect.id}-spoke-${spokeIndex}`}
+                      p1={vec(x1, y1)}
+                      p2={vec(x2, y2)}
+                      color={withAlpha(effect.color, style.lineAlpha * opacity)}
+                      strokeWidth={1}
+                      strokeCap="round"
+                    />
+                  );
+                })}
+              </>
             ) : null}
           </Group>
         );
@@ -428,24 +531,51 @@ export function BoardCanvas({
       })}
 
       {state.beams.map((beam) => (
-        <Line
-          key={beam.id}
-          p1={vec(beam.start.x * cellSize, beam.start.y * cellSize)}
-          p2={vec(beam.end.x * cellSize, beam.end.y * cellSize)}
-          color={withAlpha(beam.color, 0.85)}
-          strokeWidth={Math.max(2, beam.width * cellSize)}
-          strokeCap="round"
-        />
+        <Group key={beam.id}>
+          {!useReducedDetail ? (
+            <Line
+              p1={vec(beam.start.x * cellSize, beam.start.y * cellSize)}
+              p2={vec(beam.end.x * cellSize, beam.end.y * cellSize)}
+              color={withAlpha(beam.color, 0.22)}
+              strokeWidth={Math.max(5, beam.width * cellSize * 2.6)}
+              strokeCap="round"
+            />
+          ) : null}
+          <Line
+            p1={vec(beam.start.x * cellSize, beam.start.y * cellSize)}
+            p2={vec(beam.end.x * cellSize, beam.end.y * cellSize)}
+            color={withAlpha(beam.color, 0.82)}
+            strokeWidth={Math.max(2, beam.width * cellSize)}
+            strokeCap="round"
+          />
+          {!useReducedDetail ? (
+            <Circle
+              cx={beam.end.x * cellSize}
+              cy={beam.end.y * cellSize}
+              r={Math.max(2.5, beam.width * cellSize * 0.9)}
+              color={withAlpha(beam.color, 0.75)}
+            />
+          ) : null}
+        </Group>
       ))}
 
       {sampledProjectiles.map((projectile) => (
-        <Circle
-          key={projectile.id}
-          cx={projectile.position.x * cellSize}
-          cy={projectile.position.y * cellSize}
-          r={projectile.radius * cellSize}
-          color={projectile.color}
-        />
+        <Group key={projectile.id}>
+          {!useReducedDetail ? (
+            <Circle
+              cx={projectile.position.x * cellSize}
+              cy={projectile.position.y * cellSize}
+              r={projectile.radius * cellSize * 1.9}
+              color={withAlpha(projectile.color, 0.18)}
+            />
+          ) : null}
+          <Circle
+            cx={projectile.position.x * cellSize}
+            cy={projectile.position.y * cellSize}
+            r={projectile.radius * cellSize}
+            color={projectile.color}
+          />
+        </Group>
       ))}
 
       {state.enemies.map((enemy) => {
@@ -458,6 +588,9 @@ export function BoardCanvas({
         const isSlowed = enemy.slowTimeRemaining > 0 && enemy.slowMultiplier < 1;
 
         const trianglePath = enemy.shape === 'triangle' ? getCenteredTrianglePath(size) : null;
+        const diamondPath =
+          enemy.shape === 'diamond' ? getCenteredPolygonPath(4, size, Math.PI / 4) : null;
+        const hexPath = enemy.shape === 'hexagon' ? getCenteredPolygonPath(6, size, Math.PI / 6) : null;
 
         return (
           <Group key={enemy.id}>
@@ -520,6 +653,24 @@ export function BoardCanvas({
                 <Path path={trianglePath} color={enemy.color} />
                 {!useReducedDetail ? (
                   <Path path={trianglePath} style="stroke" strokeWidth={1} color="#101827" />
+                ) : null}
+              </Group>
+            ) : null}
+
+            {enemy.shape === 'diamond' && diamondPath ? (
+              <Group transform={[{ translateX: cx }, { translateY: cy }]}>
+                <Path path={diamondPath} color={enemy.color} />
+                {!useReducedDetail ? (
+                  <Path path={diamondPath} style="stroke" strokeWidth={1} color="#101827" />
+                ) : null}
+              </Group>
+            ) : null}
+
+            {enemy.shape === 'hexagon' && hexPath ? (
+              <Group transform={[{ translateX: cx }, { translateY: cy }]}>
+                <Path path={hexPath} color={enemy.color} />
+                {!useReducedDetail ? (
+                  <Path path={hexPath} style="stroke" strokeWidth={1} color="#101827" />
                 ) : null}
               </Group>
             ) : null}

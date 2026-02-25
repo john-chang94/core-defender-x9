@@ -53,6 +53,28 @@ export const ENEMY_TYPES: Record<EnemyTypeId, EnemyType> = {
     reward: 13,
     coreDamage: 1,
   },
+  crusher: {
+    id: 'crusher',
+    label: 'Crusher',
+    shape: 'diamond',
+    color: '#FF6F91',
+    radius: 0.34,
+    maxHealth: 96,
+    speed: 0.86,
+    reward: 24,
+    coreDamage: 2,
+  },
+  hex: {
+    id: 'hex',
+    label: 'Hex',
+    shape: 'hexagon',
+    color: '#F4CC66',
+    radius: 0.38,
+    maxHealth: 148,
+    speed: 0.72,
+    reward: 34,
+    coreDamage: 3,
+  },
 };
 
 export const TOWER_TYPES: Record<TowerTypeId, TowerType> = {

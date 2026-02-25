@@ -8,24 +8,27 @@ export type Cell = {
   row: number;
 };
 
-export type EnemyShape = 'circle' | 'square' | 'triangle';
+export type EnemyShape = 'circle' | 'square' | 'triangle' | 'diamond' | 'hexagon';
 
-export type EnemyTypeId = 'spark' | 'block' | 'spike';
+export type EnemyTypeId = 'spark' | 'block' | 'spike' | 'crusher' | 'hex';
 
 export type TowerTypeId = 'pulse' | 'lance' | 'spray' | 'bomb' | 'cold' | 'laser';
 export type TargetMode = 'first' | 'last' | 'strong';
-export type EffectKind = 'spawn' | 'hit' | 'place' | 'upgrade' | 'sell' | 'splash' | 'chill';
+export type EffectKind =
+  | 'spawn'
+  | 'hit'
+  | 'place'
+  | 'upgrade'
+  | 'sell'
+  | 'splash'
+  | 'chill'
+  | 'muzzle'
+  | 'burst'
+  | 'shock';
 export type GameEventType = EffectKind | 'targetMode' | 'fire';
 export type GameMapId = 'relay' | 'switchback';
-export type GameLevelId =
-  | 'relay-1'
-  | 'relay-2'
-  | 'relay-3'
-  | 'relay-4'
-  | 'switchback-1'
-  | 'switchback-2'
-  | 'switchback-3'
-  | 'switchback-4';
+export type GameLevelId = string;
+export type GameMode = 'classic' | 'endless';
 export type AttackKind = 'projectile' | 'splash' | 'slow' | 'beam';
 
 export type EnemyType = {
@@ -87,6 +90,9 @@ export type GameLevelDefinition = {
   waves: WaveDefinition[];
   startingMoney?: number;
   startingLives?: number;
+  levelNumber?: number;
+  totalLevels?: number;
+  isMilestoneLevel?: boolean;
 };
 
 export type MatchStatus = 'running' | 'won' | 'lost';
@@ -160,6 +166,7 @@ export type GameEvent = {
 };
 
 export type GameState = {
+  gameMode: GameMode;
   mapId: GameMapId;
   levelId: GameLevelId;
   status: MatchStatus;

@@ -1,4 +1,4 @@
-import { createAudioPlayer, setAudioModeAsync, type AudioPlayer } from 'expo-audio';
+import { createAudioPlayer, setAudioModeAsync, setIsAudioActiveAsync, type AudioPlayer } from 'expo-audio';
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import type { GestureResponderEvent } from 'react-native';
 import { Pressable, SafeAreaView, StyleSheet, Text, View, useWindowDimensions } from 'react-native';
@@ -18,10 +18,15 @@ import {
   upgradeTower,
 } from '@/src/game/engine';
 import { BoardCanvas } from '@/src/game/BoardCanvas';
-import { getDefaultGameLevelIdForMap, listGameLevels, loadGameLevel } from '@/src/game/levels';
+import {
+  buildEndlessWaveDefinition,
+  getDefaultGameLevelIdForMap,
+  isChallengeWaveNumber,
+  loadGameLevel,
+} from '@/src/game/levels';
 import { DEFAULT_GAME_MAP_ID, listGameMaps, loadGameMap } from '@/src/game/maps';
 import { cellCenter } from '@/src/game/path';
-import type { GameEvent, GameLevelId, GameMapId, TargetMode, TowerTypeId } from '@/src/game/types';
+import type { GameEvent, GameMapId, GameMode, TargetMode, TowerTypeId } from '@/src/game/types';
 
 const BOARD_PADDING = 14;
 const TARGET_MODE_LABELS: Record<TargetMode, string> = {
@@ -32,6 +37,7 @@ const TARGET_MODE_LABELS: Record<TargetMode, string> = {
 const SIMULATION_STEP_SECONDS = 1 / 60;
 const MAX_CATCH_UP_STEPS = 4;
 const MAX_FRAME_DELTA_SECONDS = 0.1;
+const MAX_SOUNDS_PER_EVENT_BATCH = 6;
 
 type SimulationSpeed = 1 | 2 | 3;
 type SoundEffectKey =
@@ -201,6 +207,10 @@ function mapGameEventToSound(event: GameEvent): SoundEffectKey | null {
     return 'coldImpact';
   }
 
+  if (event.type === 'muzzle' || event.type === 'burst' || event.type === 'shock') {
+    return null;
+  }
+
   return event.type;
 }
 
@@ -217,6 +227,7 @@ export default function DefenseScreen() {
 
   const soundPoolsRef = useRef<Record<SoundEffectKey, AudioPlayer[]>>(createEmptySoundPool());
   const soundCursorRef = useRef<Record<SoundEffectKey, number>>(createEmptySoundCursor());
+  const supportsCurrentTimeResetRef = useRef<boolean | null>(null);
   const lastSoundAtRef = useRef<Record<SoundEffectKey, number>>({
     spawn: 0,
     hit: 0,
@@ -235,12 +246,17 @@ export default function DefenseScreen() {
   });
   const gameMaps = useMemo(() => listGameMaps(), []);
   const activeLevel = useMemo(
-    () => loadGameLevel(gameState.levelId ?? getDefaultGameLevelIdForMap(gameState.mapId)),
+    () => loadGameLevel(gameState.levelId ?? getDefaultGameLevelIdForMap(gameState.mapId, 'classic')),
     [gameState.levelId, gameState.mapId]
   );
-  const mapLevels = useMemo(() => listGameLevels(gameState.mapId), [gameState.mapId]);
-  const waves = activeLevel.waves;
+  const isClassicMode = gameState.gameMode === 'classic';
+  const waves = useMemo(() => (isClassicMode ? activeLevel.waves : []), [activeLevel.waves, isClassicMode]);
   const activeMap = useMemo(() => loadGameMap(gameState.mapId), [gameState.mapId]);
+  const currentWaveDefinition = useMemo(
+    () =>
+      isClassicMode ? waves[gameState.waveIndex] ?? null : buildEndlessWaveDefinition(gameState.waveIndex),
+    [gameState.waveIndex, isClassicMode, waves]
+  );
 
   const { width, height } = useWindowDimensions();
   const sidePanelWidth = Math.min(336, Math.max(260, width * 0.31));
@@ -251,7 +267,7 @@ export default function DefenseScreen() {
   const boardHeight = activeMap.rows * cellSize;
 
   const playSound = useCallback(
-    async (soundKey: SoundEffectKey) => {
+    (soundKey: SoundEffectKey) => {
       if (!soundEnabled || !soundsReady) {
         return;
       }
@@ -270,11 +286,33 @@ export default function DefenseScreen() {
       lastSoundAtRef.current[soundKey] = now;
 
       const nextCursor = soundCursorRef.current[soundKey] % pool.length;
-      soundCursorRef.current[soundKey] = (nextCursor + 1) % pool.length;
+      let selectedIndex = -1;
+      for (let offset = 0; offset < pool.length; offset += 1) {
+        const candidateIndex = (nextCursor + offset) % pool.length;
+        const candidate = pool[candidateIndex];
+        if (!candidate.playing && !candidate.isBuffering) {
+          selectedIndex = candidateIndex;
+          break;
+        }
+      }
 
-      const sound = pool[nextCursor];
+      if (selectedIndex === -1) {
+        return;
+      }
+
+      soundCursorRef.current[soundKey] = (selectedIndex + 1) % pool.length;
+      const sound = pool[selectedIndex];
+
+      if (supportsCurrentTimeResetRef.current !== false) {
+        try {
+          sound.currentTime = 0;
+          supportsCurrentTimeResetRef.current = true;
+        } catch {
+          supportsCurrentTimeResetRef.current = false;
+        }
+      }
+
       try {
-        await sound.seekTo(0);
         sound.play();
       } catch {
         // Ignore audio playback errors; gameplay should remain unaffected.
@@ -288,38 +326,49 @@ export default function DefenseScreen() {
 
     const loadSounds = async () => {
       try {
+        await setIsAudioActiveAsync(true);
+      } catch (error) {
+        console.warn('Audio subsystem activation failed', error);
+      }
+
+      try {
         await setAudioModeAsync({
           playsInSilentMode: true,
           interruptionMode: 'duckOthers',
           shouldPlayInBackground: false,
         });
+      } catch (error) {
+        console.warn('Audio mode setup failed', error);
+      }
 
-        const nextPool = createEmptySoundPool();
-        const keys = Object.keys(SOUND_FILES) as SoundEffectKey[];
+      const nextPool = createEmptySoundPool();
+      const keys = Object.keys(SOUND_FILES) as SoundEffectKey[];
 
-        for (const soundKey of keys) {
-          const poolSize = SOUND_POOL_SIZE[soundKey];
-          for (let index = 0; index < poolSize; index += 1) {
+      for (const soundKey of keys) {
+        const poolSize = SOUND_POOL_SIZE[soundKey];
+        for (let index = 0; index < poolSize; index += 1) {
+          try {
             const sound = createAudioPlayer(SOUND_FILES[soundKey]);
             sound.volume = SOUND_VOLUMES[soundKey];
             nextPool[soundKey].push(sound);
+          } catch (error) {
+            console.warn(`Failed to create audio player for ${soundKey}`, error);
           }
         }
-
-        if (disposed) {
-          for (const soundKey of keys) {
-            for (const sound of nextPool[soundKey]) {
-              sound.remove();
-            }
-          }
-          return;
-        }
-
-        soundPoolsRef.current = nextPool;
-        setSoundsReady(true);
-      } catch {
-        setSoundsReady(false);
       }
+
+      if (disposed) {
+        for (const soundKey of keys) {
+          for (const sound of nextPool[soundKey]) {
+            sound.remove();
+          }
+        }
+        return;
+      }
+
+      soundPoolsRef.current = nextPool;
+      const hasAnySounds = keys.some((soundKey) => nextPool[soundKey].length > 0);
+      setSoundsReady(hasAnySounds);
     };
 
     void loadSounds();
@@ -327,6 +376,7 @@ export default function DefenseScreen() {
     return () => {
       disposed = true;
       setSoundsReady(false);
+      supportsCurrentTimeResetRef.current = null;
       soundCursorRef.current = createEmptySoundCursor();
       lastSoundAtRef.current = {
         spawn: 0,
@@ -413,40 +463,53 @@ export default function DefenseScreen() {
       return;
     }
 
+    let soundsPlayed = 0;
     for (const event of gameState.recentEvents) {
+      if (soundsPlayed >= MAX_SOUNDS_PER_EVENT_BATCH) {
+        break;
+      }
       const soundKey = mapGameEventToSound(event);
       if (soundKey) {
-        void playSound(soundKey);
+        playSound(soundKey);
+        soundsPlayed += 1;
       }
     }
   }, [gameState.recentEvents, playSound]);
 
   const statusText = useMemo(() => {
     if (gameState.status === 'won') {
-      return 'Server stabilized. Waves cleared.';
+      return isClassicMode ? 'Classic level cleared.' : 'Endless surge repelled.';
     }
 
     if (gameState.status === 'lost') {
       return 'Core breached. Press restart.';
     }
 
-    const wave = waves[gameState.waveIndex];
+    const wave = currentWaveDefinition;
     if (!wave) {
       return 'Finishing simulation...';
     }
 
+    const waveNumber = gameState.waveIndex + 1;
+    const challengeTag = isChallengeWaveNumber(waveNumber) ? 'Challenge ' : '';
+
     if (gameState.timeUntilWaveStart > 0) {
-      return `Wave ${gameState.waveIndex + 1} in ${gameState.timeUntilWaveStart.toFixed(1)}s`;
+      return `${challengeTag}Wave ${waveNumber} in ${gameState.timeUntilWaveStart.toFixed(1)}s`;
     }
 
     if (gameState.spawnedInWave < wave.count) {
-      return `Spawning ${wave.enemyType} ${gameState.spawnedInWave}/${wave.count}`;
+      return `${challengeTag}Spawning ${wave.enemyType} ${gameState.spawnedInWave}/${wave.count}`;
     }
 
     return `Cleanup phase: ${gameState.enemies.length} enemies left`;
-  }, [gameState, waves]);
+  }, [currentWaveDefinition, gameState, isClassicMode]);
 
   const countdownSeconds = gameState.timeUntilWaveStart;
+  const currentWaveNumber = gameState.waveIndex + 1;
+  const isChallengeWave = isChallengeWaveNumber(currentWaveNumber);
+  const waveCounterText = isClassicMode
+    ? `${Math.min(currentWaveNumber, Math.max(1, waves.length))}/${Math.max(1, waves.length)}`
+    : `${currentWaveNumber}/∞`;
   const isCountdownActive = hasStarted && gameState.status === 'running' && countdownSeconds > 0;
   const isCountdownCritical = isCountdownActive && countdownSeconds <= 3;
   const isCountdownDanger = isCountdownActive && countdownSeconds <= 1.5;
@@ -488,7 +551,7 @@ export default function DefenseScreen() {
     : false;
 
   const handleRestart = () => {
-    setGameState(createInitialGameState(gameState.mapId, gameState.levelId));
+    setGameState(createInitialGameState(gameState.mapId, gameState.levelId, gameState.gameMode));
     setSelectedPlacedTowerId(null);
     setHasStarted(false);
     setIsPaused(true);
@@ -550,8 +613,8 @@ export default function DefenseScreen() {
   };
 
   const handleSwitchMap = (mapId: GameMapId) => {
-    const nextLevelId = getDefaultGameLevelIdForMap(mapId);
-    setGameState(createInitialGameState(mapId, nextLevelId));
+    const nextLevelId = getDefaultGameLevelIdForMap(mapId, gameState.gameMode);
+    setGameState(createInitialGameState(mapId, nextLevelId, gameState.gameMode));
     setSelectedPlacedTowerId(null);
     setHasStarted(false);
     setIsPaused(true);
@@ -559,9 +622,13 @@ export default function DefenseScreen() {
     setIsMenuOpen(false);
   };
 
-  const handleSwitchLevel = (levelId: GameLevelId) => {
-    const level = loadGameLevel(levelId);
-    setGameState(createInitialGameState(level.mapId, levelId));
+  const handleSwitchMode = (mode: GameMode) => {
+    const nextLevelId =
+      mode === 'classic'
+        ? getDefaultGameLevelIdForMap(gameState.mapId, 'classic')
+        : (gameState.levelId ?? getDefaultGameLevelIdForMap(gameState.mapId, 'classic'));
+
+    setGameState(createInitialGameState(gameState.mapId, nextLevelId, mode));
     setSelectedPlacedTowerId(null);
     setHasStarted(false);
     setIsPaused(true);
@@ -607,7 +674,7 @@ export default function DefenseScreen() {
                 ]}>
                 {isCountdownActive
                   ? `Next ${countdownSeconds.toFixed(1)}s`
-                  : `Wave ${Math.min(gameState.waveIndex + 1, waves.length)}/${waves.length}`}
+                  : `${isChallengeWave ? 'Challenge ' : ''}Wave ${waveCounterText}`}
               </Text>
             </View>
 
@@ -673,6 +740,21 @@ export default function DefenseScreen() {
           {isMenuOpen ? (
             <View style={styles.menuPanel}>
               <Text style={styles.menuTitle}>Menu</Text>
+              <Text style={styles.menuLabel}>Mode</Text>
+              <View style={styles.menuModeRow}>
+                {(['classic', 'endless'] as GameMode[]).map((mode) => {
+                  const isActive = gameState.gameMode === mode;
+                  return (
+                    <Pressable
+                      key={`menu-mode-${mode}`}
+                      onPress={() => handleSwitchMode(mode)}
+                      style={[styles.menuModeButton, isActive && styles.menuModeButtonActive]}>
+                      <Text style={styles.menuModeButtonText}>{mode === 'classic' ? 'Classic' : 'Endless'}</Text>
+                    </Pressable>
+                  );
+                })}
+              </View>
+
               <Text style={styles.menuLabel}>Map</Text>
               <View style={styles.menuMapRow}>
                 {gameMaps.map((map) => {
@@ -688,20 +770,11 @@ export default function DefenseScreen() {
                 })}
               </View>
 
-              <Text style={styles.menuLabel}>Level</Text>
-              <View style={styles.menuLevelGrid}>
-                {mapLevels.map((level) => {
-                  const isActive = level.id === gameState.levelId;
-                  return (
-                    <Pressable
-                      key={`menu-level-${level.id}`}
-                      onPress={() => handleSwitchLevel(level.id)}
-                      style={[styles.menuLevelButton, isActive && styles.menuLevelButtonActive]}>
-                      <Text style={styles.menuLevelButtonText}>{level.label}</Text>
-                    </Pressable>
-                  );
-                })}
-              </View>
+              {!isClassicMode ? (
+                <Text style={styles.menuHintText}>
+                  Endless runs indefinitely. Every 10th wave is a challenge surge.
+                </Text>
+              ) : null}
 
               <View style={styles.menuActions}>
                 <Pressable
@@ -731,10 +804,8 @@ export default function DefenseScreen() {
               <Text style={styles.hudValue}>{gameState.lives}</Text>
             </View>
             <View style={styles.hudChip}>
-              <Text style={styles.hudLabel}>Wave</Text>
-              <Text style={styles.hudValue}>
-                {Math.min(gameState.waveIndex + 1, waves.length)}/{waves.length}
-              </Text>
+              <Text style={styles.hudLabel}>Mode</Text>
+              <Text style={styles.hudValue}>{isClassicMode ? 'Classic' : 'Endless'}</Text>
             </View>
             <View style={styles.hudChip}>
               <Text style={styles.hudLabel}>Enemies</Text>
@@ -974,6 +1045,28 @@ const styles = StyleSheet.create({
     flexDirection: 'row',
     gap: 8,
   },
+  menuModeRow: {
+    flexDirection: 'row',
+    gap: 8,
+  },
+  menuModeButton: {
+    flex: 1,
+    borderWidth: 1,
+    borderColor: '#3A475F',
+    borderRadius: 8,
+    backgroundColor: '#0F1726',
+    paddingVertical: 8,
+    alignItems: 'center',
+  },
+  menuModeButtonActive: {
+    borderColor: '#7EC0FF',
+    backgroundColor: '#18304A',
+  },
+  menuModeButtonText: {
+    color: '#E8F1FF',
+    fontSize: 12,
+    fontWeight: '700',
+  },
   menuMapButton: {
     flex: 1,
     borderWidth: 1,
@@ -998,12 +1091,12 @@ const styles = StyleSheet.create({
     gap: 8,
   },
   menuLevelButton: {
-    width: '48%',
+    width: '31%',
     borderWidth: 1,
     borderColor: '#334462',
     borderRadius: 8,
     backgroundColor: '#101B2D',
-    paddingVertical: 8,
+    paddingVertical: 6,
     alignItems: 'center',
   },
   menuLevelButtonActive: {
@@ -1012,8 +1105,13 @@ const styles = StyleSheet.create({
   },
   menuLevelButtonText: {
     color: '#DFEAFF',
-    fontSize: 12,
+    fontSize: 11,
     fontWeight: '700',
+  },
+  menuHintText: {
+    color: '#9CB1CF',
+    fontSize: 12,
+    lineHeight: 17,
   },
   menuActions: {
     flexDirection: 'row',
