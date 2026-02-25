@@ -17,6 +17,10 @@
           "UIInterfaceOrientationLandscapeLeft",
           "UIInterfaceOrientationLandscapeRight",
           "UIInterfaceOrientationLandscapeLeft",
+          "UIInterfaceOrientationLandscapeRight",
+          "UIInterfaceOrientationLandscapeLeft",
+          "UIInterfaceOrientationLandscapeRight",
+          "UIInterfaceOrientationLandscapeLeft",
           "UIInterfaceOrientationLandscapeRight"
         ],
         "ITSAppUsesNonExemptEncryption": false
@@ -31,7 +35,13 @@
       },
       "edgeToEdgeEnabled": true,
       "predictiveBackGestureEnabled": false,
-      "package": "com.johnc94.defender"
+      "package": "com.johnc94.defender",
+      "permissions": [
+        "android.permission.RECORD_AUDIO",
+        "android.permission.MODIFY_AUDIO_SETTINGS",
+        "android.permission.RECORD_AUDIO",
+        "android.permission.MODIFY_AUDIO_SETTINGS"
+      ]
     },
     "web": {
       "output": "static",
@@ -63,6 +73,12 @@
       "eas": {
         "projectId": "d99ece54-c1a7-4fba-80e4-09a94116db28"
       }
+    },
+    "runtimeVersion": {
+      "policy": "appVersion"
+    },
+    "updates": {
+      "url": "https://u.expo.dev/d99ece54-c1a7-4fba-80e4-09a94116db28"
     }
   }
 }
