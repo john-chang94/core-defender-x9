@@ -11,6 +11,7 @@ export type Cell = {
 export type EnemyShape = 'circle' | 'square' | 'triangle' | 'diamond' | 'hexagon';
 
 export type EnemyTypeId = 'spark' | 'block' | 'spike' | 'crusher' | 'hex';
+export type EnemyLevel = 1 | 2 | 3;
 
 export type TowerTypeId = 'pulse' | 'lance' | 'spray' | 'bomb' | 'cold' | 'laser';
 export type TargetMode = 'first' | 'last' | 'strong';
@@ -100,6 +101,7 @@ export type MatchStatus = 'running' | 'won' | 'lost';
 export type Enemy = {
   id: string;
   enemyType: EnemyTypeId;
+  level: EnemyLevel;
   shape: EnemyShape;
   color: string;
   radius: number;

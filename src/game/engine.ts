@@ -23,8 +23,10 @@ import { DEFAULT_GAME_MAP_ID, loadGameMap, type LoadedGameMap } from '@/src/game
 import type {
   Beam,
   Cell,
+  EnemyShape,
   EffectKind,
   Enemy,
+  EnemyLevel,
   EnemyTypeId,
   GameEvent,
   GameEventType,
@@ -46,6 +48,34 @@ const TARGET_MODE_ORDER: TargetMode[] = ['first', 'last', 'strong'];
 const DEFAULT_TOWER_AIM_ANGLE = -Math.PI / 2;
 const BEAM_FIRE_EVENT_INTERVAL_SECONDS = 0.12;
 const MAX_ACTIVE_EFFECTS = 96;
+const ENEMY_HEALTH_MULTIPLIER_BY_SHAPE: Record<EnemyShape, number> = {
+  circle: 1.1,
+  triangle: 1.1,
+  square: 1.1,
+  diamond: 1.05,
+  hexagon: 1.05,
+};
+const ENEMY_REWARD_MULTIPLIER_BY_SHAPE: Record<EnemyShape, number> = {
+  circle: 1,
+  triangle: 0.85,
+  square: 0.85,
+  diamond: 0.85,
+  hexagon: 0.85,
+};
+const ENEMY_LEVEL_SCALING: Record<
+  EnemyLevel,
+  {
+    radius: number;
+    health: number;
+    speed: number;
+    reward: number;
+    coreDamage: number;
+  }
+> = {
+  1: { radius: 1, health: 1, speed: 1, reward: 1, coreDamage: 1 },
+  2: { radius: 1.16, health: 1.55, speed: 1.12, reward: 1.35, coreDamage: 1.5 },
+  3: { radius: 1.34, health: 2.25, speed: 1.28, reward: 1.85, coreDamage: 2 },
+};
 
 type EffectPreset = {
   duration: number;
@@ -146,19 +176,73 @@ function createEffect(kind: EffectKind, position: Vector2, nextEffectId: number)
   };
 }
 
-function createEnemy(enemyTypeId: EnemyTypeId, nextEnemyId: number, map: LoadedGameMap): Enemy {
+function resolveEnemyLevel(waveNumber: number, spawnOrdinal: number): EnemyLevel {
+  const isChallengeWave = waveNumber % 10 === 0;
+
+  if (waveNumber <= 8) {
+    return 1;
+  }
+
+  if (waveNumber <= 14) {
+    if (isChallengeWave) {
+      return 2;
+    }
+    return spawnOrdinal % 4 === 0 ? 2 : 1;
+  }
+
+  if (waveNumber <= 20) {
+    if (isChallengeWave) {
+      return spawnOrdinal % 3 === 0 ? 3 : 2;
+    }
+    return spawnOrdinal % 3 === 0 ? 1 : 2;
+  }
+
+  if (waveNumber <= 30) {
+    if (isChallengeWave) {
+      return 3;
+    }
+    return spawnOrdinal % 4 === 0 ? 2 : 3;
+  }
+
+  return spawnOrdinal % 5 === 0 ? 2 : 3;
+}
+
+function createEnemy(
+  enemyTypeId: EnemyTypeId,
+  nextEnemyId: number,
+  map: LoadedGameMap,
+  waveNumber: number,
+  spawnOrdinal: number
+): Enemy {
   const template = ENEMY_TYPES[enemyTypeId];
+  const level = resolveEnemyLevel(waveNumber, spawnOrdinal);
+  const scaling = ENEMY_LEVEL_SCALING[level];
+  const healthMultiplier = ENEMY_HEALTH_MULTIPLIER_BY_SHAPE[template.shape];
+  const rewardMultiplier = ENEMY_REWARD_MULTIPLIER_BY_SHAPE[template.shape];
+  const maxHealth = Math.max(
+    1,
+    Math.round(template.maxHealth * scaling.health * healthMultiplier)
+  );
+  const speed = template.speed * scaling.speed;
+  const radius = template.radius * scaling.radius;
+  const reward = Math.max(
+    1,
+    Math.round(template.reward * scaling.reward * rewardMultiplier)
+  );
+  const coreDamage = Math.max(1, Math.round(template.coreDamage * scaling.coreDamage));
+
   return {
     id: `E${nextEnemyId}`,
     enemyType: template.id,
+    level,
     shape: template.shape,
     color: template.color,
-    radius: template.radius,
-    speed: template.speed,
-    reward: template.reward,
-    coreDamage: template.coreDamage,
-    maxHealth: template.maxHealth,
-    health: template.maxHealth,
+    radius,
+    speed,
+    reward,
+    coreDamage,
+    maxHealth,
+    health: maxHealth,
     progress: 0,
     position: samplePolyline(map.route, 0),
     slowMultiplier: 1,
@@ -537,9 +621,16 @@ export function tickGame(state: GameState, deltaSeconds: number): GameState {
       timeUntilWaveStart = Math.max(0, timeUntilWaveStart - dt);
     } else if (spawnedInWave < currentWave.count) {
       timeUntilNextSpawn -= dt;
+      const currentWaveNumber = waveIndex + 1;
 
       while (timeUntilNextSpawn <= 0 && spawnedInWave < currentWave.count) {
-        const newEnemy = createEnemy(currentWave.enemyType, nextEnemyId, map);
+        const newEnemy = createEnemy(
+          currentWave.enemyType,
+          nextEnemyId,
+          map,
+          currentWaveNumber,
+          spawnedInWave
+        );
         enemies.push(newEnemy);
         if (spawnEffectBudget > 0) {
           spawnedEffects.push(createEffect('spawn', newEnemy.position, nextEffectId));

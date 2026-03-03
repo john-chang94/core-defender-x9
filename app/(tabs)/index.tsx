@@ -38,6 +38,10 @@ const SIMULATION_STEP_SECONDS = 1 / 60;
 const MAX_CATCH_UP_STEPS = 4;
 const MAX_FRAME_DELTA_SECONDS = 0.1;
 const MAX_SOUNDS_PER_EVENT_BATCH = 6;
+const BACKGROUND_MUSIC_FILE = require('../../assets/awake10_megaWall.mp3');
+const DEFAULT_SFX_VOLUME = 0.8;
+const DEFAULT_MUSIC_VOLUME = 0.45;
+const VOLUME_STEP = 0.1;
 
 type SimulationSpeed = 1 | 2 | 3;
 type SoundEffectKey =
@@ -162,6 +166,14 @@ function createEmptySoundCursor(): Record<SoundEffectKey, number> {
   };
 }
 
+function clampUnit(value: number): number {
+  return Math.max(0, Math.min(1, value));
+}
+
+function formatVolumePercent(value: number): string {
+  return `${Math.round(clampUnit(value) * 100)}%`;
+}
+
 function mapGameEventToSound(event: GameEvent): SoundEffectKey | null {
   if (event.type === 'targetMode') {
     return 'targetMode';
@@ -223,10 +235,15 @@ export default function DefenseScreen() {
   const [isPaused, setIsPaused] = useState(true);
   const [isMenuOpen, setIsMenuOpen] = useState(false);
   const [soundEnabled, setSoundEnabled] = useState(true);
+  const [sfxVolume, setSfxVolume] = useState(DEFAULT_SFX_VOLUME);
   const [soundsReady, setSoundsReady] = useState(false);
+  const [musicEnabled, setMusicEnabled] = useState(true);
+  const [musicVolume, setMusicVolume] = useState(DEFAULT_MUSIC_VOLUME);
+  const [musicReady, setMusicReady] = useState(false);
 
   const soundPoolsRef = useRef<Record<SoundEffectKey, AudioPlayer[]>>(createEmptySoundPool());
   const soundCursorRef = useRef<Record<SoundEffectKey, number>>(createEmptySoundCursor());
+  const musicPlayerRef = useRef<AudioPlayer | null>(null);
   const supportsCurrentTimeResetRef = useRef<boolean | null>(null);
   const lastSoundAtRef = useRef<Record<SoundEffectKey, number>>({
     spawn: 0,
@@ -268,7 +285,7 @@ export default function DefenseScreen() {
 
   const playSound = useCallback(
     (soundKey: SoundEffectKey) => {
-      if (!soundEnabled || !soundsReady) {
+      if (!soundEnabled || !soundsReady || sfxVolume <= 0) {
         return;
       }
 
@@ -303,22 +320,31 @@ export default function DefenseScreen() {
       soundCursorRef.current[soundKey] = (selectedIndex + 1) % pool.length;
       const sound = pool[selectedIndex];
 
+      const playSafely = () => {
+        try {
+          sound.play();
+        } catch {
+          // Ignore audio playback errors; gameplay should remain unaffected.
+        }
+      };
+
       if (supportsCurrentTimeResetRef.current !== false) {
         try {
           sound.currentTime = 0;
           supportsCurrentTimeResetRef.current = true;
+          playSafely();
+          return;
         } catch {
           supportsCurrentTimeResetRef.current = false;
         }
       }
 
-      try {
-        sound.play();
-      } catch {
-        // Ignore audio playback errors; gameplay should remain unaffected.
-      }
+      void sound
+        .seekTo(0)
+        .then(playSafely)
+        .catch(playSafely);
     },
-    [soundEnabled, soundsReady]
+    [soundEnabled, soundsReady, sfxVolume]
   );
 
   useEffect(() => {
@@ -336,6 +362,7 @@ export default function DefenseScreen() {
           playsInSilentMode: true,
           interruptionMode: 'duckOthers',
           shouldPlayInBackground: false,
+          shouldRouteThroughEarpiece: false,
         });
       } catch (error) {
         console.warn('Audio mode setup failed', error);
@@ -343,18 +370,27 @@ export default function DefenseScreen() {
 
       const nextPool = createEmptySoundPool();
       const keys = Object.keys(SOUND_FILES) as SoundEffectKey[];
+      let nextMusicPlayer: AudioPlayer | null = null;
 
       for (const soundKey of keys) {
         const poolSize = SOUND_POOL_SIZE[soundKey];
         for (let index = 0; index < poolSize; index += 1) {
           try {
             const sound = createAudioPlayer(SOUND_FILES[soundKey]);
-            sound.volume = SOUND_VOLUMES[soundKey];
+            sound.volume = SOUND_VOLUMES[soundKey] * DEFAULT_SFX_VOLUME;
             nextPool[soundKey].push(sound);
           } catch (error) {
             console.warn(`Failed to create audio player for ${soundKey}`, error);
           }
         }
+      }
+
+      try {
+        nextMusicPlayer = createAudioPlayer(BACKGROUND_MUSIC_FILE);
+        nextMusicPlayer.loop = true;
+        nextMusicPlayer.volume = DEFAULT_MUSIC_VOLUME;
+      } catch (error) {
+        console.warn('Failed to create background music player', error);
       }
 
       if (disposed) {
@@ -363,12 +399,15 @@ export default function DefenseScreen() {
             sound.remove();
           }
         }
+        nextMusicPlayer?.remove();
         return;
       }
 
       soundPoolsRef.current = nextPool;
+      musicPlayerRef.current = nextMusicPlayer;
       const hasAnySounds = keys.some((soundKey) => nextPool[soundKey].length > 0);
       setSoundsReady(hasAnySounds);
+      setMusicReady(Boolean(nextMusicPlayer));
     };
 
     void loadSounds();
@@ -376,6 +415,7 @@ export default function DefenseScreen() {
     return () => {
       disposed = true;
       setSoundsReady(false);
+      setMusicReady(false);
       supportsCurrentTimeResetRef.current = null;
       soundCursorRef.current = createEmptySoundCursor();
       lastSoundAtRef.current = {
@@ -404,8 +444,48 @@ export default function DefenseScreen() {
           sound.remove();
         }
       }
+
+      const musicPlayer = musicPlayerRef.current;
+      musicPlayerRef.current = null;
+      musicPlayer?.remove();
     };
   }, []);
+
+  useEffect(() => {
+    const keys = Object.keys(SOUND_FILES) as SoundEffectKey[];
+    const pool = soundPoolsRef.current;
+    const effectiveVolumeMultiplier = soundEnabled ? sfxVolume : 0;
+    for (const soundKey of keys) {
+      for (const sound of pool[soundKey]) {
+        sound.volume = SOUND_VOLUMES[soundKey] * effectiveVolumeMultiplier;
+      }
+    }
+  }, [soundEnabled, sfxVolume, soundsReady]);
+
+  useEffect(() => {
+    const musicPlayer = musicPlayerRef.current;
+    if (!musicPlayer) {
+      return;
+    }
+
+    const shouldPlay = musicEnabled && hasStarted && !isPaused && gameState.status === 'running';
+    musicPlayer.volume = musicEnabled ? musicVolume : 0;
+
+    if (shouldPlay) {
+      try {
+        musicPlayer.play();
+      } catch {
+        // Ignore music playback errors.
+      }
+      return;
+    }
+
+    try {
+      musicPlayer.pause();
+    } catch {
+      // Ignore music pause errors.
+    }
+  }, [gameState.status, hasStarted, isPaused, musicEnabled, musicReady, musicVolume]);
 
   useEffect(() => {
     let animationFrameId = 0;
@@ -549,8 +629,17 @@ export default function DefenseScreen() {
   const canUpgradeSelectedTower = selectedPlacedTower
     ? canUpgradeTower(gameState, selectedPlacedTower.id)
     : false;
+  const showClassicCompletionModal = isClassicMode && gameState.status === 'won';
 
   const handleRestart = () => {
+    const musicPlayer = musicPlayerRef.current;
+    if (musicPlayer) {
+      try {
+        musicPlayer.currentTime = 0;
+      } catch {
+        // Ignore music seek errors.
+      }
+    }
     setGameState(createInitialGameState(gameState.mapId, gameState.levelId, gameState.gameMode));
     setSelectedPlacedTowerId(null);
     setHasStarted(false);
@@ -776,15 +865,56 @@ export default function DefenseScreen() {
                 </Text>
               ) : null}
 
-              <View style={styles.menuActions}>
-                <Pressable
-                  onPress={() => setSoundEnabled((enabled) => !enabled)}
-                  style={[styles.menuActionButton, !soundEnabled && styles.menuActionButtonMuted]}>
-                  <Text style={styles.menuActionButtonText}>
-                    {soundEnabled ? (soundsReady ? 'SFX On' : 'SFX Loading') : 'SFX Off'}
-                  </Text>
-                </Pressable>
+              <Text style={styles.menuLabel}>Audio</Text>
+              <View style={styles.menuAudioBlock}>
+                <View style={styles.menuAudioRow}>
+                  <Pressable
+                    onPress={() => setSoundEnabled((enabled) => !enabled)}
+                    style={[styles.menuToggleButton, !soundEnabled && styles.menuToggleButtonOff]}>
+                    <Text style={styles.menuToggleButtonText}>
+                      {soundEnabled ? (soundsReady ? 'SFX On' : 'SFX Loading') : 'SFX Off'}
+                    </Text>
+                  </Pressable>
+                  <Pressable
+                    onPress={() => setSfxVolume((value) => clampUnit(value - VOLUME_STEP))}
+                    style={[styles.menuMiniButton, !soundsReady && styles.menuMiniButtonDisabled]}
+                    disabled={!soundsReady}>
+                    <Text style={styles.menuMiniButtonText}>-</Text>
+                  </Pressable>
+                  <Text style={styles.menuAudioValue}>{formatVolumePercent(sfxVolume)}</Text>
+                  <Pressable
+                    onPress={() => setSfxVolume((value) => clampUnit(value + VOLUME_STEP))}
+                    style={[styles.menuMiniButton, !soundsReady && styles.menuMiniButtonDisabled]}
+                    disabled={!soundsReady}>
+                    <Text style={styles.menuMiniButtonText}>+</Text>
+                  </Pressable>
+                </View>
 
+                <View style={styles.menuAudioRow}>
+                  <Pressable
+                    onPress={() => setMusicEnabled((enabled) => !enabled)}
+                    style={[styles.menuToggleButton, !musicEnabled && styles.menuToggleButtonOff]}>
+                    <Text style={styles.menuToggleButtonText}>
+                      {musicEnabled ? (musicReady ? 'Music On' : 'Music Loading') : 'Music Off'}
+                    </Text>
+                  </Pressable>
+                  <Pressable
+                    onPress={() => setMusicVolume((value) => clampUnit(value - VOLUME_STEP))}
+                    style={[styles.menuMiniButton, !musicReady && styles.menuMiniButtonDisabled]}
+                    disabled={!musicReady}>
+                    <Text style={styles.menuMiniButtonText}>-</Text>
+                  </Pressable>
+                  <Text style={styles.menuAudioValue}>{formatVolumePercent(musicVolume)}</Text>
+                  <Pressable
+                    onPress={() => setMusicVolume((value) => clampUnit(value + VOLUME_STEP))}
+                    style={[styles.menuMiniButton, !musicReady && styles.menuMiniButtonDisabled]}
+                    disabled={!musicReady}>
+                    <Text style={styles.menuMiniButtonText}>+</Text>
+                  </Pressable>
+                </View>
+              </View>
+
+              <View style={styles.menuActions}>
                 <Pressable onPress={handleRestart} style={[styles.menuActionButton, styles.menuRestartButton]}>
                   <Text style={styles.menuActionButtonText}>Restart</Text>
                 </Pressable>
@@ -884,6 +1014,29 @@ export default function DefenseScreen() {
           </View>
         </View>
       </View>
+
+      {showClassicCompletionModal ? (
+        <View style={styles.overlay}>
+          <View style={styles.completionModal}>
+            <Text style={styles.completionTitle}>All Waves Complete</Text>
+            <Text style={styles.completionText}>
+              Classic mode cleared. You survived all 30 waves.
+            </Text>
+            <View style={styles.completionActions}>
+              <Pressable
+                onPress={handleRestart}
+                style={[styles.completionButton, styles.completionButtonPrimary]}>
+                <Text style={styles.completionButtonText}>Restart Classic</Text>
+              </Pressable>
+              <Pressable
+                onPress={() => handleSwitchMode('endless')}
+                style={[styles.completionButton, styles.completionButtonSecondary]}>
+                <Text style={styles.completionButtonText}>Play Endless</Text>
+              </Pressable>
+            </View>
+          </View>
+        </View>
+      ) : null}
     </SafeAreaView>
   );
 }
@@ -1113,12 +1266,63 @@ const styles = StyleSheet.create({
     fontSize: 12,
     lineHeight: 17,
   },
-  menuActions: {
-    flexDirection: 'row',
+  menuAudioBlock: {
     gap: 8,
   },
+  menuAudioRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 8,
+  },
+  menuToggleButton: {
+    minWidth: 112,
+    borderWidth: 1,
+    borderColor: '#2A5878',
+    backgroundColor: '#11314A',
+    borderRadius: 7,
+    paddingVertical: 7,
+    paddingHorizontal: 9,
+    alignItems: 'center',
+  },
+  menuToggleButtonOff: {
+    borderColor: '#4F425C',
+    backgroundColor: '#2A2133',
+  },
+  menuToggleButtonText: {
+    color: '#E3F3FF',
+    fontSize: 11,
+    fontWeight: '700',
+  },
+  menuMiniButton: {
+    width: 30,
+    borderWidth: 1,
+    borderColor: '#386188',
+    backgroundColor: '#122E47',
+    borderRadius: 6,
+    paddingVertical: 6,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  menuMiniButtonDisabled: {
+    opacity: 0.45,
+  },
+  menuMiniButtonText: {
+    color: '#E3F3FF',
+    fontSize: 13,
+    fontWeight: '700',
+    lineHeight: 14,
+  },
+  menuAudioValue: {
+    minWidth: 40,
+    textAlign: 'center',
+    color: '#D8E8FF',
+    fontSize: 12,
+    fontWeight: '700',
+  },
+  menuActions: {
+    marginTop: 2,
+  },
   menuActionButton: {
-    flex: 1,
     borderWidth: 1,
     borderColor: '#2A5878',
     backgroundColor: '#11314A',
@@ -1126,10 +1330,6 @@ const styles = StyleSheet.create({
     paddingVertical: 8,
     paddingHorizontal: 8,
     alignItems: 'center',
-  },
-  menuActionButtonMuted: {
-    borderColor: '#4F425C',
-    backgroundColor: '#2A2133',
   },
   menuRestartButton: {
     borderColor: '#4A5D88',
@@ -1304,6 +1504,60 @@ const styles = StyleSheet.create({
   towerLevel: {
     color: '#122237',
     fontSize: 9,
+    fontWeight: '800',
+  },
+  overlay: {
+    ...StyleSheet.absoluteFillObject,
+    backgroundColor: 'rgba(5, 12, 20, 0.62)',
+    justifyContent: 'center',
+    alignItems: 'center',
+    zIndex: 30,
+    paddingHorizontal: 20,
+  },
+  completionModal: {
+    width: '100%',
+    maxWidth: 420,
+    borderWidth: 1,
+    borderColor: '#48618A',
+    borderRadius: 12,
+    backgroundColor: '#101D32',
+    padding: 16,
+    gap: 12,
+  },
+  completionTitle: {
+    color: '#ECF5FF',
+    fontSize: 20,
+    fontWeight: '800',
+    textAlign: 'center',
+  },
+  completionText: {
+    color: '#BDD1EE',
+    fontSize: 13,
+    textAlign: 'center',
+    lineHeight: 18,
+  },
+  completionActions: {
+    flexDirection: 'row',
+    gap: 10,
+  },
+  completionButton: {
+    flex: 1,
+    borderWidth: 1,
+    borderRadius: 8,
+    paddingVertical: 10,
+    alignItems: 'center',
+  },
+  completionButtonPrimary: {
+    borderColor: '#7DC0FF',
+    backgroundColor: '#1C395A',
+  },
+  completionButtonSecondary: {
+    borderColor: '#63C694',
+    backgroundColor: '#1B3A2A',
+  },
+  completionButtonText: {
+    color: '#EAF4FF',
+    fontSize: 13,
     fontWeight: '800',
   },
   beam: {

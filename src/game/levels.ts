@@ -9,7 +9,7 @@ import type {
 
 export const CLASSIC_LEVELS_PER_MAP = 15;
 export const CLASSIC_TOTAL_LEVELS = CLASSIC_LEVELS_PER_MAP * 2;
-export const CLASSIC_WAVES_PER_LEVEL = 10;
+export const CLASSIC_WAVES_PER_LEVEL = 30;
 
 const MAP_ORDER: GameMapId[] = ['relay', 'switchback'];
 const MIN_ENDLESS_START_DELAY = 0.55;
@@ -23,27 +23,36 @@ function chooseEnemyTypeForClassicWave(
   waveNumber: number,
   isChallengeWave: boolean
 ): EnemyTypeId {
+  const progressionOffset = Math.max(0, globalLevelNumber - 1);
+
   if (isChallengeWave) {
-    if (globalLevelNumber >= 20) {
+    if (waveNumber >= 30) {
       return 'hex';
     }
-    if (globalLevelNumber >= 8) {
+    if (waveNumber >= 20) {
       return 'crusher';
     }
-    return globalLevelNumber >= 4 ? 'block' : 'spike';
+    return 'block';
   }
 
-  const pressure = globalLevelNumber + waveNumber;
-  if (pressure >= 22) {
-    return ['spike', 'block', 'crusher', 'hex'][(globalLevelNumber + waveNumber) % 4] as EnemyTypeId;
+  if (waveNumber <= 12) {
+    const cycle: EnemyTypeId[] = ['spark', 'spike', 'block'];
+    return cycle[(waveNumber + progressionOffset) % cycle.length];
   }
-  if (pressure >= 14) {
-    return ['spark', 'spike', 'block', 'crusher'][(globalLevelNumber + waveNumber) % 4] as EnemyTypeId;
+
+  if (waveNumber <= 20) {
+    const cycle: EnemyTypeId[] = ['spark', 'spike', 'block', 'crusher'];
+    return cycle[(waveNumber + progressionOffset) % cycle.length];
   }
-  if (pressure >= 8) {
-    return ['spark', 'spike', 'block'][(globalLevelNumber + waveNumber) % 3] as EnemyTypeId;
+
+  const cycle: EnemyTypeId[] = ['spark', 'spike', 'block', 'crusher', 'hex'];
+  if (waveNumber <= 26) {
+    return cycle[(waveNumber + progressionOffset) % cycle.length];
   }
-  return ['spark', 'spike', 'block'][(waveNumber - 1) % 3] as EnemyTypeId;
+
+  // Late classic introduces all enemy families, with higher pressure on stronger shapes.
+  const lateCycle: EnemyTypeId[] = ['block', 'crusher', 'spike', 'hex', 'crusher'];
+  return lateCycle[(waveNumber + progressionOffset) % lateCycle.length];
 }
 
 function buildClassicLevelWaves(globalLevelNumber: number): WaveDefinition[] {

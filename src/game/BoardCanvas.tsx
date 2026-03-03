@@ -588,8 +588,7 @@ export function BoardCanvas({
         const isSlowed = enemy.slowTimeRemaining > 0 && enemy.slowMultiplier < 1;
 
         const trianglePath = enemy.shape === 'triangle' ? getCenteredTrianglePath(size) : null;
-        const diamondPath =
-          enemy.shape === 'diamond' ? getCenteredPolygonPath(4, size, Math.PI / 4) : null;
+        const diamondPath = enemy.shape === 'diamond' ? getCenteredPolygonPath(4, size) : null;
         const hexPath = enemy.shape === 'hexagon' ? getCenteredPolygonPath(6, size, Math.PI / 6) : null;
 
         return (
