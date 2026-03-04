@@ -31,6 +31,7 @@ const MAX_ALPHA_COLOR_CACHE_ENTRIES = 512;
 const MAX_RENDERED_PROJECTILES = 110;
 const MAX_RENDERED_EFFECTS = 48;
 const trianglePathCache = new Map<number, ReturnType<typeof Skia.Path.Make>>();
+const lanceProjectilePathCache = new Map<number, ReturnType<typeof Skia.Path.Make>>();
 const polygonPathCache = new Map<string, ReturnType<typeof Skia.Path.Make>>();
 const spokeIndexCache = new Map<number, number[]>();
 
@@ -129,6 +130,26 @@ function getCenteredTrianglePath(size: number) {
   const halfSize = roundedSize / 2;
   const path = createTrianglePath(0, -halfSize, -halfSize, halfSize, halfSize, halfSize);
   trianglePathCache.set(roundedSize, path);
+  return path;
+}
+
+function getCenteredLanceProjectilePath(size: number) {
+  const roundedSize = Math.round(size * 1000) / 1000;
+  const cachedPath = lanceProjectilePathCache.get(roundedSize);
+  if (cachedPath) {
+    return cachedPath;
+  }
+
+  const halfSize = roundedSize / 2;
+  const path = createTrianglePath(
+    0,
+    -halfSize * 1.3,
+    -halfSize * 0.35,
+    halfSize,
+    halfSize * 0.35,
+    halfSize
+  );
+  lanceProjectilePathCache.set(roundedSize, path);
   return path;
 }
 
@@ -353,6 +374,10 @@ export function BoardCanvas({
     () => sampleForRender(state.projectiles, MAX_RENDERED_PROJECTILES),
     [state.projectiles]
   );
+  const enemyPositionById = useMemo(
+    () => new Map(state.enemies.map((enemy) => [enemy.id, enemy.position])),
+    [state.enemies]
+  );
   const renderLoad = state.enemies.length + state.projectiles.length + state.effects.length;
   const useReducedDetail = renderLoad > 55;
   const useVeryReducedEffects = state.effects.length > 22 || renderLoad > 80;
@@ -559,24 +584,128 @@ export function BoardCanvas({
         </Group>
       ))}
 
-      {sampledProjectiles.map((projectile) => (
-        <Group key={projectile.id}>
-          {!useReducedDetail ? (
-            <Circle
-              cx={projectile.position.x * cellSize}
-              cy={projectile.position.y * cellSize}
-              r={projectile.radius * cellSize * 1.9}
-              color={withAlpha(projectile.color, 0.18)}
-            />
-          ) : null}
-          <Circle
-            cx={projectile.position.x * cellSize}
-            cy={projectile.position.y * cellSize}
-            r={projectile.radius * cellSize}
-            color={projectile.color}
-          />
-        </Group>
-      ))}
+      {sampledProjectiles.map((projectile) => {
+        const px = projectile.position.x * cellSize;
+        const py = projectile.position.y * cellSize;
+        const projectileRadius = projectile.radius * cellSize;
+
+        if (projectile.towerType === 'lance') {
+          const targetPosition = enemyPositionById.get(projectile.targetEnemyId);
+          let aimAngle = -Math.PI / 2;
+          if (targetPosition) {
+            aimAngle =
+              Math.atan2(
+                targetPosition.y - projectile.position.y,
+                targetPosition.x - projectile.position.x
+              ) + Math.PI / 2;
+          }
+          const lanceProjectilePath = getCenteredLanceProjectilePath(projectileRadius * 2.3);
+
+          return (
+            <Group key={projectile.id}>
+              {!useReducedDetail ? (
+                <Circle
+                  cx={px}
+                  cy={py}
+                  r={projectileRadius * 1.7}
+                  color={withAlpha(projectile.color, 0.16)}
+                />
+              ) : null}
+              <Group transform={[{ translateX: px }, { translateY: py }, { rotate: aimAngle }]}>
+                <Path path={lanceProjectilePath} color={projectile.color} />
+                {!useReducedDetail ? (
+                  <Path path={lanceProjectilePath} style="stroke" strokeWidth={1} color="#0E1624" />
+                ) : null}
+              </Group>
+            </Group>
+          );
+        }
+
+        if (projectile.towerType === 'cold') {
+          const armLength = Math.max(2.5, projectileRadius * 1.5);
+          const diagonalArm = armLength * 0.72;
+          const snowflakeColor = withAlpha('#E5F8FF', 0.95);
+
+          return (
+            <Group key={projectile.id}>
+              {!useReducedDetail ? (
+                <Circle
+                  cx={px}
+                  cy={py}
+                  r={projectileRadius * 1.8}
+                  color={withAlpha(projectile.color, 0.18)}
+                />
+              ) : null}
+              <Line
+                p1={vec(px - armLength, py)}
+                p2={vec(px + armLength, py)}
+                color={snowflakeColor}
+                strokeWidth={1.2}
+                strokeCap="round"
+              />
+              <Line
+                p1={vec(px, py - armLength)}
+                p2={vec(px, py + armLength)}
+                color={snowflakeColor}
+                strokeWidth={1.2}
+                strokeCap="round"
+              />
+              <Line
+                p1={vec(px - diagonalArm, py - diagonalArm)}
+                p2={vec(px + diagonalArm, py + diagonalArm)}
+                color={snowflakeColor}
+                strokeWidth={1.1}
+                strokeCap="round"
+              />
+              <Line
+                p1={vec(px - diagonalArm, py + diagonalArm)}
+                p2={vec(px + diagonalArm, py - diagonalArm)}
+                color={snowflakeColor}
+                strokeWidth={1.1}
+                strokeCap="round"
+              />
+              <Circle cx={px} cy={py} r={Math.max(1.2, projectileRadius * 0.55)} color={projectile.color} />
+            </Group>
+          );
+        }
+
+        if (projectile.towerType === 'bomb') {
+          const bombPath = getCenteredPolygonPath(4, projectileRadius * 2.35);
+
+          return (
+            <Group key={projectile.id}>
+              {!useReducedDetail ? (
+                <Circle
+                  cx={px}
+                  cy={py}
+                  r={projectileRadius * 2.1}
+                  color={withAlpha(projectile.color, 0.2)}
+                />
+              ) : null}
+              <Group transform={[{ translateX: px }, { translateY: py }]}>
+                <Path path={bombPath} color={projectile.color} />
+                {!useReducedDetail ? (
+                  <Path path={bombPath} style="stroke" strokeWidth={1} color="#141E2D" />
+                ) : null}
+              </Group>
+            </Group>
+          );
+        }
+
+        return (
+          <Group key={projectile.id}>
+            {!useReducedDetail ? (
+              <Circle
+                cx={px}
+                cy={py}
+                r={projectileRadius * 1.9}
+                color={withAlpha(projectile.color, 0.18)}
+              />
+            ) : null}
+            <Circle cx={px} cy={py} r={projectileRadius} color={projectile.color} />
+          </Group>
+        );
+      })}
 
       {state.enemies.map((enemy) => {
         const size = enemy.radius * 2 * cellSize;

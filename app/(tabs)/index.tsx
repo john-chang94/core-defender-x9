@@ -45,7 +45,6 @@ const VOLUME_STEP = 0.1;
 
 type SimulationSpeed = 1 | 2 | 3;
 type SoundEffectKey =
-  | 'spawn'
   | 'hit'
   | 'place'
   | 'upgrade'
@@ -61,7 +60,6 @@ type SoundEffectKey =
   | 'coldImpact';
 
 const SOUND_FILES: Record<SoundEffectKey, number> = {
-  spawn: require('../../assets/sfx/spawn.wav'),
   hit: require('../../assets/sfx/hit.wav'),
   place: require('../../assets/sfx/place.wav'),
   upgrade: require('../../assets/sfx/upgrade.wav'),
@@ -69,7 +67,7 @@ const SOUND_FILES: Record<SoundEffectKey, number> = {
   targetMode: require('../../assets/sfx/target-mode.wav'),
   pulseFire: require('../../assets/sfx/hit.wav'),
   lanceFire: require('../../assets/sfx/lance-fire.wav'),
-  sprayFire: require('../../assets/sfx/hit.wav'),
+  sprayFire: require('../../assets/sfx/spray-fire.wav'),
   bombFire: require('../../assets/sfx/bomb-fire.wav'),
   coldFire: require('../../assets/sfx/cold-fire.wav'),
   laserFire: require('../../assets/sfx/laser-fire.wav'),
@@ -78,7 +76,6 @@ const SOUND_FILES: Record<SoundEffectKey, number> = {
 };
 
 const SOUND_POOL_SIZE: Record<SoundEffectKey, number> = {
-  spawn: 2,
   hit: 3,
   place: 2,
   upgrade: 2,
@@ -95,7 +92,6 @@ const SOUND_POOL_SIZE: Record<SoundEffectKey, number> = {
 };
 
 const SOUND_VOLUMES: Record<SoundEffectKey, number> = {
-  spawn: 0.32,
   hit: 0.24,
   place: 0.32,
   upgrade: 0.36,
@@ -112,7 +108,6 @@ const SOUND_VOLUMES: Record<SoundEffectKey, number> = {
 };
 
 const SOUND_MIN_INTERVAL_MS: Record<SoundEffectKey, number> = {
-  spawn: 80,
   hit: 55,
   place: 0,
   upgrade: 0,
@@ -130,7 +125,6 @@ const SOUND_MIN_INTERVAL_MS: Record<SoundEffectKey, number> = {
 
 function createEmptySoundPool(): Record<SoundEffectKey, AudioPlayer[]> {
   return {
-    spawn: [],
     hit: [],
     place: [],
     upgrade: [],
@@ -149,7 +143,6 @@ function createEmptySoundPool(): Record<SoundEffectKey, AudioPlayer[]> {
 
 function createEmptySoundCursor(): Record<SoundEffectKey, number> {
   return {
-    spawn: 0,
     hit: 0,
     place: 0,
     upgrade: 0,
@@ -175,6 +168,10 @@ function formatVolumePercent(value: number): string {
 }
 
 function mapGameEventToSound(event: GameEvent): SoundEffectKey | null {
+  if (event.type === 'spawn') {
+    return null;
+  }
+
   if (event.type === 'targetMode') {
     return 'targetMode';
   }
@@ -202,28 +199,26 @@ function mapGameEventToSound(event: GameEvent): SoundEffectKey | null {
   }
 
   if (event.type === 'hit') {
-    if (event.towerType === 'bomb') {
-      return 'bombImpact';
-    }
-    if (event.towerType === 'cold') {
-      return 'coldImpact';
-    }
-    return 'hit';
+    return null;
   }
 
   if (event.type === 'splash') {
-    return 'bombImpact';
+    return null;
   }
 
   if (event.type === 'chill') {
-    return 'coldImpact';
+    return null;
   }
 
   if (event.type === 'muzzle' || event.type === 'burst' || event.type === 'shock') {
     return null;
   }
 
-  return event.type;
+  if (event.type === 'place' || event.type === 'upgrade' || event.type === 'sell') {
+    return event.type;
+  }
+
+  return null;
 }
 
 export default function DefenseScreen() {
@@ -246,7 +241,6 @@ export default function DefenseScreen() {
   const musicPlayerRef = useRef<AudioPlayer | null>(null);
   const supportsCurrentTimeResetRef = useRef<boolean | null>(null);
   const lastSoundAtRef = useRef<Record<SoundEffectKey, number>>({
-    spawn: 0,
     hit: 0,
     place: 0,
     upgrade: 0,
@@ -419,7 +413,6 @@ export default function DefenseScreen() {
       supportsCurrentTimeResetRef.current = null;
       soundCursorRef.current = createEmptySoundCursor();
       lastSoundAtRef.current = {
-        spawn: 0,
         hit: 0,
         place: 0,
         upgrade: 0,
