@@ -297,22 +297,8 @@ export default function DefenseScreen() {
       lastSoundAtRef.current[soundKey] = now;
 
       const nextCursor = soundCursorRef.current[soundKey] % pool.length;
-      let selectedIndex = -1;
-      for (let offset = 0; offset < pool.length; offset += 1) {
-        const candidateIndex = (nextCursor + offset) % pool.length;
-        const candidate = pool[candidateIndex];
-        if (!candidate.playing && !candidate.isBuffering) {
-          selectedIndex = candidateIndex;
-          break;
-        }
-      }
-
-      if (selectedIndex === -1) {
-        return;
-      }
-
-      soundCursorRef.current[soundKey] = (selectedIndex + 1) % pool.length;
-      const sound = pool[selectedIndex];
+      soundCursorRef.current[soundKey] = (nextCursor + 1) % pool.length;
+      const sound = pool[nextCursor];
 
       const playSafely = () => {
         try {
@@ -370,7 +356,10 @@ export default function DefenseScreen() {
         const poolSize = SOUND_POOL_SIZE[soundKey];
         for (let index = 0; index < poolSize; index += 1) {
           try {
-            const sound = createAudioPlayer(SOUND_FILES[soundKey]);
+            const sound = createAudioPlayer(SOUND_FILES[soundKey], {
+              keepAudioSessionActive: true,
+              downloadFirst: true,
+            });
             sound.volume = SOUND_VOLUMES[soundKey] * DEFAULT_SFX_VOLUME;
             nextPool[soundKey].push(sound);
           } catch (error) {
@@ -380,7 +369,10 @@ export default function DefenseScreen() {
       }
 
       try {
-        nextMusicPlayer = createAudioPlayer(BACKGROUND_MUSIC_FILE);
+        nextMusicPlayer = createAudioPlayer(BACKGROUND_MUSIC_FILE, {
+          keepAudioSessionActive: true,
+          downloadFirst: true,
+        });
         nextMusicPlayer.loop = true;
         nextMusicPlayer.volume = DEFAULT_MUSIC_VOLUME;
       } catch (error) {
