@@ -1,4 +1,4 @@
-import { createAudioPlayer, setAudioModeAsync, setIsAudioActiveAsync, type AudioPlayer } from 'expo-audio';
+import { Audio, InterruptionModeAndroid, InterruptionModeIOS } from 'expo-av';
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import type { GestureResponderEvent } from 'react-native';
 import { Pressable, SafeAreaView, StyleSheet, Text, View, useWindowDimensions } from 'react-native';
@@ -123,7 +123,7 @@ const SOUND_MIN_INTERVAL_MS: Record<SoundEffectKey, number> = {
   coldImpact: 90,
 };
 
-function createEmptySoundPool(): Record<SoundEffectKey, AudioPlayer[]> {
+function createEmptySoundPool(): Record<SoundEffectKey, Audio.Sound[]> {
   return {
     hit: [],
     place: [],
@@ -236,10 +236,9 @@ export default function DefenseScreen() {
   const [musicVolume, setMusicVolume] = useState(DEFAULT_MUSIC_VOLUME);
   const [musicReady, setMusicReady] = useState(false);
 
-  const soundPoolsRef = useRef<Record<SoundEffectKey, AudioPlayer[]>>(createEmptySoundPool());
+  const soundPoolsRef = useRef<Record<SoundEffectKey, Audio.Sound[]>>(createEmptySoundPool());
   const soundCursorRef = useRef<Record<SoundEffectKey, number>>(createEmptySoundCursor());
-  const musicPlayerRef = useRef<AudioPlayer | null>(null);
-  const supportsCurrentTimeResetRef = useRef<boolean | null>(null);
+  const musicPlayerRef = useRef<Audio.Sound | null>(null);
   const lastSoundAtRef = useRef<Record<SoundEffectKey, number>>({
     hit: 0,
     place: 0,
@@ -300,29 +299,14 @@ export default function DefenseScreen() {
       soundCursorRef.current[soundKey] = (nextCursor + 1) % pool.length;
       const sound = pool[nextCursor];
 
-      const playSafely = () => {
+      void sound.replayAsync().catch(async () => {
         try {
-          sound.play();
+          await sound.setPositionAsync(0);
+          await sound.playAsync();
         } catch {
           // Ignore audio playback errors; gameplay should remain unaffected.
         }
-      };
-
-      if (supportsCurrentTimeResetRef.current !== false) {
-        try {
-          sound.currentTime = 0;
-          supportsCurrentTimeResetRef.current = true;
-          playSafely();
-          return;
-        } catch {
-          supportsCurrentTimeResetRef.current = false;
-        }
-      }
-
-      void sound
-        .seekTo(0)
-        .then(playSafely)
-        .catch(playSafely);
+      });
     },
     [soundEnabled, soundsReady, sfxVolume]
   );
@@ -332,17 +316,14 @@ export default function DefenseScreen() {
 
     const loadSounds = async () => {
       try {
-        await setIsAudioActiveAsync(true);
-      } catch (error) {
-        console.warn('Audio subsystem activation failed', error);
-      }
-
-      try {
-        await setAudioModeAsync({
-          playsInSilentMode: true,
-          interruptionMode: 'duckOthers',
-          shouldPlayInBackground: false,
-          shouldRouteThroughEarpiece: false,
+        await Audio.setAudioModeAsync({
+          allowsRecordingIOS: false,
+          playsInSilentModeIOS: true,
+          interruptionModeIOS: InterruptionModeIOS.DuckOthers,
+          interruptionModeAndroid: InterruptionModeAndroid.DuckOthers,
+          shouldDuckAndroid: true,
+          playThroughEarpieceAndroid: false,
+          staysActiveInBackground: false,
         });
       } catch (error) {
         console.warn('Audio mode setup failed', error);
@@ -350,31 +331,42 @@ export default function DefenseScreen() {
 
       const nextPool = createEmptySoundPool();
       const keys = Object.keys(SOUND_FILES) as SoundEffectKey[];
-      let nextMusicPlayer: AudioPlayer | null = null;
+      let nextMusicPlayer: Audio.Sound | null = null;
 
       for (const soundKey of keys) {
         const poolSize = SOUND_POOL_SIZE[soundKey];
         for (let index = 0; index < poolSize; index += 1) {
+          const sound = new Audio.Sound();
           try {
-            const sound = createAudioPlayer(SOUND_FILES[soundKey], {
-              keepAudioSessionActive: true,
-              downloadFirst: true,
-            });
-            sound.volume = SOUND_VOLUMES[soundKey] * DEFAULT_SFX_VOLUME;
+            await sound.loadAsync(
+              SOUND_FILES[soundKey],
+              {
+                shouldPlay: false,
+                isLooping: false,
+                volume: SOUND_VOLUMES[soundKey] * DEFAULT_SFX_VOLUME,
+              },
+              true
+            );
             nextPool[soundKey].push(sound);
           } catch (error) {
             console.warn(`Failed to create audio player for ${soundKey}`, error);
+            void sound.unloadAsync().catch(() => undefined);
           }
         }
       }
 
       try {
-        nextMusicPlayer = createAudioPlayer(BACKGROUND_MUSIC_FILE, {
-          keepAudioSessionActive: true,
-          downloadFirst: true,
-        });
-        nextMusicPlayer.loop = true;
-        nextMusicPlayer.volume = DEFAULT_MUSIC_VOLUME;
+        const musicSound = new Audio.Sound();
+        await musicSound.loadAsync(
+          BACKGROUND_MUSIC_FILE,
+          {
+            shouldPlay: false,
+            isLooping: true,
+            volume: DEFAULT_MUSIC_VOLUME,
+          },
+          true
+        );
+        nextMusicPlayer = musicSound;
       } catch (error) {
         console.warn('Failed to create background music player', error);
       }
@@ -382,10 +374,10 @@ export default function DefenseScreen() {
       if (disposed) {
         for (const soundKey of keys) {
           for (const sound of nextPool[soundKey]) {
-            sound.remove();
+            void sound.unloadAsync().catch(() => undefined);
           }
         }
-        nextMusicPlayer?.remove();
+        void nextMusicPlayer?.unloadAsync().catch(() => undefined);
         return;
       }
 
@@ -402,7 +394,6 @@ export default function DefenseScreen() {
       disposed = true;
       setSoundsReady(false);
       setMusicReady(false);
-      supportsCurrentTimeResetRef.current = null;
       soundCursorRef.current = createEmptySoundCursor();
       lastSoundAtRef.current = {
         hit: 0,
@@ -426,13 +417,13 @@ export default function DefenseScreen() {
 
       for (const soundKey of keys) {
         for (const sound of pools[soundKey]) {
-          sound.remove();
+          void sound.unloadAsync().catch(() => undefined);
         }
       }
 
       const musicPlayer = musicPlayerRef.current;
       musicPlayerRef.current = null;
-      musicPlayer?.remove();
+      void musicPlayer?.unloadAsync().catch(() => undefined);
     };
   }, []);
 
@@ -442,7 +433,9 @@ export default function DefenseScreen() {
     const effectiveVolumeMultiplier = soundEnabled ? sfxVolume : 0;
     for (const soundKey of keys) {
       for (const sound of pool[soundKey]) {
-        sound.volume = SOUND_VOLUMES[soundKey] * effectiveVolumeMultiplier;
+        void sound
+          .setVolumeAsync(SOUND_VOLUMES[soundKey] * effectiveVolumeMultiplier)
+          .catch(() => undefined);
       }
     }
   }, [soundEnabled, sfxVolume, soundsReady]);
@@ -454,22 +447,14 @@ export default function DefenseScreen() {
     }
 
     const shouldPlay = musicEnabled && hasStarted && !isPaused && gameState.status === 'running';
-    musicPlayer.volume = musicEnabled ? musicVolume : 0;
+    void musicPlayer.setVolumeAsync(musicEnabled ? musicVolume : 0).catch(() => undefined);
 
     if (shouldPlay) {
-      try {
-        musicPlayer.play();
-      } catch {
-        // Ignore music playback errors.
-      }
+      void musicPlayer.playAsync().catch(() => undefined);
       return;
     }
 
-    try {
-      musicPlayer.pause();
-    } catch {
-      // Ignore music pause errors.
-    }
+    void musicPlayer.pauseAsync().catch(() => undefined);
   }, [gameState.status, hasStarted, isPaused, musicEnabled, musicReady, musicVolume]);
 
   useEffect(() => {
@@ -619,11 +604,7 @@ export default function DefenseScreen() {
   const handleRestart = () => {
     const musicPlayer = musicPlayerRef.current;
     if (musicPlayer) {
-      try {
-        musicPlayer.currentTime = 0;
-      } catch {
-        // Ignore music seek errors.
-      }
+      void musicPlayer.setPositionAsync(0).catch(() => undefined);
     }
     setGameState(createInitialGameState(gameState.mapId, gameState.levelId, gameState.gameMode));
     setSelectedPlacedTowerId(null);
