@@ -1,13 +1,17 @@
-import { useMemo } from 'react';
+import { useEffect, useMemo, useState } from 'react';
 import {
+  Atlas,
   Canvas,
   Circle,
   Group,
+  Image,
   Line,
   Path,
   Rect,
   RoundedRect,
   Skia,
+  drawAsImage,
+  type SkImage,
   vec,
 } from '@shopify/react-native-skia';
 
@@ -15,6 +19,14 @@ import { TOWER_TYPES } from '@/src/game/config';
 import { getTowerStats } from '@/src/game/engine';
 import type { LoadedGameMap } from '@/src/game/maps';
 import { cellCenter } from '@/src/game/path';
+import {
+  EFFECT_SPRITE_BY_KIND,
+  ENEMY_SPRITE_BY_SHAPE,
+  GAME_ATLAS_FRAMES,
+  PROJECTILE_SPRITE_BY_TOWER,
+  TOWER_SPRITE_BY_TYPE,
+  useGameSpriteAtlas,
+} from '@/src/game/spriteAtlas';
 import type { EffectKind, GameState, TowerTypeId } from '@/src/game/types';
 
 type BoardCanvasProps = {
@@ -197,6 +209,103 @@ function sampleForRender<T>(items: T[], maxItems: number): T[] {
   return sampled;
 }
 
+function buildAtlasTransform(
+  spriteId: keyof typeof GAME_ATLAS_FRAMES,
+  centerX: number,
+  centerY: number,
+  pixelSize: number,
+  rotationRadians = 0
+) {
+  const frame = GAME_ATLAS_FRAMES[spriteId];
+  const scale = pixelSize / frame.nominalSize;
+  return Skia.RSXformFromRadians(scale, rotationRadians, centerX, centerY, frame.width / 2, frame.height / 2);
+}
+
+function getProjectileRenderDiameter(projectileRadius: number, towerType: TowerTypeId) {
+  if (towerType === 'cold') {
+    return projectileRadius * 3.5;
+  }
+  if (towerType === 'bomb') {
+    return projectileRadius * 2.9;
+  }
+  if (towerType === 'lance') {
+    return projectileRadius * 2.6;
+  }
+  if (towerType === 'spray') {
+    return projectileRadius * 2.4;
+  }
+  return projectileRadius * 2.2;
+}
+
+function getEffectRotation(effectKind: EffectKind, progress: number) {
+  if (effectKind === 'spawn' || effectKind === 'burst' || effectKind === 'shock') {
+    return progress * 0.7;
+  }
+  if (effectKind === 'muzzle' || effectKind === 'splash') {
+    return progress * 0.4;
+  }
+  return 0;
+}
+
+function createBackgroundScene({
+  boardWidth,
+  boardHeight,
+  cellSize,
+  map,
+  verticalGridLines,
+  horizontalGridLines,
+}: {
+  boardWidth: number;
+  boardHeight: number;
+  cellSize: number;
+  map: LoadedGameMap;
+  verticalGridLines: number[];
+  horizontalGridLines: number[];
+}) {
+  return (
+    <Group>
+      {verticalGridLines.map((x, index) => (
+        <Line
+          key={`bg-grid-v-${index}`}
+          p1={vec(x, 0)}
+          p2={vec(x, boardHeight)}
+          color="#172339"
+          strokeWidth={0.5}
+        />
+      ))}
+      {horizontalGridLines.map((y, index) => (
+        <Line
+          key={`bg-grid-h-${index}`}
+          p1={vec(0, y)}
+          p2={vec(boardWidth, y)}
+          color="#172339"
+          strokeWidth={0.5}
+        />
+      ))}
+      {map.pathCells.map((cell) => (
+        <Group key={`bg-path-${cell.col}-${cell.row}`}>
+          <Rect
+            x={cell.col * cellSize}
+            y={cell.row * cellSize}
+            width={cellSize}
+            height={cellSize}
+            color="#1E324E"
+          />
+          <Rect
+            x={cell.col * cellSize}
+            y={cell.row * cellSize}
+            width={cellSize}
+            height={cellSize}
+            style="stroke"
+            strokeWidth={0.5}
+            color="#2A4B75"
+          />
+        </Group>
+      ))}
+    </Group>
+  );
+}
+
 function TowerGlyphSkia({
   towerType,
   color,
@@ -366,6 +475,40 @@ export function BoardCanvas({
     () => Array.from({ length: map.rows + 1 }, (_, row) => row * cellSize),
     [map.rows, cellSize]
   );
+  const atlasImage = useGameSpriteAtlas();
+  const [backgroundImage, setBackgroundImage] = useState<SkImage | null>(null);
+
+  useEffect(() => {
+    let cancelled = false;
+
+    const loadBackgroundImage = async () => {
+      try {
+        const nextBackgroundImage = await drawAsImage(
+          createBackgroundScene({
+            boardWidth,
+            boardHeight,
+            cellSize,
+            map,
+            verticalGridLines,
+            horizontalGridLines,
+          }),
+          { width: boardWidth, height: boardHeight }
+        );
+        if (!cancelled) {
+          setBackgroundImage(nextBackgroundImage);
+        }
+      } catch (error) {
+        console.warn('Failed to snapshot board background', error);
+      }
+    };
+
+    void loadBackgroundImage();
+
+    return () => {
+      cancelled = true;
+    };
+  }, [boardHeight, boardWidth, cellSize, horizontalGridLines, map, verticalGridLines]);
+
   const sampledEffects = useMemo(
     () => sampleForRender(state.effects, MAX_RENDERED_EFFECTS),
     [state.effects]
@@ -434,88 +577,197 @@ export function BoardCanvas({
     ),
     [cellSize, map.pathCells]
   );
+  const towerAtlasData = useMemo(() => {
+    if (!atlasImage) {
+      return null;
+    }
+
+    const sprites = [];
+    const transforms = [];
+
+    for (const tower of state.towers) {
+      const spriteId = TOWER_SPRITE_BY_TYPE[tower.towerType];
+      const towerType = TOWER_TYPES[tower.towerType];
+      const levelScale = 1 + Math.max(0, tower.level - 1) * 0.08;
+      const diameter = towerType.radius * cellSize * levelScale * 2;
+      const center = cellCenter(tower.cell);
+      const aimAngle = Number.isFinite(tower.aimAngle) ? tower.aimAngle + Math.PI / 2 : 0;
+      const cx = center.x * cellSize;
+      const cy = center.y * cellSize;
+
+      sprites.push(GAME_ATLAS_FRAMES[spriteId].rect);
+      transforms.push(buildAtlasTransform(spriteId, cx, cy, diameter, aimAngle));
+    }
+
+    return { sprites, transforms };
+  }, [atlasImage, cellSize, state.towers]);
+  const projectileAtlasData = useMemo(() => {
+    if (!atlasImage) {
+      return null;
+    }
+
+    const sprites = [];
+    const transforms = [];
+
+    for (const projectile of sampledProjectiles) {
+      const spriteId = PROJECTILE_SPRITE_BY_TOWER[projectile.towerType];
+      if (!spriteId) {
+        continue;
+      }
+
+      const px = projectile.position.x * cellSize;
+      const py = projectile.position.y * cellSize;
+      const projectileRadius = projectile.radius * cellSize;
+      const renderDiameter = getProjectileRenderDiameter(projectileRadius, projectile.towerType);
+      const targetPosition = enemyPositionById.get(projectile.targetEnemyId);
+
+      let rotation = 0;
+      if ((projectile.towerType === 'lance' || projectile.towerType === 'spray') && targetPosition) {
+        rotation =
+          Math.atan2(targetPosition.y - projectile.position.y, targetPosition.x - projectile.position.x) +
+          Math.PI / 2;
+      }
+
+      sprites.push(GAME_ATLAS_FRAMES[spriteId].rect);
+      transforms.push(buildAtlasTransform(spriteId, px, py, renderDiameter, rotation));
+    }
+
+    return { sprites, transforms };
+  }, [atlasImage, cellSize, enemyPositionById, sampledProjectiles]);
+  const enemyAtlasData = useMemo(() => {
+    if (!atlasImage) {
+      return null;
+    }
+
+    const sprites = [];
+    const transforms = [];
+
+    for (const enemy of state.enemies) {
+      const spriteId = ENEMY_SPRITE_BY_SHAPE[enemy.shape];
+      const diameter = enemy.radius * 2 * cellSize;
+      const cx = enemy.position.x * cellSize;
+      const cy = enemy.position.y * cellSize;
+      sprites.push(GAME_ATLAS_FRAMES[spriteId].rect);
+      transforms.push(buildAtlasTransform(spriteId, cx, cy, diameter));
+    }
+
+    return { sprites, transforms };
+  }, [atlasImage, cellSize, state.enemies]);
 
   return (
     <Canvas pointerEvents="none" style={{ width: boardWidth, height: boardHeight }}>
-      {gridLayer}
-      {pathLayer}
+      {backgroundImage ? (
+        <Image image={backgroundImage} x={0} y={0} width={boardWidth} height={boardHeight} />
+      ) : (
+        <>
+          {gridLayer}
+          {pathLayer}
+        </>
+      )}
 
-      {sampledEffects.map((effect) => {
-        const progress = Math.min(1, effect.age / effect.duration);
-        const radius = (effect.startRadius + (effect.endRadius - effect.startRadius) * progress) * cellSize;
-        const opacity = 1 - progress;
-        const fillBaseAlpha = effect.kind === 'hit' || effect.kind === 'burst' ? 0.28 : 0.15;
-        const style = getEffectStyle(effect.kind);
-        const cx = effect.position.x * cellSize;
-        const cy = effect.position.y * cellSize;
-        const spokeRadius = radius * (0.55 + progress * 0.65);
-        const spokeInnerRadius = radius * style.innerScale * (1 - progress * 0.25);
-        return (
-          <Group key={effect.id}>
-            <Circle
-              cx={cx}
-              cy={cy}
-              r={radius}
-              color={withAlpha(effect.color, fillBaseAlpha * opacity)}
-            />
-            <Circle cx={cx} cy={cy} r={radius * style.innerScale} color={withAlpha(effect.color, 0.22 * opacity)} />
-            {!useReducedDetail ? (
-              <>
+      {atlasImage
+        ? sampledEffects.map((effect) => {
+            const spriteId = EFFECT_SPRITE_BY_KIND[effect.kind];
+            const progress = Math.min(1, effect.age / effect.duration);
+            const radius = (effect.startRadius + (effect.endRadius - effect.startRadius) * progress) * cellSize;
+            const opacity = 1 - progress;
+            const cx = effect.position.x * cellSize;
+            const cy = effect.position.y * cellSize;
+
+            return (
+              <Group key={effect.id} opacity={Math.max(0.12, opacity)}>
+                <Atlas
+                  image={atlasImage}
+                  sprites={[GAME_ATLAS_FRAMES[spriteId].rect]}
+                  transforms={[
+                    buildAtlasTransform(
+                      spriteId,
+                      cx,
+                      cy,
+                      radius * 2,
+                      getEffectRotation(effect.kind, progress)
+                    ),
+                  ]}
+                />
+              </Group>
+            );
+          })
+        : sampledEffects.map((effect) => {
+            const progress = Math.min(1, effect.age / effect.duration);
+            const radius = (effect.startRadius + (effect.endRadius - effect.startRadius) * progress) * cellSize;
+            const opacity = 1 - progress;
+            const fillBaseAlpha = effect.kind === 'hit' || effect.kind === 'burst' ? 0.28 : 0.15;
+            const style = getEffectStyle(effect.kind);
+            const cx = effect.position.x * cellSize;
+            const cy = effect.position.y * cellSize;
+            const spokeRadius = radius * (0.55 + progress * 0.65);
+            const spokeInnerRadius = radius * style.innerScale * (1 - progress * 0.25);
+            return (
+              <Group key={effect.id}>
                 <Circle
                   cx={cx}
                   cy={cy}
                   r={radius}
-                  style="stroke"
-                  strokeWidth={1.3 * style.outerStroke}
-                  color={withAlpha(effect.color, 0.95 * opacity)}
+                  color={withAlpha(effect.color, fillBaseAlpha * opacity)}
                 />
-                <Circle
-                  cx={cx}
-                  cy={cy}
-                  r={radius * (0.62 + progress * 0.1)}
-                  style="stroke"
-                  strokeWidth={1}
-                  color={withAlpha(effect.color, 0.52 * opacity)}
-                />
-                {!useVeryReducedEffects &&
-                  getSpokeIndices(style.spokeCount).map((spokeIndex) => {
-                  const angle = (Math.PI * 2 * spokeIndex) / style.spokeCount + progress * 0.55;
-                  const x1 = cx + Math.cos(angle) * spokeInnerRadius;
-                  const y1 = cy + Math.sin(angle) * spokeInnerRadius;
-                  const x2 = cx + Math.cos(angle) * spokeRadius;
-                  const y2 = cy + Math.sin(angle) * spokeRadius;
-                  return (
-                    <Line
-                      key={`${effect.id}-spoke-${spokeIndex}`}
-                      p1={vec(x1, y1)}
-                      p2={vec(x2, y2)}
-                      color={withAlpha(effect.color, style.lineAlpha * opacity)}
-                      strokeWidth={1}
-                      strokeCap="round"
+                <Circle cx={cx} cy={cy} r={radius * style.innerScale} color={withAlpha(effect.color, 0.22 * opacity)} />
+                {!useReducedDetail ? (
+                  <>
+                    <Circle
+                      cx={cx}
+                      cy={cy}
+                      r={radius}
+                      style="stroke"
+                      strokeWidth={1.3 * style.outerStroke}
+                      color={withAlpha(effect.color, 0.95 * opacity)}
                     />
-                  );
-                })}
-              </>
-            ) : null}
-          </Group>
-        );
-      })}
+                    <Circle
+                      cx={cx}
+                      cy={cy}
+                      r={radius * (0.62 + progress * 0.1)}
+                      style="stroke"
+                      strokeWidth={1}
+                      color={withAlpha(effect.color, 0.52 * opacity)}
+                    />
+                    {!useVeryReducedEffects &&
+                      getSpokeIndices(style.spokeCount).map((spokeIndex) => {
+                        const angle = (Math.PI * 2 * spokeIndex) / style.spokeCount + progress * 0.55;
+                        const x1 = cx + Math.cos(angle) * spokeInnerRadius;
+                        const y1 = cy + Math.sin(angle) * spokeInnerRadius;
+                        const x2 = cx + Math.cos(angle) * spokeRadius;
+                        const y2 = cy + Math.sin(angle) * spokeRadius;
+                        return (
+                          <Line
+                            key={`${effect.id}-spoke-${spokeIndex}`}
+                            p1={vec(x1, y1)}
+                            p2={vec(x2, y2)}
+                            color={withAlpha(effect.color, style.lineAlpha * opacity)}
+                            strokeWidth={1}
+                            strokeCap="round"
+                          />
+                        );
+                      })}
+                  </>
+                ) : null}
+              </Group>
+            );
+          })}
 
-      {state.towers.map((tower) => {
-        const towerType = TOWER_TYPES[tower.towerType];
-        const towerStats = getTowerStats(tower);
-        const levelScale = 1 + Math.max(0, tower.level - 1) * 0.08;
-        const radius = towerType.radius * cellSize * levelScale;
-        const center = cellCenter(tower.cell);
-        const cx = center.x * cellSize;
-        const cy = center.y * cellSize;
-        const isActive = tower.id === selectedTowerId;
-        const aimAngle = Number.isFinite(tower.aimAngle) ? tower.aimAngle : -Math.PI / 2;
+      {atlasImage ? (
+        <>
+          {state.towers.map((tower) => {
+            if (tower.id !== selectedTowerId) {
+              return null;
+            }
 
-        return (
-          <Group key={tower.id}>
-            {isActive ? (
-              <Group>
+            const towerType = TOWER_TYPES[tower.towerType];
+            const towerStats = getTowerStats(tower);
+            const center = cellCenter(tower.cell);
+            const cx = center.x * cellSize;
+            const cy = center.y * cellSize;
+
+            return (
+              <Group key={`${tower.id}-selection`}>
                 <Circle
                   cx={cx}
                   cy={cy}
@@ -530,30 +782,76 @@ export function BoardCanvas({
                   strokeWidth={1.5}
                   color={towerType.color}
                 />
+                <Circle
+                  cx={cx}
+                  cy={cy}
+                  r={towerType.radius * cellSize * (1 + Math.max(0, tower.level - 1) * 0.08) + 3}
+                  style="stroke"
+                  strokeWidth={2}
+                  color="#E7F28D"
+                />
               </Group>
-            ) : null}
+            );
+          })}
+          {towerAtlasData && towerAtlasData.sprites.length > 0 ? (
+            <Atlas image={atlasImage} sprites={towerAtlasData.sprites} transforms={towerAtlasData.transforms} />
+          ) : null}
+        </>
+      ) : (
+        state.towers.map((tower) => {
+          const towerType = TOWER_TYPES[tower.towerType];
+          const towerStats = getTowerStats(tower);
+          const levelScale = 1 + Math.max(0, tower.level - 1) * 0.08;
+          const radius = towerType.radius * cellSize * levelScale;
+          const center = cellCenter(tower.cell);
+          const cx = center.x * cellSize;
+          const cy = center.y * cellSize;
+          const isActive = tower.id === selectedTowerId;
+          const aimAngle = Number.isFinite(tower.aimAngle) ? tower.aimAngle : -Math.PI / 2;
 
-            <Circle cx={cx} cy={cy} r={radius} color={withAlpha('#0B1320', 0.5)} />
-            <Circle
-              cx={cx}
-              cy={cy}
-              r={radius}
-              style="stroke"
-              strokeWidth={2}
-              color={isActive ? '#E7F28D' : '#0B101B'}
-            />
+          return (
+            <Group key={tower.id}>
+              {isActive ? (
+                <Group>
+                  <Circle
+                    cx={cx}
+                    cy={cy}
+                    r={towerStats.range * cellSize}
+                    color={withAlpha(towerType.color, 0.13)}
+                  />
+                  <Circle
+                    cx={cx}
+                    cy={cy}
+                    r={towerStats.range * cellSize}
+                    style="stroke"
+                    strokeWidth={1.5}
+                    color={towerType.color}
+                  />
+                </Group>
+              ) : null}
 
-            <TowerGlyphSkia
-              towerType={tower.towerType}
-              color={towerType.color}
-              size={radius * 2}
-              cx={cx}
-              cy={cy}
-              aimAngle={aimAngle}
-            />
-          </Group>
-        );
-      })}
+              <Circle cx={cx} cy={cy} r={radius} color={withAlpha('#0B1320', 0.5)} />
+              <Circle
+                cx={cx}
+                cy={cy}
+                r={radius}
+                style="stroke"
+                strokeWidth={2}
+                color={isActive ? '#E7F28D' : '#0B101B'}
+              />
+
+              <TowerGlyphSkia
+                towerType={tower.towerType}
+                color={towerType.color}
+                size={radius * 2}
+                cx={cx}
+                cy={cy}
+                aimAngle={aimAngle}
+              />
+            </Group>
+          );
+        })
+      )}
 
       {state.beams.map((beam) => (
         <Group key={beam.id}>
@@ -584,47 +882,118 @@ export function BoardCanvas({
         </Group>
       ))}
 
-      {sampledProjectiles.map((projectile) => {
-        const px = projectile.position.x * cellSize;
-        const py = projectile.position.y * cellSize;
-        const projectileRadius = projectile.radius * cellSize;
+      {atlasImage ? (
+        projectileAtlasData && projectileAtlasData.sprites.length > 0 ? (
+          <Atlas image={atlasImage} sprites={projectileAtlasData.sprites} transforms={projectileAtlasData.transforms} />
+        ) : null
+      ) : (
+        sampledProjectiles.map((projectile) => {
+          const px = projectile.position.x * cellSize;
+          const py = projectile.position.y * cellSize;
+          const projectileRadius = projectile.radius * cellSize;
 
-        if (projectile.towerType === 'lance') {
-          const targetPosition = enemyPositionById.get(projectile.targetEnemyId);
-          let aimAngle = -Math.PI / 2;
-          if (targetPosition) {
-            aimAngle =
-              Math.atan2(
-                targetPosition.y - projectile.position.y,
-                targetPosition.x - projectile.position.x
-              ) + Math.PI / 2;
-          }
-          const lanceProjectilePath = getCenteredLanceProjectilePath(projectileRadius * 2.3);
+          if (projectile.towerType === 'lance') {
+            const targetPosition = enemyPositionById.get(projectile.targetEnemyId);
+            let aimAngle = -Math.PI / 2;
+            if (targetPosition) {
+              aimAngle =
+                Math.atan2(
+                  targetPosition.y - projectile.position.y,
+                  targetPosition.x - projectile.position.x
+                ) + Math.PI / 2;
+            }
+            const lanceProjectilePath = getCenteredLanceProjectilePath(projectileRadius * 2.3);
 
-          return (
-            <Group key={projectile.id}>
-              {!useReducedDetail ? (
-                <Circle
-                  cx={px}
-                  cy={py}
-                  r={projectileRadius * 1.7}
-                  color={withAlpha(projectile.color, 0.16)}
-                />
-              ) : null}
-              <Group transform={[{ translateX: px }, { translateY: py }, { rotate: aimAngle }]}>
-                <Path path={lanceProjectilePath} color={projectile.color} />
+            return (
+              <Group key={projectile.id}>
                 {!useReducedDetail ? (
-                  <Path path={lanceProjectilePath} style="stroke" strokeWidth={1} color="#0E1624" />
+                  <Circle
+                    cx={px}
+                    cy={py}
+                    r={projectileRadius * 1.7}
+                    color={withAlpha(projectile.color, 0.16)}
+                  />
                 ) : null}
+                <Group transform={[{ translateX: px }, { translateY: py }, { rotate: aimAngle }]}>
+                  <Path path={lanceProjectilePath} color={projectile.color} />
+                  {!useReducedDetail ? (
+                    <Path path={lanceProjectilePath} style="stroke" strokeWidth={1} color="#0E1624" />
+                  ) : null}
+                </Group>
               </Group>
-            </Group>
-          );
-        }
+            );
+          }
 
-        if (projectile.towerType === 'cold') {
-          const armLength = Math.max(2.5, projectileRadius * 1.5);
-          const diagonalArm = armLength * 0.72;
-          const snowflakeColor = withAlpha('#E5F8FF', 0.95);
+          if (projectile.towerType === 'cold') {
+            const armLength = Math.max(2.5, projectileRadius * 1.5);
+            const diagonalArm = armLength * 0.72;
+            const snowflakeColor = withAlpha('#E5F8FF', 0.95);
+
+            return (
+              <Group key={projectile.id}>
+                {!useReducedDetail ? (
+                  <Circle
+                    cx={px}
+                    cy={py}
+                    r={projectileRadius * 1.8}
+                    color={withAlpha(projectile.color, 0.18)}
+                  />
+                ) : null}
+                <Line
+                  p1={vec(px - armLength, py)}
+                  p2={vec(px + armLength, py)}
+                  color={snowflakeColor}
+                  strokeWidth={1.2}
+                  strokeCap="round"
+                />
+                <Line
+                  p1={vec(px, py - armLength)}
+                  p2={vec(px, py + armLength)}
+                  color={snowflakeColor}
+                  strokeWidth={1.2}
+                  strokeCap="round"
+                />
+                <Line
+                  p1={vec(px - diagonalArm, py - diagonalArm)}
+                  p2={vec(px + diagonalArm, py + diagonalArm)}
+                  color={snowflakeColor}
+                  strokeWidth={1.1}
+                  strokeCap="round"
+                />
+                <Line
+                  p1={vec(px - diagonalArm, py + diagonalArm)}
+                  p2={vec(px + diagonalArm, py - diagonalArm)}
+                  color={snowflakeColor}
+                  strokeWidth={1.1}
+                  strokeCap="round"
+                />
+                <Circle cx={px} cy={py} r={Math.max(1.2, projectileRadius * 0.55)} color={projectile.color} />
+              </Group>
+            );
+          }
+
+          if (projectile.towerType === 'bomb') {
+            const bombPath = getCenteredPolygonPath(4, projectileRadius * 2.35);
+
+            return (
+              <Group key={projectile.id}>
+                {!useReducedDetail ? (
+                  <Circle
+                    cx={px}
+                    cy={py}
+                    r={projectileRadius * 2.1}
+                    color={withAlpha(projectile.color, 0.2)}
+                  />
+                ) : null}
+                <Group transform={[{ translateX: px }, { translateY: py }]}>
+                  <Path path={bombPath} color={projectile.color} />
+                  {!useReducedDetail ? (
+                    <Path path={bombPath} style="stroke" strokeWidth={1} color="#141E2D" />
+                  ) : null}
+                </Group>
+              </Group>
+            );
+          }
 
           return (
             <Group key={projectile.id}>
@@ -632,179 +1001,162 @@ export function BoardCanvas({
                 <Circle
                   cx={px}
                   cy={py}
-                  r={projectileRadius * 1.8}
+                  r={projectileRadius * 1.9}
                   color={withAlpha(projectile.color, 0.18)}
                 />
               ) : null}
-              <Line
-                p1={vec(px - armLength, py)}
-                p2={vec(px + armLength, py)}
-                color={snowflakeColor}
-                strokeWidth={1.2}
-                strokeCap="round"
-              />
-              <Line
-                p1={vec(px, py - armLength)}
-                p2={vec(px, py + armLength)}
-                color={snowflakeColor}
-                strokeWidth={1.2}
-                strokeCap="round"
-              />
-              <Line
-                p1={vec(px - diagonalArm, py - diagonalArm)}
-                p2={vec(px + diagonalArm, py + diagonalArm)}
-                color={snowflakeColor}
-                strokeWidth={1.1}
-                strokeCap="round"
-              />
-              <Line
-                p1={vec(px - diagonalArm, py + diagonalArm)}
-                p2={vec(px + diagonalArm, py - diagonalArm)}
-                color={snowflakeColor}
-                strokeWidth={1.1}
-                strokeCap="round"
-              />
-              <Circle cx={px} cy={py} r={Math.max(1.2, projectileRadius * 0.55)} color={projectile.color} />
+              <Circle cx={px} cy={py} r={projectileRadius} color={projectile.color} />
             </Group>
           );
-        }
+        })
+      )}
 
-        if (projectile.towerType === 'bomb') {
-          const bombPath = getCenteredPolygonPath(4, projectileRadius * 2.35);
+      {atlasImage ? (
+        <>
+          {state.enemies.map((enemy) => {
+            const size = enemy.radius * 2 * cellSize;
+            const cx = enemy.position.x * cellSize;
+            const cy = enemy.position.y * cellSize;
+            const left = cx - size / 2;
+            const top = cy - size / 2;
+            const healthPercent = Math.max(0, enemy.health / enemy.maxHealth);
+            const isSlowed = enemy.slowTimeRemaining > 0 && enemy.slowMultiplier < 1;
 
-          return (
-            <Group key={projectile.id}>
-              {!useReducedDetail ? (
-                <Circle
-                  cx={px}
-                  cy={py}
-                  r={projectileRadius * 2.1}
-                  color={withAlpha(projectile.color, 0.2)}
-                />
-              ) : null}
-              <Group transform={[{ translateX: px }, { translateY: py }]}>
-                <Path path={bombPath} color={projectile.color} />
-                {!useReducedDetail ? (
-                  <Path path={bombPath} style="stroke" strokeWidth={1} color="#141E2D" />
+            return (
+              <Group key={`${enemy.id}-overlay`}>
+                {isSlowed ? (
+                  <Group>
+                    <Circle
+                      cx={cx}
+                      cy={cy}
+                      r={(size * 1.24) / 2}
+                      color={withAlpha('#6FDFFF', Math.min(0.18, 1 - enemy.slowMultiplier))}
+                    />
+                    {!useReducedDetail ? (
+                      <Circle
+                        cx={cx}
+                        cy={cy}
+                        r={(size * 1.24) / 2}
+                        style="stroke"
+                        strokeWidth={2}
+                        color={withAlpha('#8FE8FF', Math.min(0.56, 1 - enemy.slowMultiplier))}
+                      />
+                    ) : null}
+                  </Group>
+                ) : null}
+                {!hideHealthBars ? (
+                  <>
+                    <Rect x={left} y={top - 7} width={size} height={4} color="#1D2B43" />
+                    <Rect x={left} y={top - 7} width={size * healthPercent} height={4} color="#5EF69A" />
+                  </>
                 ) : null}
               </Group>
-            </Group>
-          );
-        }
+            );
+          })}
+          {enemyAtlasData && enemyAtlasData.sprites.length > 0 ? (
+            <Atlas image={atlasImage} sprites={enemyAtlasData.sprites} transforms={enemyAtlasData.transforms} />
+          ) : null}
+        </>
+      ) : (
+        state.enemies.map((enemy) => {
+          const size = enemy.radius * 2 * cellSize;
+          const cx = enemy.position.x * cellSize;
+          const cy = enemy.position.y * cellSize;
+          const left = cx - size / 2;
+          const top = cy - size / 2;
+          const healthPercent = Math.max(0, enemy.health / enemy.maxHealth);
+          const isSlowed = enemy.slowTimeRemaining > 0 && enemy.slowMultiplier < 1;
 
-        return (
-          <Group key={projectile.id}>
-            {!useReducedDetail ? (
-              <Circle
-                cx={px}
-                cy={py}
-                r={projectileRadius * 1.9}
-                color={withAlpha(projectile.color, 0.18)}
-              />
-            ) : null}
-            <Circle cx={px} cy={py} r={projectileRadius} color={projectile.color} />
-          </Group>
-        );
-      })}
+          const trianglePath = enemy.shape === 'triangle' ? getCenteredTrianglePath(size) : null;
+          const diamondPath = enemy.shape === 'diamond' ? getCenteredPolygonPath(4, size) : null;
+          const hexPath = enemy.shape === 'hexagon' ? getCenteredPolygonPath(6, size, Math.PI / 6) : null;
 
-      {state.enemies.map((enemy) => {
-        const size = enemy.radius * 2 * cellSize;
-        const cx = enemy.position.x * cellSize;
-        const cy = enemy.position.y * cellSize;
-        const left = cx - size / 2;
-        const top = cy - size / 2;
-        const healthPercent = Math.max(0, enemy.health / enemy.maxHealth);
-        const isSlowed = enemy.slowTimeRemaining > 0 && enemy.slowMultiplier < 1;
+          return (
+            <Group key={enemy.id}>
+              {!hideHealthBars ? (
+                <>
+                  <Rect x={left} y={top - 7} width={size} height={4} color="#1D2B43" />
+                  <Rect x={left} y={top - 7} width={size * healthPercent} height={4} color="#5EF69A" />
+                </>
+              ) : null}
 
-        const trianglePath = enemy.shape === 'triangle' ? getCenteredTrianglePath(size) : null;
-        const diamondPath = enemy.shape === 'diamond' ? getCenteredPolygonPath(4, size) : null;
-        const hexPath = enemy.shape === 'hexagon' ? getCenteredPolygonPath(6, size, Math.PI / 6) : null;
-
-        return (
-          <Group key={enemy.id}>
-            {!hideHealthBars ? (
-              <>
-                <Rect x={left} y={top - 7} width={size} height={4} color="#1D2B43" />
-                <Rect x={left} y={top - 7} width={size * healthPercent} height={4} color="#5EF69A" />
-              </>
-            ) : null}
-
-            {isSlowed ? (
-              <Group>
-                <Circle
-                  cx={cx}
-                  cy={cy}
-                  r={(size * 1.24) / 2}
-                  color={withAlpha('#6FDFFF', Math.min(0.26, 1 - enemy.slowMultiplier))}
-                />
-                {!useReducedDetail ? (
+              {isSlowed ? (
+                <Group>
                   <Circle
                     cx={cx}
                     cy={cy}
                     r={(size * 1.24) / 2}
-                    style="stroke"
-                    strokeWidth={2}
-                    color={withAlpha('#8FE8FF', Math.min(0.72, 1 - enemy.slowMultiplier))}
+                    color={withAlpha('#6FDFFF', Math.min(0.26, 1 - enemy.slowMultiplier))}
                   />
-                ) : null}
-              </Group>
-            ) : null}
+                  {!useReducedDetail ? (
+                    <Circle
+                      cx={cx}
+                      cy={cy}
+                      r={(size * 1.24) / 2}
+                      style="stroke"
+                      strokeWidth={2}
+                      color={withAlpha('#8FE8FF', Math.min(0.72, 1 - enemy.slowMultiplier))}
+                    />
+                  ) : null}
+                </Group>
+              ) : null}
 
-            {enemy.shape === 'circle' ? (
-              <Group>
-                <Circle cx={cx} cy={cy} r={size / 2} color={enemy.color} />
-                {!useReducedDetail ? (
-                  <Circle cx={cx} cy={cy} r={size / 2} style="stroke" strokeWidth={1} color="#101827" />
-                ) : null}
-              </Group>
-            ) : null}
+              {enemy.shape === 'circle' ? (
+                <Group>
+                  <Circle cx={cx} cy={cy} r={size / 2} color={enemy.color} />
+                  {!useReducedDetail ? (
+                    <Circle cx={cx} cy={cy} r={size / 2} style="stroke" strokeWidth={1} color="#101827" />
+                  ) : null}
+                </Group>
+              ) : null}
 
-            {enemy.shape === 'square' ? (
-              <Group>
-                <Rect x={left} y={top} width={size} height={size} color={enemy.color} />
-                {!useReducedDetail ? (
-                  <Rect
-                    x={left}
-                    y={top}
-                    width={size}
-                    height={size}
-                    style="stroke"
-                    strokeWidth={1}
-                    color="#101827"
-                  />
-                ) : null}
-              </Group>
-            ) : null}
+              {enemy.shape === 'square' ? (
+                <Group>
+                  <Rect x={left} y={top} width={size} height={size} color={enemy.color} />
+                  {!useReducedDetail ? (
+                    <Rect
+                      x={left}
+                      y={top}
+                      width={size}
+                      height={size}
+                      style="stroke"
+                      strokeWidth={1}
+                      color="#101827"
+                    />
+                  ) : null}
+                </Group>
+              ) : null}
 
-            {enemy.shape === 'triangle' && trianglePath ? (
-              <Group transform={[{ translateX: cx }, { translateY: cy }]}>
-                <Path path={trianglePath} color={enemy.color} />
-                {!useReducedDetail ? (
-                  <Path path={trianglePath} style="stroke" strokeWidth={1} color="#101827" />
-                ) : null}
-              </Group>
-            ) : null}
+              {enemy.shape === 'triangle' && trianglePath ? (
+                <Group transform={[{ translateX: cx }, { translateY: cy }]}>
+                  <Path path={trianglePath} color={enemy.color} />
+                  {!useReducedDetail ? (
+                    <Path path={trianglePath} style="stroke" strokeWidth={1} color="#101827" />
+                  ) : null}
+                </Group>
+              ) : null}
 
-            {enemy.shape === 'diamond' && diamondPath ? (
-              <Group transform={[{ translateX: cx }, { translateY: cy }]}>
-                <Path path={diamondPath} color={enemy.color} />
-                {!useReducedDetail ? (
-                  <Path path={diamondPath} style="stroke" strokeWidth={1} color="#101827" />
-                ) : null}
-              </Group>
-            ) : null}
+              {enemy.shape === 'diamond' && diamondPath ? (
+                <Group transform={[{ translateX: cx }, { translateY: cy }]}>
+                  <Path path={diamondPath} color={enemy.color} />
+                  {!useReducedDetail ? (
+                    <Path path={diamondPath} style="stroke" strokeWidth={1} color="#101827" />
+                  ) : null}
+                </Group>
+              ) : null}
 
-            {enemy.shape === 'hexagon' && hexPath ? (
-              <Group transform={[{ translateX: cx }, { translateY: cy }]}>
-                <Path path={hexPath} color={enemy.color} />
-                {!useReducedDetail ? (
-                  <Path path={hexPath} style="stroke" strokeWidth={1} color="#101827" />
-                ) : null}
-              </Group>
-            ) : null}
-          </Group>
-        );
-      })}
+              {enemy.shape === 'hexagon' && hexPath ? (
+                <Group transform={[{ translateX: cx }, { translateY: cy }]}>
+                  <Path path={hexPath} color={enemy.color} />
+                  {!useReducedDetail ? (
+                    <Path path={hexPath} style="stroke" strokeWidth={1} color="#101827" />
+                  ) : null}
+                </Group>
+              ) : null}
+            </Group>
+          );
+        })
+      )}
     </Canvas>
   );
 }
