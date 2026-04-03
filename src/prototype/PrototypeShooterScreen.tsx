@@ -326,11 +326,11 @@ function getDifficultyTier(elapsedSeconds: number) {
 }
 
 function getUpgradePressureMultiplier(collectedUpgradeCount: number) {
-  return Math.min(30, Math.pow(1.26, collectedUpgradeCount));
+  return Math.min(24, Math.pow(1.18, collectedUpgradeCount));
 }
 
 function getTimePressureMultiplier(difficultyTier: number) {
-  return Math.pow(1.35, difficultyTier);
+  return Math.pow(1.24, difficultyTier);
 }
 
 function getUpgradeSpeedPenalty(collectedUpgradeCount: number) {
