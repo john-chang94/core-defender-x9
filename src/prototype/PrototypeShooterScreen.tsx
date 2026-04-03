@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useState } from 'react';
 import type { GestureResponderEvent, LayoutChangeEvent } from 'react-native';
-import { Pressable, SafeAreaView, StyleSheet, Text, View } from 'react-native';
+import { Pressable, SafeAreaView, StyleSheet, Text, View, useWindowDimensions } from 'react-native';
 
 type AppGameId = 'defender' | 'prototype';
 
@@ -100,6 +100,7 @@ type PrototypeShooterScreenProps = {
 };
 
 const PLAYER_HALF_WIDTH = 22;
+const PLAYER_RENDER_HALF_WIDTH = 28;
 const PLAYER_HEIGHT = 28;
 const PLAYER_MARGIN = 14;
 const PLAYER_FLOOR_OFFSET = 14;
@@ -800,11 +801,13 @@ function BackgroundGrid({ width, height }: { width: number; height: number }) {
 }
 
 export function PrototypeShooterScreen({ onSwitchGame }: PrototypeShooterScreenProps) {
+  const { height: windowHeight, width: windowWidth } = useWindowDimensions();
   const [boardSize, setBoardSize] = useState({ width: 0, height: 0 });
   const [gameState, setGameState] = useState<PrototypeGameState>(() => createInitialState(900, 420));
   const [hasStarted, setHasStarted] = useState(false);
   const [isPaused, setIsPaused] = useState(true);
   const [isMenuOpen, setIsMenuOpen] = useState(false);
+  const isPortraitViewport = windowHeight >= windowWidth;
 
   useEffect(() => {
     if (boardSize.width <= 0 || boardSize.height <= 0) {
@@ -929,12 +932,12 @@ export function PrototypeShooterScreen({ onSwitchGame }: PrototypeShooterScreenP
   };
 
   const playerStyle = {
-    left: gameState.playerX - PLAYER_HALF_WIDTH,
+    left: gameState.playerX - PLAYER_RENDER_HALF_WIDTH,
     top: getPlayerShipTop(boardSize.height),
   };
 
   return (
-    <SafeAreaView style={shooterStyles.container}>
+    <SafeAreaView style={[shooterStyles.container, isPortraitViewport && shooterStyles.containerPortrait]}>
       <View style={shooterStyles.topBar}>
         <Pressable
           onPress={() => {
@@ -970,20 +973,20 @@ export function PrototypeShooterScreen({ onSwitchGame }: PrototypeShooterScreenP
         </Pressable>
       </View>
 
-      <View style={shooterStyles.hudRow}>
-        <View style={shooterStyles.hudChip}>
+      <View style={[shooterStyles.hudRow, isPortraitViewport && shooterStyles.hudRowPortrait]}>
+        <View style={[shooterStyles.hudChip, isPortraitViewport && shooterStyles.hudChipPortrait]}>
           <Text style={shooterStyles.hudLabel}>Score</Text>
           <Text style={shooterStyles.hudValue}>{gameState.score}</Text>
         </View>
-        <View style={shooterStyles.hudChip}>
+        <View style={[shooterStyles.hudChip, isPortraitViewport && shooterStyles.hudChipPortrait]}>
           <Text style={shooterStyles.hudLabel}>Pressure</Text>
           <Text style={shooterStyles.hudValue}>T{difficultyTier}</Text>
         </View>
-        <View style={shooterStyles.hudChip}>
+        <View style={[shooterStyles.hudChip, isPortraitViewport && shooterStyles.hudChipPortrait]}>
           <Text style={shooterStyles.hudLabel}>Rate</Text>
           <Text style={shooterStyles.hudValue}>{formatRate(gameState.weapon)}</Text>
         </View>
-        <View style={shooterStyles.hudChip}>
+        <View style={[shooterStyles.hudChip, isPortraitViewport && shooterStyles.hudChipPortrait]}>
           <Text style={shooterStyles.hudLabel}>Payload</Text>
           <Text style={shooterStyles.hudValue}>
             {gameState.weapon.damage} dmg · {gameState.weapon.shotCount} shot
@@ -991,14 +994,14 @@ export function PrototypeShooterScreen({ onSwitchGame }: PrototypeShooterScreenP
         </View>
       </View>
 
-      <View style={shooterStyles.weaponRow}>
+      <View style={[shooterStyles.weaponRow, isPortraitViewport && shooterStyles.weaponRowPortrait]}>
         <View style={shooterStyles.weaponPill}>
           <Text style={shooterStyles.weaponPillText}>Pierce {gameState.weapon.pierce}</Text>
         </View>
         <View style={shooterStyles.weaponPill}>
           <Text style={shooterStyles.weaponPillText}>Speed {Math.round(gameState.weapon.bulletSpeed)}</Text>
         </View>
-        <View style={shooterStyles.weaponPill}>
+        <View style={[shooterStyles.weaponPill, isPortraitViewport && shooterStyles.weaponPillWide]}>
           <Text style={shooterStyles.weaponPillText}>Catch upgrades to evolve the gun</Text>
         </View>
       </View>
@@ -1029,12 +1032,15 @@ export function PrototypeShooterScreen({ onSwitchGame }: PrototypeShooterScreenP
             <UpgradeNode key={upgrade.id} upgrade={upgrade} />
           ))}
 
-          <View style={[shooterStyles.playerShip, playerStyle]}>
+          <View pointerEvents="none" style={[shooterStyles.playerShip, playerStyle]}>
+            <View style={shooterStyles.playerNose} />
             <View style={shooterStyles.playerWingLeft} />
             <View style={shooterStyles.playerCore}>
               <View style={shooterStyles.playerCanopy} />
             </View>
             <View style={shooterStyles.playerWingRight} />
+            <View style={shooterStyles.playerThrusterLeft} />
+            <View style={shooterStyles.playerThrusterRight} />
           </View>
 
           <View style={shooterStyles.bottomGlow} pointerEvents="none" />
@@ -1100,6 +1106,9 @@ const shooterStyles = StyleSheet.create({
     backgroundColor: '#07111A',
     paddingHorizontal: 12,
     paddingBottom: 10,
+  },
+  containerPortrait: {
+    paddingHorizontal: 10,
   },
   topBar: {
     height: 44,
@@ -1170,6 +1179,9 @@ const shooterStyles = StyleSheet.create({
     flexDirection: 'row',
     gap: 8,
   },
+  hudRowPortrait: {
+    flexWrap: 'wrap',
+  },
   hudChip: {
     flex: 1,
     borderRadius: 10,
@@ -1178,6 +1190,10 @@ const shooterStyles = StyleSheet.create({
     backgroundColor: '#0D1724',
     paddingHorizontal: 10,
     paddingVertical: 6,
+  },
+  hudChipPortrait: {
+    flexBasis: '48%',
+    minWidth: '48%',
   },
   hudLabel: {
     color: '#7D93B5',
@@ -1196,6 +1212,9 @@ const shooterStyles = StyleSheet.create({
     flexDirection: 'row',
     gap: 8,
   },
+  weaponRowPortrait: {
+    flexWrap: 'wrap',
+  },
   weaponPill: {
     borderRadius: 999,
     borderWidth: 1,
@@ -1203,6 +1222,9 @@ const shooterStyles = StyleSheet.create({
     backgroundColor: '#0E1A28',
     paddingHorizontal: 12,
     paddingVertical: 6,
+  },
+  weaponPillWide: {
+    width: '100%',
   },
   weaponPillText: {
     color: '#BCD4F4',
@@ -1292,11 +1314,25 @@ const shooterStyles = StyleSheet.create({
   },
   playerShip: {
     position: 'absolute',
-    width: PLAYER_HALF_WIDTH * 2,
-    height: PLAYER_HEIGHT,
+    width: 56,
+    height: PLAYER_HEIGHT + 4,
     flexDirection: 'row',
     alignItems: 'flex-end',
     justifyContent: 'center',
+  },
+  playerNose: {
+    position: 'absolute',
+    top: 0,
+    alignSelf: 'center',
+    width: 8,
+    height: 10,
+    borderTopLeftRadius: 6,
+    borderTopRightRadius: 6,
+    borderBottomLeftRadius: 3,
+    borderBottomRightRadius: 3,
+    borderWidth: 1.5,
+    borderColor: '#0A1420',
+    backgroundColor: '#B6F8FF',
   },
   playerCore: {
     width: 22,
@@ -1316,26 +1352,50 @@ const shooterStyles = StyleSheet.create({
     backgroundColor: '#E9FCFF',
   },
   playerWingLeft: {
-    width: 14,
-    height: 14,
-    marginRight: 2,
-    borderTopLeftRadius: 8,
-    borderBottomLeftRadius: 10,
+    width: 13,
+    height: 12,
+    marginRight: 3,
+    marginBottom: 4,
+    borderTopLeftRadius: 7,
+    borderBottomLeftRadius: 9,
+    borderTopRightRadius: 5,
+    borderBottomRightRadius: 5,
     borderWidth: 1.5,
     borderColor: '#0A1420',
     backgroundColor: '#1D7BD0',
-    transform: [{ skewY: '20deg' }],
   },
   playerWingRight: {
-    width: 14,
-    height: 14,
-    marginLeft: 2,
-    borderTopRightRadius: 8,
-    borderBottomRightRadius: 10,
+    width: 13,
+    height: 12,
+    marginLeft: 3,
+    marginBottom: 4,
+    borderTopLeftRadius: 5,
+    borderBottomLeftRadius: 5,
+    borderTopRightRadius: 7,
+    borderBottomRightRadius: 9,
     borderWidth: 1.5,
     borderColor: '#0A1420',
     backgroundColor: '#1D7BD0',
-    transform: [{ skewY: '-20deg' }],
+  },
+  playerThrusterLeft: {
+    position: 'absolute',
+    left: 17,
+    bottom: 0,
+    width: 5,
+    height: 7,
+    borderBottomLeftRadius: 4,
+    borderBottomRightRadius: 4,
+    backgroundColor: '#FFB16C',
+  },
+  playerThrusterRight: {
+    position: 'absolute',
+    right: 17,
+    bottom: 0,
+    width: 5,
+    height: 7,
+    borderBottomLeftRadius: 4,
+    borderBottomRightRadius: 4,
+    backgroundColor: '#FFB16C',
   },
   bottomGlow: {
     position: 'absolute',

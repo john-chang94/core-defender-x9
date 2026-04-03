@@ -1029,6 +1029,34 @@ function DefenseScreen({ onSwitchGame }: { onSwitchGame: (game: AppGameId) => vo
 export default function HomeScreen() {
   const [activeGame, setActiveGame] = useState<AppGameId>('defender');
 
+  useEffect(() => {
+    let isActive = true;
+
+    const syncOrientation = async () => {
+      try {
+        const ScreenOrientation = await import('expo-screen-orientation');
+        if (!isActive) {
+          return;
+        }
+
+        const orientationLock =
+          activeGame === 'prototype'
+            ? ScreenOrientation.OrientationLock.PORTRAIT_UP
+            : ScreenOrientation.OrientationLock.LANDSCAPE;
+
+        await ScreenOrientation.lockAsync(orientationLock);
+      } catch {
+        // Ignore missing native module or unsupported lock errors on older builds.
+      }
+    };
+
+    void syncOrientation();
+
+    return () => {
+      isActive = false;
+    };
+  }, [activeGame]);
+
   if (activeGame === 'prototype') {
     return <PrototypeShooterScreen onSwitchGame={setActiveGame} />;
   }

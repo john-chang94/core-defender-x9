@@ -3,7 +3,7 @@
     "name": "defender",
     "slug": "defender",
     "version": "1.0.1",
-    "orientation": "landscape",
+    "orientation": "default",
     "icon": "./assets/images/icon.png",
     "scheme": "defender",
     "userInterfaceStyle": "automatic",
@@ -13,16 +13,6 @@
       "bundleIdentifier": "com.johnc94.defender",
       "requireFullScreen": true,
       "infoPlist": {
-        "UISupportedInterfaceOrientations~ipad": [
-          "UIInterfaceOrientationLandscapeLeft",
-          "UIInterfaceOrientationLandscapeRight",
-          "UIInterfaceOrientationLandscapeLeft",
-          "UIInterfaceOrientationLandscapeRight",
-          "UIInterfaceOrientationLandscapeLeft",
-          "UIInterfaceOrientationLandscapeRight",
-          "UIInterfaceOrientationLandscapeLeft",
-          "UIInterfaceOrientationLandscapeRight"
-        ],
         "ITSAppUsesNonExemptEncryption": false
       }
     },
