@@ -5,18 +5,26 @@ import { Pressable, SafeAreaView, StyleSheet, Text, View, useWindowDimensions } 
 type AppGameId = 'defender' | 'prototype';
 
 type EnemyShape = 'circle' | 'square' | 'diamond';
-type WeaponUpgradeType = 'rapid' | 'twin' | 'heavy' | 'pierce' | 'focus';
+type WeaponUpgradeType = 'rapid' | 'twin' | 'heavy' | 'pierce' | 'focus' | 'chaos' | 'flare';
 type PrototypeEffectKind = 'muzzle' | 'burst' | 'pickup';
 
 type PrototypeBullet = {
   id: string;
   x: number;
   y: number;
+  angle: number;
+  speed: number;
   vx: number;
   vy: number;
   damage: number;
   size: number;
   pierce: number;
+  age: number;
+  phase: number;
+  aimAssist: number;
+  color: string;
+  glowColor: string;
+  trailScale: number;
 };
 
 type PrototypeEnemy = {
@@ -52,6 +60,13 @@ type PrototypeWeapon = {
   bulletSize: number;
   bulletSpeed: number;
   spread: number;
+  aimAssist: number;
+  spreadJitter: number;
+  effectIntensity: number;
+  bulletColor: string;
+  glowColor: string;
+  muzzleColor: string;
+  trailScale: number;
 };
 
 type PrototypeEffect = {
@@ -110,6 +125,17 @@ const MAX_CATCH_UP_STEPS = 5;
 const MAX_ACTIVE_EFFECTS = 28;
 const DIFFICULTY_TIER_DURATION_SECONDS = 15;
 const OPENING_UPGRADE_TYPES: WeaponUpgradeType[] = ['rapid', 'twin', 'heavy'];
+const STANDARD_UPGRADE_TYPES: WeaponUpgradeType[] = [
+  'rapid',
+  'twin',
+  'heavy',
+  'pierce',
+  'focus',
+  'chaos',
+  'chaos',
+  'flare',
+  'flare',
+];
 const BASE_WEAPON: PrototypeWeapon = {
   damage: 1,
   fireInterval: 0.1,
@@ -118,6 +144,13 @@ const BASE_WEAPON: PrototypeWeapon = {
   bulletSize: 8,
   bulletSpeed: 760,
   spread: 15,
+  aimAssist: 0,
+  spreadJitter: 0,
+  effectIntensity: 1,
+  bulletColor: '#EEFBFF',
+  glowColor: '#79DFFF',
+  muzzleColor: '#F4FCFF',
+  trailScale: 1,
 };
 
 const UPGRADE_DEFINITIONS: Record<
@@ -175,6 +208,42 @@ const UPGRADE_DEFINITIONS: Record<
       ...weapon,
       bulletSpeed: Math.min(1100, weapon.bulletSpeed + 95),
       damage: Math.min(12, weapon.damage + 1),
+      aimAssist: Math.min(0.34, weapon.aimAssist + 0.09),
+      effectIntensity: Math.min(1.8, weapon.effectIntensity + 0.08),
+      bulletColor: '#FFE1F4',
+      glowColor: '#FF7ABD',
+      muzzleColor: '#FFE3F1',
+    }),
+  },
+  chaos: {
+    label: 'Chaos',
+    color: '#FF9B55',
+    accent: '#FFF0DE',
+    apply: (weapon) => ({
+      ...weapon,
+      shotCount: Math.min(6, weapon.shotCount + 1),
+      spread: Math.min(40, weapon.spread + 5),
+      spreadJitter: Math.min(14, weapon.spreadJitter + 3.5),
+      effectIntensity: Math.min(2.1, weapon.effectIntensity + 0.3),
+      bulletColor: '#FFF0C9',
+      glowColor: '#FF9B55',
+      muzzleColor: '#FFD5B1',
+      trailScale: Math.min(1.8, weapon.trailScale + 0.18),
+    }),
+  },
+  flare: {
+    label: 'Flare',
+    color: '#FFD55C',
+    accent: '#FFF7D4',
+    apply: (weapon) => ({
+      ...weapon,
+      damage: Math.min(12, weapon.damage + 1),
+      bulletSize: Math.min(14, weapon.bulletSize + 0.7),
+      effectIntensity: Math.min(2.1, weapon.effectIntensity + 0.24),
+      bulletColor: '#FFF8C9',
+      glowColor: '#FFC84E',
+      muzzleColor: '#FFF0B0',
+      trailScale: Math.min(1.9, weapon.trailScale + 0.12),
     }),
   },
 };
@@ -193,6 +262,17 @@ function clamp(value: number, min: number, max: number) {
 
 function randomChoice<T>(items: readonly T[]): T {
   return items[Math.floor(Math.random() * items.length)];
+}
+
+function normalizeAngle(angle: number) {
+  let nextAngle = angle;
+  while (nextAngle > Math.PI) {
+    nextAngle -= Math.PI * 2;
+  }
+  while (nextAngle < -Math.PI) {
+    nextAngle += Math.PI * 2;
+  }
+  return nextAngle;
 }
 
 function getDifficultyTier(elapsedSeconds: number) {
@@ -216,7 +296,7 @@ function createInitialState(boardWidth: number, boardHeight: number): PrototypeG
     weapon: BASE_WEAPON,
     fireCooldown: 0.03,
     enemyCooldown: 2.1,
-    upgradeCooldown: 3.6,
+    upgradeCooldown: 4.8,
     nextBulletId: 1,
     nextEnemyId: 1,
     nextUpgradeId: 1,
@@ -234,19 +314,38 @@ function createBulletVolleys(
   let nextBulletId = state.nextBulletId;
   const centerIndex = (state.weapon.shotCount - 1) / 2;
   const muzzleY = boardHeight - PLAYER_HEIGHT - 18;
+  const aimTarget = findAimAssistTarget(state.enemies, state.playerX, muzzleY);
 
   for (let index = 0; index < state.weapon.shotCount; index += 1) {
     const lane = index - centerIndex;
-    const angle = lane * 0.085;
+    const originX = state.playerX + lane * state.weapon.spread;
+    const jitter = state.weapon.spreadJitter > 0 ? (Math.random() - 0.5) * state.weapon.spreadJitter * 0.015 : 0;
+    const defaultAngle = lane * 0.085 + jitter;
+    let angle = defaultAngle;
+    if (aimTarget) {
+      const desiredAngle = Math.atan2(aimTarget.x - originX, muzzleY - aimTarget.y);
+      const angleDelta = clamp(normalizeAngle(desiredAngle - defaultAngle), -0.28, 0.28);
+      angle += angleDelta * state.weapon.aimAssist;
+    }
+    const vx = Math.sin(angle) * state.weapon.bulletSpeed * 0.42;
+    const vy = -Math.cos(angle) * state.weapon.bulletSpeed;
     bullets.push({
       id: `B${nextBulletId}`,
-      x: state.playerX + lane * state.weapon.spread,
+      x: originX,
       y: muzzleY,
-      vx: Math.sin(angle) * state.weapon.bulletSpeed * 0.42,
-      vy: -Math.cos(angle) * state.weapon.bulletSpeed,
+      angle,
+      speed: state.weapon.bulletSpeed,
+      vx,
+      vy,
       damage: state.weapon.damage,
       size: state.weapon.bulletSize,
       pierce: state.weapon.pierce,
+      age: 0,
+      phase: Math.random() * Math.PI * 2,
+      aimAssist: state.weapon.aimAssist,
+      color: state.weapon.bulletColor,
+      glowColor: state.weapon.glowColor,
+      trailScale: state.weapon.trailScale,
     });
     nextBulletId += 1;
   }
@@ -276,6 +375,56 @@ function createPrototypeEffect(
     age: 0,
     duration,
     color,
+  };
+}
+
+function findAimAssistTarget(enemies: PrototypeEnemy[], originX: number, originY: number) {
+  let bestEnemy: PrototypeEnemy | null = null;
+  let bestScore = -Infinity;
+
+  for (const enemy of enemies) {
+    if (enemy.health <= 0 || enemy.y >= originY - 12) {
+      continue;
+    }
+
+    const horizontalOffset = Math.abs(enemy.x - originX);
+    const score = enemy.y - horizontalOffset * 0.55 + enemy.speed * 0.08;
+    if (score > bestScore) {
+      bestScore = score;
+      bestEnemy = enemy;
+    }
+  }
+
+  return bestEnemy;
+}
+
+function advanceBullet(
+  bullet: PrototypeBullet,
+  deltaSeconds: number,
+  enemies: PrototypeEnemy[]
+): PrototypeBullet {
+  let nextAngle = bullet.angle;
+
+  if (bullet.aimAssist > 0) {
+    const target = findAimAssistTarget(enemies, bullet.x, bullet.y);
+    if (target) {
+      const desiredAngle = Math.atan2(target.x - bullet.x, bullet.y - target.y);
+      const angleDelta = clamp(normalizeAngle(desiredAngle - bullet.angle), -0.22, 0.22);
+      nextAngle = bullet.angle + angleDelta * Math.min(0.24, bullet.aimAssist * deltaSeconds * 5.5);
+    }
+  }
+
+  const vx = Math.sin(nextAngle) * bullet.speed * 0.42;
+  const vy = -Math.cos(nextAngle) * bullet.speed;
+
+  return {
+    ...bullet,
+    angle: nextAngle,
+    vx,
+    vy,
+    x: bullet.x + vx * deltaSeconds,
+    y: bullet.y + vy * deltaSeconds,
+    age: bullet.age + deltaSeconds,
   };
 }
 
@@ -365,8 +514,11 @@ function createEnemy(
   const shapePool: EnemyShape[] =
     difficultyTier >= 7 ? ['circle', 'square', 'diamond'] : difficultyTier >= 4 ? ['circle', 'square'] : ['circle'];
   const shape = draft?.shape ?? randomChoice(shapePool);
-  const maxHealth = Math.max(2, Math.round((2 + difficultyTier * 0.75 + size / 13 + Math.random() * 2.4) * healthMultiplier));
-  const speed = (64 + difficultyTier * 6.5 + Math.random() * 24) * speedMultiplier;
+  const maxHealth = Math.max(
+    2,
+    Math.round((2.5 + difficultyTier * 0.9 + size / 12 + Math.random() * 2.6) * healthMultiplier)
+  );
+  const speed = (60 + difficultyTier * 5.8 + Math.random() * 22) * speedMultiplier;
   const spawnPadding = size / 2 + 12;
   const enemy: PrototypeEnemy = {
     id: `E${state.nextEnemyId}`,
@@ -395,8 +547,7 @@ function createUpgrade(
   state: PrototypeGameState,
   boardWidth: number
 ): Pick<PrototypeGameState, 'upgrades' | 'nextUpgradeId' | 'upgradeCooldown'> {
-  const typePool =
-    state.nextUpgradeId === 1 ? OPENING_UPGRADE_TYPES : (Object.keys(UPGRADE_DEFINITIONS) as WeaponUpgradeType[]);
+  const typePool = state.nextUpgradeId === 1 ? OPENING_UPGRADE_TYPES : STANDARD_UPGRADE_TYPES;
   const type = randomChoice(typePool);
   const definition = UPGRADE_DEFINITIONS[type];
   const size = 52;
@@ -415,7 +566,7 @@ function createUpgrade(
   return {
     upgrades: [...state.upgrades, upgrade],
     nextUpgradeId: state.nextUpgradeId + 1,
-    upgradeCooldown: 4.8 + Math.random() * 2.2,
+    upgradeCooldown: 6.4 + Math.random() * 3.2,
   };
 }
 
@@ -467,11 +618,7 @@ function tickPrototypeState(
   const nextState: PrototypeGameState = {
     ...previousState,
     elapsed: previousState.elapsed + deltaSeconds,
-    bullets: previousState.bullets.map((bullet) => ({
-      ...bullet,
-      x: bullet.x + bullet.vx * deltaSeconds,
-      y: bullet.y + bullet.vy * deltaSeconds,
-    })),
+    bullets: previousState.bullets.map((bullet) => advanceBullet(bullet, deltaSeconds, previousState.enemies)),
     enemies: previousState.enemies.map((enemy) => ({
       ...enemy,
       y: enemy.y + enemy.speed * deltaSeconds,
@@ -510,12 +657,30 @@ function tickPrototypeState(
         'muzzle',
         nextState.playerX,
         boardHeight - PLAYER_HEIGHT - 18,
-        16 + nextState.weapon.shotCount * 4,
-        '#F4FCFF',
+        (16 + nextState.weapon.shotCount * 4) * nextState.weapon.effectIntensity,
+        nextState.weapon.muzzleColor,
         nextState.nextEffectId
       ),
     ]);
     nextState.nextEffectId += 1;
+
+    if (nextState.weapon.effectIntensity >= 1.35) {
+      const sparkCount = Math.min(2, Math.floor((nextState.weapon.effectIntensity - 1.15) * 2));
+      for (let index = 0; index < sparkCount; index += 1) {
+        nextState.effects = trimEffects([
+          ...nextState.effects,
+          createPrototypeEffect(
+            'muzzle',
+            nextState.playerX + (Math.random() - 0.5) * (12 + nextState.weapon.spread * 0.4),
+            boardHeight - PLAYER_HEIGHT - 20 - Math.random() * 6,
+            (10 + nextState.weapon.shotCount * 2) * (0.85 + nextState.weapon.effectIntensity * 0.16),
+            nextState.weapon.glowColor,
+            nextState.nextEffectId
+          ),
+        ]);
+        nextState.nextEffectId += 1;
+      }
+    }
   }
 
   while (nextState.enemyCooldown <= 0) {
@@ -665,20 +830,46 @@ function EnemyNode({ enemy }: { enemy: PrototypeEnemy }) {
 }
 
 function BulletNode({ bullet }: { bullet: PrototypeBullet }) {
+  const trailHeight = bullet.size * (2.8 + bullet.trailScale * (0.45 + Math.sin(bullet.age * 18 + bullet.phase) * 0.12));
+  const glowScale = 1 + Math.sin(bullet.age * 20 + bullet.phase) * 0.08;
+  const angleDegrees = (bullet.angle * 180) / Math.PI;
+
   return (
     <View
       pointerEvents="none"
       style={[
-        shooterStyles.bullet,
+        shooterStyles.bulletShell,
         {
-          left: bullet.x - bullet.size / 2,
-          top: bullet.y - bullet.size * 1.6,
-          width: bullet.size,
-          height: bullet.size * 2.8,
-          borderRadius: bullet.size,
+          left: bullet.x - bullet.size,
+          top: bullet.y - trailHeight + bullet.size * 0.2,
+          width: bullet.size * 2,
+          height: trailHeight,
+          transform: [{ rotate: `${angleDegrees}deg` }],
         },
-      ]}
-    />
+      ]}>
+      <View
+        style={[
+          shooterStyles.bulletGlow,
+          {
+            backgroundColor: bullet.glowColor,
+            opacity: 0.22 + bullet.trailScale * 0.05,
+            transform: [{ scaleX: 1.05 + bullet.trailScale * 0.08 }, { scaleY: glowScale }],
+          },
+        ]}
+      />
+      <View
+        style={[
+          shooterStyles.bullet,
+          {
+            width: bullet.size,
+            height: trailHeight,
+            borderRadius: bullet.size,
+            backgroundColor: bullet.color,
+            borderColor: bullet.glowColor,
+          },
+        ]}
+      />
+    </View>
   );
 }
 
@@ -1297,11 +1488,20 @@ const shooterStyles = StyleSheet.create({
     fontSize: 13,
     fontWeight: '900',
   },
-  bullet: {
+  bulletShell: {
     position: 'absolute',
-    backgroundColor: '#EEFBFF',
+    alignItems: 'center',
+  },
+  bulletGlow: {
+    position: 'absolute',
+    top: 0,
+    bottom: 0,
+    width: '100%',
+    borderRadius: 999,
+  },
+  bullet: {
     borderWidth: 1,
-    borderColor: '#79DFFF',
+    alignSelf: 'center',
   },
   upgradeToken: {
     position: 'absolute',
