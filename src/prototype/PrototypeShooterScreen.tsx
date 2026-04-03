@@ -6,6 +6,7 @@ type AppGameId = 'defender' | 'prototype';
 
 type EnemyShape = 'circle' | 'square' | 'diamond';
 type WeaponUpgradeType = 'rapid' | 'twin' | 'heavy' | 'pierce' | 'focus';
+type PrototypeEffectKind = 'muzzle' | 'burst' | 'pickup';
 
 type PrototypeBullet = {
   id: string;
@@ -53,6 +54,26 @@ type PrototypeWeapon = {
   spread: number;
 };
 
+type PrototypeEffect = {
+  id: string;
+  kind: PrototypeEffectKind;
+  x: number;
+  y: number;
+  size: number;
+  age: number;
+  duration: number;
+  color: string;
+};
+
+type EnemySpawnDraft = {
+  x: number;
+  shape?: EnemyShape;
+  color?: string;
+  sizeMultiplier?: number;
+  healthMultiplier?: number;
+  speedMultiplier?: number;
+};
+
 type PrototypeGameState = {
   status: 'running' | 'lost';
   elapsed: number;
@@ -61,6 +82,7 @@ type PrototypeGameState = {
   bullets: PrototypeBullet[];
   enemies: PrototypeEnemy[];
   upgrades: PrototypeUpgrade[];
+  effects: PrototypeEffect[];
   weapon: PrototypeWeapon;
   fireCooldown: number;
   enemyCooldown: number;
@@ -68,6 +90,7 @@ type PrototypeGameState = {
   nextBulletId: number;
   nextEnemyId: number;
   nextUpgradeId: number;
+  nextEffectId: number;
   pickupMessage: string | null;
   pickupTimer: number;
 };
@@ -79,7 +102,11 @@ type PrototypeShooterScreenProps = {
 const PLAYER_HALF_WIDTH = 22;
 const PLAYER_HEIGHT = 28;
 const PLAYER_MARGIN = 14;
+const PLAYER_FLOOR_OFFSET = 14;
 const MAX_FRAME_DELTA_SECONDS = 0.1;
+const FIXED_STEP_SECONDS = 1 / 60;
+const MAX_CATCH_UP_STEPS = 5;
+const MAX_ACTIVE_EFFECTS = 28;
 const BASE_WEAPON: PrototypeWeapon = {
   damage: 1,
   fireInterval: 0.11,
@@ -165,6 +192,10 @@ function randomChoice<T>(items: readonly T[]): T {
   return items[Math.floor(Math.random() * items.length)];
 }
 
+function getPlayerShipTop(boardHeight: number) {
+  return Math.max(0, boardHeight - PLAYER_HEIGHT - PLAYER_FLOOR_OFFSET);
+}
+
 function createInitialState(boardWidth: number, boardHeight: number): PrototypeGameState {
   return {
     status: 'running',
@@ -174,6 +205,7 @@ function createInitialState(boardWidth: number, boardHeight: number): PrototypeG
     bullets: [],
     enemies: [],
     upgrades: [],
+    effects: [],
     weapon: BASE_WEAPON,
     fireCooldown: 0.05,
     enemyCooldown: 0.8,
@@ -181,7 +213,8 @@ function createInitialState(boardWidth: number, boardHeight: number): PrototypeG
     nextBulletId: 1,
     nextEnemyId: 1,
     nextUpgradeId: 1,
-    pickupMessage: 'Drag to move. Tap falling upgrades to arm the ship.',
+    nextEffectId: 1,
+    pickupMessage: 'Drag to move. Catch falling upgrades with the ship.',
     pickupTimer: 3.5,
   };
 }
@@ -218,28 +251,130 @@ function createBulletVolleys(
   };
 }
 
+function createPrototypeEffect(
+  kind: PrototypeEffectKind,
+  x: number,
+  y: number,
+  size: number,
+  color: string,
+  nextEffectId: number
+): PrototypeEffect {
+  const duration = kind === 'muzzle' ? 0.12 : kind === 'pickup' ? 0.42 : 0.28;
+  return {
+    id: `FX${nextEffectId}`,
+    kind,
+    x,
+    y,
+    size,
+    age: 0,
+    duration,
+    color,
+  };
+}
+
+function trimEffects(effects: PrototypeEffect[]) {
+  if (effects.length <= MAX_ACTIVE_EFFECTS) {
+    return effects;
+  }
+  return effects.slice(effects.length - MAX_ACTIVE_EFFECTS);
+}
+
+function getSpawnLanes(boardWidth: number) {
+  const laneCount = 7;
+  return Array.from({ length: laneCount }, (_, index) => ((index + 0.5) * boardWidth) / laneCount);
+}
+
+function buildEnemySpawnDrafts(state: PrototypeGameState, boardWidth: number) {
+  const difficultyTier = Math.floor(state.elapsed / 11);
+  const lanes = getSpawnLanes(boardWidth);
+  const centerLane = Math.floor(Math.random() * lanes.length);
+  const drafts: EnemySpawnDraft[] = [{ x: lanes[centerLane] }];
+  let cooldown = Math.max(0.22, 0.9 - difficultyTier * 0.035 - Math.random() * 0.08);
+
+  if (difficultyTier >= 2 && Math.random() < Math.min(0.36, 0.16 + difficultyTier * 0.025)) {
+    const sideOffset = centerLane <= 1 ? 1 : centerLane >= lanes.length - 2 ? -1 : Math.random() < 0.5 ? -1 : 1;
+    drafts.push({
+      x: lanes[centerLane + sideOffset],
+      sizeMultiplier: 0.92,
+      healthMultiplier: 0.86,
+      speedMultiplier: 1.08,
+    });
+    cooldown += 0.08;
+  }
+
+  if (difficultyTier >= 5 && Math.random() < Math.min(0.28, 0.08 + difficultyTier * 0.018)) {
+    const leftLane = Math.max(0, centerLane - 1);
+    const rightLane = Math.min(lanes.length - 1, centerLane + 1);
+    if (leftLane !== centerLane) {
+      drafts.push({
+        x: lanes[leftLane],
+        sizeMultiplier: 0.88,
+        healthMultiplier: 0.82,
+        speedMultiplier: 1.16,
+        shape: 'circle',
+      });
+    }
+    if (rightLane !== centerLane && rightLane !== leftLane) {
+      drafts.push({
+        x: lanes[rightLane],
+        sizeMultiplier: 0.88,
+        healthMultiplier: 0.82,
+        speedMultiplier: 1.16,
+        shape: 'circle',
+      });
+    }
+    cooldown += 0.12;
+  }
+
+  if (difficultyTier >= 4 && Math.random() < Math.min(0.24, 0.07 + difficultyTier * 0.014)) {
+    const eliteIndex = Math.floor(Math.random() * drafts.length);
+    drafts[eliteIndex] = {
+      ...drafts[eliteIndex],
+      shape: 'diamond',
+      color: '#FF7CA2',
+      sizeMultiplier: 1.18,
+      healthMultiplier: 1.5,
+      speedMultiplier: 0.9,
+    };
+    cooldown += 0.06;
+  }
+
+  return {
+    cooldown,
+    drafts,
+  };
+}
+
 function createEnemy(
   state: PrototypeGameState,
-  boardWidth: number
+  boardWidth: number,
+  draft?: EnemySpawnDraft
 ): Pick<PrototypeGameState, 'enemies' | 'nextEnemyId' | 'enemyCooldown'> {
   const difficultyTier = Math.floor(state.elapsed / 11);
-  const size = clamp(34 + difficultyTier * 1.8 + Math.random() * 16, 34, 72);
+  const sizeMultiplier = draft?.sizeMultiplier ?? 1;
+  const healthMultiplier = draft?.healthMultiplier ?? 1;
+  const speedMultiplier = draft?.speedMultiplier ?? 1;
+  const size = clamp((34 + difficultyTier * 1.8 + Math.random() * 16) * sizeMultiplier, 30, 86);
   const shapePool: EnemyShape[] =
     difficultyTier >= 7 ? ['circle', 'square', 'diamond'] : difficultyTier >= 3 ? ['circle', 'square'] : ['circle'];
-  const shape = randomChoice(shapePool);
-  const maxHealth = Math.max(2, Math.round(3 + difficultyTier * 0.9 + size / 12 + Math.random() * 3));
-  const speed = 78 + difficultyTier * 8 + Math.random() * 34;
+  const shape = draft?.shape ?? randomChoice(shapePool);
+  const maxHealth = Math.max(2, Math.round((3 + difficultyTier * 0.9 + size / 12 + Math.random() * 3) * healthMultiplier));
+  const speed = (78 + difficultyTier * 8 + Math.random() * 34) * speedMultiplier;
   const spawnPadding = size / 2 + 12;
   const enemy: PrototypeEnemy = {
     id: `E${state.nextEnemyId}`,
-    x: clamp(spawnPadding + Math.random() * (boardWidth - spawnPadding * 2), spawnPadding, boardWidth - spawnPadding),
+    x: clamp(
+      draft?.x ?? spawnPadding + Math.random() * (boardWidth - spawnPadding * 2),
+      spawnPadding,
+      boardWidth - spawnPadding
+    ),
     y: -size * 0.8,
     size,
     speed,
     health: maxHealth,
     maxHealth,
     shape,
-    color: randomChoice(ENEMY_PALETTE),
+    color: draft?.color ?? randomChoice(ENEMY_PALETTE),
     flash: 0,
   };
 
@@ -276,12 +411,43 @@ function createUpgrade(
   };
 }
 
-function hitTestBulletEnemy(bullet: PrototypeBullet, enemy: PrototypeEnemy) {
-  const dx = bullet.x - enemy.x;
-  const dy = bullet.y - enemy.y;
+function hitTestBulletEnemyPath(
+  startX: number,
+  startY: number,
+  endX: number,
+  endY: number,
+  bullet: PrototypeBullet,
+  enemy: PrototypeEnemy
+) {
+  const dx = endX - startX;
+  const dy = endY - startY;
+  const lengthSquared = dx * dx + dy * dy;
+  let closestX = endX;
+  let closestY = endY;
+  if (lengthSquared > 0) {
+    const t = clamp(((enemy.x - startX) * dx + (enemy.y - startY) * dy) / lengthSquared, 0, 1);
+    closestX = startX + dx * t;
+    closestY = startY + dy * t;
+  }
+
+  const hitDx = closestX - enemy.x;
+  const hitDy = closestY - enemy.y;
   const enemyRadius = enemy.size * 0.42;
   const collisionRadius = enemyRadius + bullet.size * 0.6;
-  return dx * dx + dy * dy <= collisionRadius * collisionRadius;
+  return hitDx * hitDx + hitDy * hitDy <= collisionRadius * collisionRadius;
+}
+
+function hitTestUpgradePickup(playerX: number, boardHeight: number, upgrade: PrototypeUpgrade) {
+  const playerLeft = playerX - PLAYER_HALF_WIDTH;
+  const playerTop = getPlayerShipTop(boardHeight);
+  const playerRight = playerLeft + PLAYER_HALF_WIDTH * 2;
+  const playerBottom = playerTop + PLAYER_HEIGHT;
+  const closestX = clamp(upgrade.x, playerLeft, playerRight);
+  const closestY = clamp(upgrade.y, playerTop, playerBottom);
+  const dx = upgrade.x - closestX;
+  const dy = upgrade.y - closestY;
+  const pickupRadius = upgrade.size * 0.42;
+  return dx * dx + dy * dy <= pickupRadius * pickupRadius;
 }
 
 function tickPrototypeState(
@@ -308,9 +474,16 @@ function tickPrototypeState(
       y: upgrade.y + upgrade.speed * deltaSeconds,
       age: upgrade.age + deltaSeconds,
     })),
+    effects: previousState.effects
+      .map((effect) => ({
+        ...effect,
+        age: effect.age + deltaSeconds,
+      }))
+      .filter((effect) => effect.age < effect.duration),
     fireCooldown: previousState.fireCooldown - deltaSeconds,
     enemyCooldown: previousState.enemyCooldown - deltaSeconds,
-    upgradeCooldown: previousState.upgradeCooldown - deltaSeconds,
+    upgradeCooldown:
+      previousState.upgrades.length < 2 ? previousState.upgradeCooldown - deltaSeconds : previousState.upgradeCooldown,
     pickupTimer: Math.max(0, previousState.pickupTimer - deltaSeconds),
   };
 
@@ -323,13 +496,28 @@ function tickPrototypeState(
     nextState.bullets = volley.bullets;
     nextState.nextBulletId = volley.nextBulletId;
     nextState.fireCooldown += volley.fireCooldown;
+    nextState.effects = trimEffects([
+      ...nextState.effects,
+      createPrototypeEffect(
+        'muzzle',
+        nextState.playerX,
+        boardHeight - PLAYER_HEIGHT - 18,
+        16 + nextState.weapon.shotCount * 4,
+        '#F4FCFF',
+        nextState.nextEffectId
+      ),
+    ]);
+    nextState.nextEffectId += 1;
   }
 
   while (nextState.enemyCooldown <= 0) {
-    const spawn = createEnemy(nextState, boardWidth);
-    nextState.enemies = spawn.enemies;
-    nextState.nextEnemyId = spawn.nextEnemyId;
-    nextState.enemyCooldown += spawn.enemyCooldown;
+    const spawnGroup = buildEnemySpawnDrafts(nextState, boardWidth);
+    for (const draft of spawnGroup.drafts) {
+      const spawn = createEnemy(nextState, boardWidth, draft);
+      nextState.enemies = spawn.enemies;
+      nextState.nextEnemyId = spawn.nextEnemyId;
+    }
+    nextState.enemyCooldown += spawnGroup.cooldown;
   }
 
   if (nextState.upgrades.length < 2) {
@@ -361,7 +549,9 @@ function tickPrototypeState(
         continue;
       }
 
-      if (!hitTestBulletEnemy(activeBullet, enemy)) {
+      const previousBulletX = activeBullet.x - activeBullet.vx * deltaSeconds;
+      const previousBulletY = activeBullet.y - activeBullet.vy * deltaSeconds;
+      if (!hitTestBulletEnemyPath(previousBulletX, previousBulletY, activeBullet.x, activeBullet.y, activeBullet, enemy)) {
         continue;
       }
 
@@ -370,6 +560,11 @@ function tickPrototypeState(
 
       if (enemy.health <= 0) {
         nextState.score += enemy.maxHealth * 10;
+        nextState.effects = trimEffects([
+          ...nextState.effects,
+          createPrototypeEffect('burst', enemy.x, enemy.y, enemy.size * 1.2, enemy.color, nextState.nextEffectId),
+        ]);
+        nextState.nextEffectId += 1;
       }
 
       if (activeBullet.pierce > 0) {
@@ -389,51 +584,35 @@ function tickPrototypeState(
 
   nextState.bullets = survivingBullets;
   nextState.enemies = survivingEnemies.filter((enemy) => enemy.health > 0 && enemy.y - enemy.size / 2 < boardHeight + 30);
-  nextState.upgrades = nextState.upgrades.filter((upgrade) => upgrade.y - upgrade.size / 2 < boardHeight + 12);
+  const remainingUpgrades: PrototypeUpgrade[] = [];
+  for (const upgrade of nextState.upgrades) {
+    if (upgrade.y - upgrade.size / 2 >= boardHeight + 12) {
+      continue;
+    }
+
+    if (hitTestUpgradePickup(nextState.playerX, boardHeight, upgrade)) {
+      const definition = UPGRADE_DEFINITIONS[upgrade.type];
+      nextState.weapon = definition.apply(nextState.weapon);
+      nextState.pickupMessage = `${definition.label} upgrade secured`;
+      nextState.pickupTimer = 1.8;
+      nextState.score += 25;
+      nextState.effects = trimEffects([
+        ...nextState.effects,
+        createPrototypeEffect('pickup', upgrade.x, upgrade.y, upgrade.size * 1.15, definition.color, nextState.nextEffectId),
+      ]);
+      nextState.nextEffectId += 1;
+      continue;
+    }
+
+    remainingUpgrades.push(upgrade);
+  }
+  nextState.upgrades = remainingUpgrades;
 
   if (nextState.enemies.some((enemy) => enemy.y + enemy.size / 2 >= boardHeight - 8)) {
     nextState.status = 'lost';
     nextState.pickupMessage = 'Hull breach. A shape slipped through.';
     nextState.pickupTimer = 99;
   }
-
-  return nextState;
-}
-
-function applyUpgrade(state: PrototypeGameState, type: WeaponUpgradeType): PrototypeGameState {
-  const definition = UPGRADE_DEFINITIONS[type];
-  return {
-    ...state,
-    weapon: definition.apply(state.weapon),
-    pickupMessage: `${definition.label} upgrade secured`,
-    pickupTimer: 1.8,
-  };
-}
-
-function collectUpgradeAtPoint(
-  state: PrototypeGameState,
-  x: number,
-  y: number
-): PrototypeGameState {
-  const upgradeIndex = state.upgrades.findIndex((upgrade) => {
-    const dx = x - upgrade.x;
-    const dy = y - upgrade.y;
-    return dx * dx + dy * dy <= (upgrade.size * 0.62) * (upgrade.size * 0.62);
-  });
-
-  if (upgradeIndex === -1) {
-    return state;
-  }
-
-  const upgrade = state.upgrades[upgradeIndex];
-  const nextState = applyUpgrade(
-    {
-      ...state,
-      upgrades: state.upgrades.filter((_, index) => index !== upgradeIndex),
-      score: state.score + 25,
-    },
-    upgrade.type
-  );
 
   return nextState;
 }
@@ -517,6 +696,77 @@ function UpgradeNode({ upgrade }: { upgrade: PrototypeUpgrade }) {
   );
 }
 
+function EffectNode({ effect }: { effect: PrototypeEffect }) {
+  const progress = clamp(effect.age / effect.duration, 0, 1);
+  const opacity = 1 - progress;
+  const scale = 0.72 + progress * 0.95;
+
+  if (effect.kind === 'muzzle') {
+    const width = effect.size * 0.5;
+    const height = effect.size * 1.35;
+    return (
+      <View
+        pointerEvents="none"
+        style={[
+          shooterStyles.effectNode,
+          shooterStyles.effectMuzzle,
+          {
+            left: effect.x - width / 2,
+            top: effect.y - height,
+            width,
+            height,
+            opacity,
+            backgroundColor: effect.color,
+            transform: [{ scaleY: 0.82 + progress * 0.65 }],
+          },
+        ]}
+      />
+    );
+  }
+
+  const size = effect.size * scale;
+  const left = effect.x - size / 2;
+  const top = effect.y - size / 2;
+  const borderColor = effect.color;
+  const fillColor = effect.kind === 'pickup' ? 'rgba(255,255,255,0.08)' : 'transparent';
+
+  return (
+    <>
+      <View
+        pointerEvents="none"
+        style={[
+          shooterStyles.effectNode,
+          shooterStyles.effectRing,
+          {
+            left,
+            top,
+            width: size,
+            height: size,
+            opacity,
+            borderColor,
+            backgroundColor: fillColor,
+          },
+        ]}
+      />
+      <View
+        pointerEvents="none"
+        style={[
+          shooterStyles.effectNode,
+          shooterStyles.effectCore,
+          {
+            left: effect.x - (size * 0.22) / 2,
+            top: effect.y - (size * 0.22) / 2,
+            width: size * 0.22,
+            height: size * 0.22,
+            opacity: opacity * 0.9,
+            backgroundColor: effect.color,
+          },
+        ]}
+      />
+    </>
+  );
+}
+
 function BackgroundGrid({ width, height }: { width: number; height: number }) {
   const verticalLines = useMemo(
     () => Array.from({ length: Math.max(6, Math.floor(width / 64)) }, (_, index) => ((index + 1) * width) / 14),
@@ -573,6 +823,7 @@ export function PrototypeShooterScreen({ onSwitchGame }: PrototypeShooterScreenP
 
     let animationFrameId = 0;
     let lastFrameTimeMs = 0;
+    let accumulatedSimulationSeconds = 0;
 
     const frame = (timeMs: number) => {
       if (lastFrameTimeMs === 0) {
@@ -585,12 +836,25 @@ export function PrototypeShooterScreen({ onSwitchGame }: PrototypeShooterScreenP
       lastFrameTimeMs = timeMs;
 
       if (hasStarted && !isPaused) {
-        setGameState((previousState) => {
-          if (previousState.status !== 'running') {
-            return previousState;
-          }
-          return tickPrototypeState(previousState, elapsedSeconds, boardSize.width, boardSize.height);
-        });
+        accumulatedSimulationSeconds += elapsedSeconds;
+        const steps = Math.min(MAX_CATCH_UP_STEPS, Math.floor(accumulatedSimulationSeconds / FIXED_STEP_SECONDS));
+        if (steps > 0) {
+          accumulatedSimulationSeconds -= steps * FIXED_STEP_SECONDS;
+          setGameState((previousState) => {
+            if (previousState.status !== 'running') {
+              return previousState;
+            }
+
+            let nextState = previousState;
+            for (let index = 0; index < steps; index += 1) {
+              if (nextState.status !== 'running') {
+                break;
+              }
+              nextState = tickPrototypeState(nextState, FIXED_STEP_SECONDS, boardSize.width, boardSize.height);
+            }
+            return nextState;
+          });
+        }
       }
 
       animationFrameId = requestAnimationFrame(frame);
@@ -617,24 +881,25 @@ export function PrototypeShooterScreen({ onSwitchGame }: PrototypeShooterScreenP
         ? 'Game over. Restart to run again.'
         : isPaused
           ? 'Prototype paused.'
-          : gameState.pickupMessage ?? 'Touch falling upgrades to modify the weapon.';
+          : gameState.pickupMessage ?? 'Catch falling upgrades to modify the weapon.';
 
   const handleBoardTouch = (event: GestureResponderEvent) => {
-    if (boardSize.width <= 0 || boardSize.height <= 0 || isMenuOpen) {
+    if (
+      boardSize.width <= 0 ||
+      boardSize.height <= 0 ||
+      isMenuOpen ||
+      !hasStarted ||
+      isPaused ||
+      gameState.status !== 'running'
+    ) {
       return;
     }
 
     const localX = event.nativeEvent.locationX;
-    const localY = event.nativeEvent.locationY;
 
     setGameState((previousState) => {
-      if (previousState.status === 'lost') {
+      if (previousState.status !== 'running') {
         return previousState;
-      }
-
-      const collectedState = collectUpgradeAtPoint(previousState, localX, localY);
-      if (collectedState !== previousState) {
-        return collectedState;
       }
 
       return {
@@ -665,7 +930,7 @@ export function PrototypeShooterScreen({ onSwitchGame }: PrototypeShooterScreenP
 
   const playerStyle = {
     left: gameState.playerX - PLAYER_HALF_WIDTH,
-    top: Math.max(0, boardSize.height - PLAYER_HEIGHT - 14),
+    top: getPlayerShipTop(boardSize.height),
   };
 
   return (
@@ -734,7 +999,7 @@ export function PrototypeShooterScreen({ onSwitchGame }: PrototypeShooterScreenP
           <Text style={shooterStyles.weaponPillText}>Speed {Math.round(gameState.weapon.bulletSpeed)}</Text>
         </View>
         <View style={shooterStyles.weaponPill}>
-          <Text style={shooterStyles.weaponPillText}>Tap upgrades to evolve the gun</Text>
+          <Text style={shooterStyles.weaponPillText}>Catch upgrades to evolve the gun</Text>
         </View>
       </View>
 
@@ -747,6 +1012,10 @@ export function PrototypeShooterScreen({ onSwitchGame }: PrototypeShooterScreenP
           onResponderMove={handleBoardTouch}
           style={shooterStyles.board}>
           <BackgroundGrid width={boardSize.width} height={boardSize.height} />
+
+          {gameState.effects.map((effect) => (
+            <EffectNode key={effect.id} effect={effect} />
+          ))}
 
           {gameState.bullets.map((bullet) => (
             <BulletNode key={bullet.id} bullet={bullet} />
@@ -789,7 +1058,7 @@ export function PrototypeShooterScreen({ onSwitchGame }: PrototypeShooterScreenP
 
             <Text style={shooterStyles.menuLabel}>Notes</Text>
             <Text style={shooterStyles.menuHint}>
-              This is a temporary prototype. Drag anywhere to steer the ship. Tap upgrade crates before they fall off.
+              This is a temporary prototype. Drag anywhere to steer the ship. The ship now catches upgrades by overlap.
             </Text>
 
             <View style={shooterStyles.menuActions}>
@@ -952,6 +1221,21 @@ const shooterStyles = StyleSheet.create({
     borderWidth: 1,
     borderColor: '#223852',
     backgroundColor: '#08131F',
+  },
+  effectNode: {
+    position: 'absolute',
+  },
+  effectMuzzle: {
+    borderRadius: 999,
+    borderWidth: 1,
+    borderColor: '#D7F7FF',
+  },
+  effectRing: {
+    borderRadius: 999,
+    borderWidth: 2,
+  },
+  effectCore: {
+    borderRadius: 999,
   },
   bgOrb: {
     position: 'absolute',
