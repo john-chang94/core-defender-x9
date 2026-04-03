@@ -136,6 +136,7 @@ const MAX_FRAME_DELTA_SECONDS = 0.1;
 const FIXED_STEP_SECONDS = 1 / 60;
 const MAX_CATCH_UP_STEPS = 5;
 const MAX_ACTIVE_EFFECTS = 28;
+const MAX_ENEMY_RENDER_SIZE = 92;
 const DIFFICULTY_TIER_DURATION_SECONDS = 15;
 const MAX_STRAIGHT_GUNS = 3;
 const MAX_MISSILE_LEVEL = 2;
@@ -354,7 +355,7 @@ function createInitialState(boardWidth: number, boardHeight: number): PrototypeG
     fireCooldown: 0.03,
     missileCooldown: 0.4,
     shatterCooldown: 0.9,
-    enemyCooldown: 4.8,
+    enemyCooldown: 5.4,
     upgradeCooldown: 13.5,
     nextBulletId: 1,
     nextEnemyId: 1,
@@ -716,7 +717,7 @@ function buildEnemySpawnDrafts(state: PrototypeGameState, boardWidth: number) {
   const lanes = getSpawnLanes(boardWidth);
   const centerLane = Math.floor(Math.random() * lanes.length);
   const drafts: EnemySpawnDraft[] = [{ x: lanes[centerLane] }];
-  let cooldown = Math.max(1.2, 3.45 - difficultyTier * 0.08 - Math.random() * 0.22);
+  let cooldown = Math.max(1.45, 4.15 - difficultyTier * 0.06 - Math.random() * 0.24);
 
   if (difficultyTier >= 6 && Math.random() < Math.min(0.14, 0.02 + difficultyTier * 0.012)) {
     const sideOffset = centerLane <= 1 ? 1 : centerLane >= lanes.length - 2 ? -1 : Math.random() < 0.5 ? -1 : 1;
@@ -781,7 +782,7 @@ function createEnemy(
   const sizeMultiplier = draft?.sizeMultiplier ?? 1;
   const healthMultiplier = draft?.healthMultiplier ?? 1;
   const speedMultiplier = draft?.speedMultiplier ?? 1;
-  const size = clamp((30 + difficultyTier * 1.5 + Math.random() * 14) * sizeMultiplier, 28, 82);
+  const baseSize = clamp((28 + difficultyTier * 1.2 + Math.random() * 12) * sizeMultiplier, 28, 74);
   const shapePool: EnemyShape[] =
     difficultyTier >= 7 ? ['circle', 'square', 'diamond'] : difficultyTier >= 4 ? ['circle', 'square'] : ['circle'];
   const shape = draft?.shape ?? randomChoice(shapePool);
@@ -791,12 +792,13 @@ function createEnemy(
   const maxHealth = Math.max(
     2,
     Math.round(
-      (4 + difficultyTier * 6 + size * 0.16 + Math.random() * 3) *
+      (4 + difficultyTier * 6 + baseSize * 0.16 + Math.random() * 3) *
         healthMultiplier *
         timePressureMultiplier *
         upgradePressureMultiplier
     )
   );
+  const size = clamp(baseSize + Math.min(20, maxHealth * 0.12), 30, MAX_ENEMY_RENDER_SIZE);
   const speed = (54 + difficultyTier * 4.8 + Math.random() * 16) * speedMultiplier * upgradeSpeedPenalty;
   const spawnPadding = size / 2 + 12;
   const enemy: PrototypeEnemy = {
