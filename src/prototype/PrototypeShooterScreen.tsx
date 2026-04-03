@@ -337,6 +337,10 @@ function getUpgradeSpeedPenalty(collectedUpgradeCount: number) {
   return 1 - Math.min(0.18, collectedUpgradeCount * 0.014);
 }
 
+function getHealthSpeedPenalty(maxHealth: number) {
+  return 1 - Math.min(0.38, Math.sqrt(maxHealth) * 0.018);
+}
+
 function getPlayerShipTop(boardHeight: number) {
   return Math.max(0, boardHeight - PLAYER_HEIGHT - PLAYER_FLOOR_OFFSET);
 }
@@ -798,8 +802,9 @@ function createEnemy(
         upgradePressureMultiplier
     )
   );
-  const size = clamp(baseSize + Math.min(20, maxHealth * 0.12), 30, MAX_ENEMY_RENDER_SIZE);
-  const speed = (54 + difficultyTier * 4.8 + Math.random() * 16) * speedMultiplier * upgradeSpeedPenalty;
+  const size = clamp(24 + difficultyTier * 0.6 + Math.sqrt(maxHealth) * 4.1, 30, MAX_ENEMY_RENDER_SIZE);
+  const healthSpeedPenalty = getHealthSpeedPenalty(maxHealth);
+  const speed = (54 + difficultyTier * 4.8 + Math.random() * 16) * speedMultiplier * upgradeSpeedPenalty * healthSpeedPenalty;
   const spawnPadding = size / 2 + 12;
   const enemy: PrototypeEnemy = {
     id: `E${state.nextEnemyId}`,
