@@ -122,6 +122,7 @@ type PrototypeGameState = {
   fireCooldown: number;
   missileCooldown: number;
   shatterCooldown: number;
+  chaosTimer: number;
   enemyCooldown: number;
   upgradeCooldown: number;
   nextBulletId: number;
@@ -148,8 +149,9 @@ const MAX_CATCH_UP_STEPS = 5;
 const MAX_ACTIVE_EFFECTS = 28;
 const MAX_ENEMY_RENDER_SIZE = 92;
 const DIFFICULTY_TIER_DURATION_SECONDS = 15;
-const MAX_STRAIGHT_GUNS = 3;
+const MAX_STRAIGHT_GUNS = 4;
 const MAX_MISSILE_LEVEL = 2;
+const CHAOS_OVERDRIVE_DURATION_SECONDS = 6;
 const OPENING_UPGRADE_TYPES: WeaponUpgradeType[] = ['rapid', 'twin', 'heavy'];
 const STANDARD_UPGRADE_TYPES: WeaponUpgradeType[] = [
   'rapid',
@@ -188,6 +190,32 @@ const BASE_WEAPON: PrototypeWeapon = {
   missileLevel: 0,
   shatterLevel: 0,
 };
+
+function getChaosOverdriveWeapon(weapon: PrototypeWeapon): PrototypeWeapon {
+  return {
+    ...weapon,
+    damage: Math.max(13, weapon.damage + 2),
+    fireInterval: Math.min(0.035, weapon.fireInterval * 0.68),
+    shotCount: Math.max(MAX_STRAIGHT_GUNS + 1, weapon.shotCount + 1),
+    pierce: Math.max(5, weapon.pierce + 1),
+    bulletSize: Math.max(15, weapon.bulletSize + 1),
+    bulletSpeed: Math.max(1220, weapon.bulletSpeed + 140),
+    spread: Math.max(50, weapon.spread + 6),
+    aimAssist: Math.max(0.42, weapon.aimAssist + 0.12),
+    spreadJitter: Math.max(18, weapon.spreadJitter + 4),
+    effectIntensity: Math.max(2.65, weapon.effectIntensity + 0.45),
+    bulletColor: '#FFF3DD',
+    glowColor: '#FF9B55',
+    muzzleColor: '#FFF1B4',
+    trailScale: Math.max(2.15, weapon.trailScale + 0.28),
+    missileLevel: Math.max(MAX_MISSILE_LEVEL + 1, weapon.missileLevel + 1),
+    shatterLevel: Math.max(4, weapon.shatterLevel + 1),
+  };
+}
+
+function getActiveWeapon(state: PrototypeGameState): PrototypeWeapon {
+  return state.chaosTimer > 0 ? getChaosOverdriveWeapon(state.weapon) : state.weapon;
+}
 
 const UPGRADE_DEFINITIONS: Record<
   WeaponUpgradeType,
@@ -255,17 +283,7 @@ const UPGRADE_DEFINITIONS: Record<
     label: 'Chaos',
     color: '#FF9B55',
     accent: '#FFF0DE',
-    apply: (weapon) => ({
-      ...weapon,
-      shotCount: Math.min(MAX_STRAIGHT_GUNS, weapon.shotCount + 1),
-      spread: Math.min(40, weapon.spread + 5),
-      spreadJitter: Math.min(14, weapon.spreadJitter + 3.5),
-      effectIntensity: Math.min(2.1, weapon.effectIntensity + 0.3),
-      bulletColor: '#FFF0C9',
-      glowColor: '#FF9B55',
-      muzzleColor: '#FFD5B1',
-      trailScale: Math.min(1.8, weapon.trailScale + 0.18),
-    }),
+    apply: (weapon) => weapon,
   },
   flare: {
     label: 'Flare',
@@ -350,7 +368,13 @@ function getUpgradePressureMultiplier(collectedUpgradeCount: number) {
 }
 
 function getTimePressureMultiplier(difficultyTier: number) {
-  return Math.pow(1.24, difficultyTier);
+  if (difficultyTier <= 8) {
+    return Math.pow(1.24, difficultyTier);
+  }
+  if (difficultyTier <= 13) {
+    return Math.pow(1.24, 8) * Math.pow(1.14, difficultyTier - 8);
+  }
+  return Math.pow(1.24, 8) * Math.pow(1.14, 5) * Math.pow(1.07, difficultyTier - 13);
 }
 
 function getUpgradeSpeedPenalty(collectedUpgradeCount: number) {
@@ -394,6 +418,7 @@ function createInitialState(boardWidth: number, boardHeight: number): PrototypeG
     fireCooldown: 0.03,
     missileCooldown: 0.4,
     shatterCooldown: 0.9,
+    chaosTimer: 0,
     enemyCooldown: 5.4,
     upgradeCooldown: 10.8,
     nextBulletId: 1,
@@ -410,43 +435,44 @@ function createBulletVolleys(
   state: PrototypeGameState,
   boardHeight: number
 ): Pick<PrototypeGameState, 'bullets' | 'nextBulletId' | 'fireCooldown'> {
+  const weapon = getActiveWeapon(state);
   const bullets = [...state.bullets];
   let nextBulletId = state.nextBulletId;
-  const centerIndex = (state.weapon.shotCount - 1) / 2;
+  const centerIndex = (weapon.shotCount - 1) / 2;
   const muzzleY = boardHeight - PLAYER_HEIGHT - 18;
   const aimTarget = findAimAssistTarget(state.enemies, state.playerX, muzzleY);
 
-  for (let index = 0; index < state.weapon.shotCount; index += 1) {
+  for (let index = 0; index < weapon.shotCount; index += 1) {
     const lane = index - centerIndex;
-    const originX = state.playerX + lane * state.weapon.spread;
-    const jitter = state.weapon.spreadJitter > 0 ? (Math.random() - 0.5) * state.weapon.spreadJitter * 0.015 : 0;
+    const originX = state.playerX + lane * weapon.spread;
+    const jitter = weapon.spreadJitter > 0 ? (Math.random() - 0.5) * weapon.spreadJitter * 0.015 : 0;
     const defaultAngle = lane * 0.085 + jitter;
     let angle = defaultAngle;
     if (aimTarget) {
       const desiredAngle = Math.atan2(aimTarget.x - originX, muzzleY - aimTarget.y);
       const angleDelta = clamp(normalizeAngle(desiredAngle - defaultAngle), -0.28, 0.28);
-      angle += angleDelta * state.weapon.aimAssist;
+      angle += angleDelta * weapon.aimAssist;
     }
-    const vx = Math.sin(angle) * state.weapon.bulletSpeed * 0.42;
-    const vy = -Math.cos(angle) * state.weapon.bulletSpeed;
+    const vx = Math.sin(angle) * weapon.bulletSpeed * 0.42;
+    const vy = -Math.cos(angle) * weapon.bulletSpeed;
     bullets.push({
       id: `B${nextBulletId}`,
       kind: 'standard',
       x: originX,
       y: muzzleY,
       angle,
-      speed: state.weapon.bulletSpeed,
+      speed: weapon.bulletSpeed,
       vx,
       vy,
-      damage: state.weapon.damage,
-      size: state.weapon.bulletSize,
-      pierce: state.weapon.pierce,
+      damage: weapon.damage,
+      size: weapon.bulletSize,
+      pierce: weapon.pierce,
       age: 0,
       phase: Math.random() * Math.PI * 2,
-      aimAssist: state.weapon.aimAssist,
-      color: state.weapon.bulletColor,
-      glowColor: state.weapon.glowColor,
-      trailScale: state.weapon.trailScale,
+      aimAssist: weapon.aimAssist,
+      color: weapon.bulletColor,
+      glowColor: weapon.glowColor,
+      trailScale: weapon.trailScale,
       curveDirection: 0,
       launchDuration: 0,
       turnRate: 0,
@@ -460,7 +486,7 @@ function createBulletVolleys(
   return {
     bullets,
     nextBulletId,
-    fireCooldown: state.weapon.fireInterval,
+    fireCooldown: weapon.fireInterval,
   };
 }
 
@@ -487,9 +513,10 @@ function createPrototypeEffect(
 
 function getBombardDamage(state: PrototypeGameState, enemy: PrototypeEnemy) {
   const difficultyTier = getDifficultyTier(state.elapsed);
-  const flatDamage = 34 + state.weapon.damage * 8 + difficultyTier * 6 + state.weapon.effectIntensity * 10;
-  const percentDamage = 0.28 + Math.min(0.12, state.weapon.effectIntensity * 0.04);
-  return Math.max(flatDamage, enemy.maxHealth * percentDamage);
+  const weapon = getActiveWeapon(state);
+  const flatDamage = 34 + weapon.damage * 8 + difficultyTier * 6 + weapon.effectIntensity * 10;
+  const percentDamage = 0.28 + Math.min(0.12, weapon.effectIntensity * 0.04);
+  return Math.round(Math.max(flatDamage, enemy.maxHealth * percentDamage));
 }
 
 function triggerBombardment(state: PrototypeGameState, boardWidth: number, boardHeight: number) {
@@ -527,7 +554,7 @@ function triggerBombardment(state: PrototypeGameState, boardWidth: number, board
     }
 
     const damage = getBombardDamage(state, enemy);
-    enemy.health = Math.max(0, enemy.health - damage);
+    enemy.health = Math.max(0, Math.round(enemy.health - damage));
     enemy.flash = 1;
 
     if (enemy.health <= 0) {
@@ -549,11 +576,11 @@ function triggerBombardment(state: PrototypeGameState, boardWidth: number, board
 }
 
 function getMissileVolleyCooldown(weapon: PrototypeWeapon) {
-  return Math.max(1.2, 2.55 - weapon.missileLevel * 0.26 - weapon.effectIntensity * 0.08);
+  return Math.max(0.78, 2.35 - weapon.missileLevel * 0.42 - weapon.effectIntensity * 0.1);
 }
 
 function getShatterVolleyCooldown(weapon: PrototypeWeapon) {
-  return Math.max(1.45, 2.9 - weapon.shatterLevel * 0.34 - weapon.effectIntensity * 0.08);
+  return Math.max(1.05, 2.75 - weapon.shatterLevel * 0.38 - weapon.effectIntensity * 0.1);
 }
 
 function createMissileVolley(
@@ -562,19 +589,22 @@ function createMissileVolley(
 ): Pick<PrototypeGameState, 'bullets' | 'nextBulletId' | 'missileCooldown'> & {
   launchPoints: { x: number; y: number; color: string; size: number }[];
 } {
+  const weapon = getActiveWeapon(state);
   const bullets = [...state.bullets];
   let nextBulletId = state.nextBulletId;
   const muzzleY = boardHeight - PLAYER_HEIGHT - 14;
-  const slots = [-1, 1];
+  const slots = weapon.missileLevel >= 2 ? [-1.5, -0.5, 0.5, 1.5] : [-1, 1];
   const launchPoints: { x: number; y: number; color: string; size: number }[] = [];
-  const missileSpeed = Math.min(940, state.weapon.bulletSpeed * 0.8 + 105 + state.weapon.missileLevel * 28);
-  const missileDamage = state.weapon.damage + 2 + state.weapon.missileLevel * 2;
-  const missileSize = state.weapon.bulletSize + 3.2;
+  const missileSpeed = Math.min(980, weapon.bulletSpeed * 0.82 + 120 + weapon.missileLevel * 42);
+  const missileDamage = weapon.damage + 2 + weapon.missileLevel * 2;
+  const missileSize = weapon.bulletSize + 3.2;
+  const slotSpacing = slots.length === 4 ? 13 : 18;
 
   for (const slot of slots) {
     const curveDirection = Math.sign(slot);
-    const originX = state.playerX + slot * 18;
-    const angle = curveDirection * 1.42;
+    const curveStrength = slots.length === 4 ? Math.abs(slot) / 1.5 : 1;
+    const originX = state.playerX + slot * slotSpacing;
+    const angle = curveDirection * (1.16 + curveStrength * 0.26);
     bullets.push({
       id: `B${nextBulletId}`,
       kind: 'missile',
@@ -586,16 +616,16 @@ function createMissileVolley(
       vy: -Math.cos(angle) * missileSpeed,
       damage: missileDamage,
       size: missileSize,
-      pierce: state.weapon.pierce,
+      pierce: weapon.pierce,
       age: 0,
       phase: Math.random() * Math.PI * 2,
-      aimAssist: Math.max(0.18, state.weapon.aimAssist + 0.12 + state.weapon.missileLevel * 0.03),
+      aimAssist: Math.max(0.18, weapon.aimAssist + 0.12 + weapon.missileLevel * 0.04),
       color: '#FFE8D8',
       glowColor: '#FF7B63',
-      trailScale: Math.max(1.45, state.weapon.trailScale + 0.38),
+      trailScale: Math.max(1.45, weapon.trailScale + 0.38),
       curveDirection,
-      launchDuration: 0.34 + Math.random() * 0.06,
-      turnRate: 0.36 + state.weapon.missileLevel * 0.07,
+      launchDuration: 0.38 + curveStrength * 0.08 + Math.random() * 0.04,
+      turnRate: 0.42 + weapon.missileLevel * 0.12 + curveStrength * 0.04,
       maxAge: null,
       burstAge: null,
       fragmentCount: 0,
@@ -604,7 +634,7 @@ function createMissileVolley(
       x: originX,
       y: muzzleY + 2,
       color: '#FFC3B6',
-      size: 16 + state.weapon.effectIntensity * 5,
+      size: 16 + weapon.effectIntensity * 5,
     });
     nextBulletId += 1;
   }
@@ -612,7 +642,7 @@ function createMissileVolley(
   return {
     bullets,
     nextBulletId,
-    missileCooldown: getMissileVolleyCooldown(state.weapon),
+    missileCooldown: getMissileVolleyCooldown(weapon),
     launchPoints,
   };
 }
@@ -623,6 +653,7 @@ function createShatterVolley(
 ): Pick<PrototypeGameState, 'bullets' | 'nextBulletId' | 'shatterCooldown'> & {
   launchPoint: { x: number; y: number; color: string; size: number };
 } {
+  const weapon = getActiveWeapon(state);
   const bullets = [...state.bullets];
   let nextBulletId = state.nextBulletId;
   const muzzleY = boardHeight - PLAYER_HEIGHT - 20;
@@ -632,11 +663,11 @@ function createShatterVolley(
   if (aimTarget) {
     const desiredAngle = Math.atan2(aimTarget.x - state.playerX, muzzleY - aimTarget.y);
     const angleDelta = clamp(normalizeAngle(desiredAngle - defaultAngle), -0.22, 0.22);
-    angle += angleDelta * Math.min(0.18, state.weapon.aimAssist + 0.08);
+    angle += angleDelta * Math.min(0.18, weapon.aimAssist + 0.08);
   }
 
-  const shellSpeed = Math.min(860, state.weapon.bulletSpeed * 0.74 + 70 + state.weapon.shatterLevel * 18);
-  const shellSize = state.weapon.bulletSize + 4 + state.weapon.shatterLevel * 0.45;
+  const shellSpeed = Math.min(860, weapon.bulletSpeed * 0.74 + 70 + weapon.shatterLevel * 18);
+  const shellSize = weapon.bulletSize + 4 + weapon.shatterLevel * 0.45;
   bullets.push({
     id: `B${nextBulletId}`,
     kind: 'shatterShell',
@@ -646,33 +677,33 @@ function createShatterVolley(
     speed: shellSpeed,
     vx: Math.sin(angle) * shellSpeed * 0.42,
     vy: -Math.cos(angle) * shellSpeed,
-    damage: state.weapon.damage + 2 + state.weapon.shatterLevel,
+    damage: weapon.damage + 2 + weapon.shatterLevel,
     size: shellSize,
     pierce: 0,
     age: 0,
     phase: Math.random() * Math.PI * 2,
-    aimAssist: Math.min(0.18, state.weapon.aimAssist * 0.6 + 0.06),
+    aimAssist: Math.min(0.18, weapon.aimAssist * 0.6 + 0.06),
     color: '#FFE7C8',
     glowColor: '#FFB36B',
-    trailScale: Math.max(1.25, state.weapon.trailScale + 0.22),
+    trailScale: Math.max(1.25, weapon.trailScale + 0.22),
     curveDirection: 0,
     launchDuration: 0,
     turnRate: 0,
-    maxAge: 0.72 + state.weapon.shatterLevel * 0.05,
-    burstAge: 0.34 - state.weapon.shatterLevel * 0.02,
-    fragmentCount: 4 + state.weapon.shatterLevel,
+    maxAge: 0.72 + weapon.shatterLevel * 0.05,
+    burstAge: 0.34 - weapon.shatterLevel * 0.02,
+    fragmentCount: 4 + weapon.shatterLevel,
   });
   nextBulletId += 1;
 
   return {
     bullets,
     nextBulletId,
-    shatterCooldown: getShatterVolleyCooldown(state.weapon),
+    shatterCooldown: getShatterVolleyCooldown(weapon),
     launchPoint: {
       x: state.playerX,
       y: muzzleY,
       color: '#FFD8A8',
-      size: 18 + state.weapon.effectIntensity * 5,
+      size: 18 + weapon.effectIntensity * 5,
     },
   };
 }
@@ -817,19 +848,29 @@ function getSpawnLanes(boardWidth: number) {
 function buildEnemySpawnDrafts(state: PrototypeGameState, boardWidth: number) {
   const difficultyTier = getDifficultyTier(state.elapsed);
   const isCrowdClampTier = difficultyTier >= 13;
+  const isLateCrowdClampTier = difficultyTier >= 16;
+  const activeEnemyCount = state.enemies.length;
   const lanes = getSpawnLanes(boardWidth);
   const centerLane = Math.floor(Math.random() * lanes.length);
   const drafts: EnemySpawnDraft[] = [{ x: lanes[centerLane] }];
   let cooldown = Math.max(1.45, 4.15 - difficultyTier * 0.06 - Math.random() * 0.24);
-  const sideSpawnChance = isCrowdClampTier
-    ? Math.min(0.055, 0.014 + (difficultyTier - 13) * 0.004)
-    : Math.min(0.14, 0.02 + difficultyTier * 0.012);
-  const flankBurstChance = isCrowdClampTier
-    ? Math.min(0.025, 0.006 + (difficultyTier - 13) * 0.004)
-    : Math.min(0.08, 0.01 + difficultyTier * 0.006);
-  const eliteSpawnChance = isCrowdClampTier
-    ? Math.min(0.05, 0.01 + (difficultyTier - 13) * 0.004)
-    : Math.min(0.08, 0.01 + difficultyTier * 0.008);
+  const sideSpawnChance = isLateCrowdClampTier
+    ? Math.min(0.028, 0.008 + (difficultyTier - 16) * 0.003)
+    : isCrowdClampTier
+      ? Math.min(0.055, 0.014 + (difficultyTier - 13) * 0.004)
+      : Math.min(0.14, 0.02 + difficultyTier * 0.012);
+  const flankBurstChance = isLateCrowdClampTier
+    ? activeEnemyCount >= 14
+      ? 0
+      : Math.min(0.008, 0.002 + (difficultyTier - 16) * 0.0025)
+    : isCrowdClampTier
+      ? Math.min(0.025, 0.006 + (difficultyTier - 13) * 0.004)
+      : Math.min(0.08, 0.01 + difficultyTier * 0.006);
+  const eliteSpawnChance = isLateCrowdClampTier
+    ? Math.min(0.028, 0.008 + (difficultyTier - 16) * 0.003)
+    : isCrowdClampTier
+      ? Math.min(0.05, 0.01 + (difficultyTier - 13) * 0.004)
+      : Math.min(0.08, 0.01 + difficultyTier * 0.008);
 
   if (difficultyTier >= 6 && Math.random() < sideSpawnChance) {
     const sideOffset = centerLane <= 1 ? 1 : centerLane >= lanes.length - 2 ? -1 : Math.random() < 0.5 ? -1 : 1;
@@ -894,7 +935,9 @@ function buildEnemySpawnDrafts(state: PrototypeGameState, boardWidth: number) {
     cooldown += 0.2 + Math.min(0.18, (difficultyTier - 8) * 0.05);
   }
 
-  if (isCrowdClampTier) {
+  if (isLateCrowdClampTier) {
+    cooldown += 1.05 + Math.min(0.9, (difficultyTier - 16) * 0.22) + Math.min(0.75, Math.max(0, activeEnemyCount - 10) * 0.09);
+  } else if (isCrowdClampTier) {
     cooldown += 0.8 + Math.min(0.5, (difficultyTier - 13) * 0.16);
   }
 
@@ -1054,6 +1097,7 @@ function tickPrototypeState(
     fireCooldown: previousState.fireCooldown - deltaSeconds,
     missileCooldown: previousState.missileCooldown - deltaSeconds,
     shatterCooldown: previousState.shatterCooldown - deltaSeconds,
+    chaosTimer: Math.max(0, previousState.chaosTimer - deltaSeconds),
     enemyCooldown: previousState.enemyCooldown - deltaSeconds,
     upgradeCooldown:
       previousState.upgrades.length < 2 ? previousState.upgradeCooldown - deltaSeconds : previousState.upgradeCooldown,
@@ -1065,6 +1109,7 @@ function tickPrototypeState(
   }
 
   while (nextState.fireCooldown <= 0) {
+    const activeWeapon = getActiveWeapon(nextState);
     const volley = createBulletVolleys(nextState, boardHeight);
     nextState.bullets = volley.bullets;
     nextState.nextBulletId = volley.nextBulletId;
@@ -1075,24 +1120,24 @@ function tickPrototypeState(
         'muzzle',
         nextState.playerX,
         boardHeight - PLAYER_HEIGHT - 18,
-        (16 + nextState.weapon.shotCount * 4) * nextState.weapon.effectIntensity,
-        nextState.weapon.muzzleColor,
+        (16 + activeWeapon.shotCount * 4) * activeWeapon.effectIntensity,
+        activeWeapon.muzzleColor,
         nextState.nextEffectId
       ),
     ]);
     nextState.nextEffectId += 1;
 
-    if (nextState.weapon.effectIntensity >= 1.35) {
-      const sparkCount = Math.min(2, Math.floor((nextState.weapon.effectIntensity - 1.15) * 2));
+    if (activeWeapon.effectIntensity >= 1.35) {
+      const sparkCount = Math.min(2, Math.floor((activeWeapon.effectIntensity - 1.15) * 2));
       for (let index = 0; index < sparkCount; index += 1) {
         nextState.effects = trimEffects([
           ...nextState.effects,
           createPrototypeEffect(
             'muzzle',
-            nextState.playerX + (Math.random() - 0.5) * (12 + nextState.weapon.spread * 0.4),
+            nextState.playerX + (Math.random() - 0.5) * (12 + activeWeapon.spread * 0.4),
             boardHeight - PLAYER_HEIGHT - 20 - Math.random() * 6,
-            (10 + nextState.weapon.shotCount * 2) * (0.85 + nextState.weapon.effectIntensity * 0.16),
-            nextState.weapon.glowColor,
+            (10 + activeWeapon.shotCount * 2) * (0.85 + activeWeapon.effectIntensity * 0.16),
+            activeWeapon.glowColor,
             nextState.nextEffectId
           ),
         ]);
@@ -1101,7 +1146,7 @@ function tickPrototypeState(
     }
   }
 
-  if (nextState.weapon.missileLevel > 0) {
+  if (getActiveWeapon(nextState).missileLevel > 0) {
     while (nextState.missileCooldown <= 0) {
       const missileVolley = createMissileVolley(nextState, boardHeight);
       nextState.bullets = missileVolley.bullets;
@@ -1124,7 +1169,7 @@ function tickPrototypeState(
     }
   }
 
-  if (nextState.weapon.shatterLevel > 0) {
+  if (getActiveWeapon(nextState).shatterLevel > 0) {
     while (nextState.shatterCooldown <= 0) {
       const shatterVolley = createShatterVolley(nextState, boardHeight);
       nextState.bullets = shatterVolley.bullets;
@@ -1244,6 +1289,18 @@ function tickPrototypeState(
         triggerBombardment(nextState, boardWidth, boardHeight);
         nextState.pickupMessage = 'Bombardment triggered';
         nextState.score += 40;
+      } else if (upgrade.type === 'chaos') {
+        nextState.chaosTimer = CHAOS_OVERDRIVE_DURATION_SECONDS;
+        nextState.fireCooldown = Math.min(nextState.fireCooldown, 0.02);
+        nextState.missileCooldown = Math.min(nextState.missileCooldown, 0.18);
+        nextState.shatterCooldown = Math.min(nextState.shatterCooldown, 0.24);
+        nextState.pickupMessage = 'Chaos overdrive engaged';
+        nextState.score += 35;
+        nextState.effects = trimEffects([
+          ...nextState.effects,
+          createPrototypeEffect('pickup', upgrade.x, upgrade.y, upgrade.size * 1.28, definition.color, nextState.nextEffectId),
+        ]);
+        nextState.nextEffectId += 1;
       } else {
         const previousMissileLevel = nextState.weapon.missileLevel;
         const previousShatterLevel = nextState.weapon.shatterLevel;
@@ -1794,7 +1851,10 @@ export function PrototypeShooterScreen({ onSwitchGame }: PrototypeShooterScreenP
         ? 'Game over. Restart to run again.'
         : isPaused
           ? 'Prototype paused.'
-          : gameState.pickupMessage ?? 'Catch falling upgrades to modify the weapon.';
+          : gameState.pickupMessage ??
+            (gameState.chaosTimer > 0
+              ? `Chaos overdrive ${gameState.chaosTimer.toFixed(1)}s`
+              : 'Catch falling upgrades to modify the weapon.');
 
   const handleBoardTouch = (event: GestureResponderEvent) => {
     if (
