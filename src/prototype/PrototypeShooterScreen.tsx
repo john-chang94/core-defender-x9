@@ -132,6 +132,7 @@ type PrototypeGameState = {
   pickupMessage: string | null;
   pickupTimer: number;
   collectedUpgradeCount: number;
+  revealedUpgradeTypes: WeaponUpgradeType[];
 };
 
 type PrototypeShooterScreenProps = {
@@ -152,7 +153,21 @@ const DIFFICULTY_TIER_DURATION_SECONDS = 15;
 const MAX_STRAIGHT_GUNS = 4;
 const MAX_MISSILE_LEVEL = 2;
 const CHAOS_OVERDRIVE_DURATION_SECONDS = 6;
+const GUARANTEED_UPGRADE_REVEAL_TIER = 7;
+const GUARANTEED_UPGRADE_ACTIVE_CAP = 5;
 const OPENING_UPGRADE_TYPES: WeaponUpgradeType[] = ['rapid', 'twin', 'heavy'];
+const ALL_UPGRADE_TYPES: WeaponUpgradeType[] = [
+  'rapid',
+  'twin',
+  'heavy',
+  'pierce',
+  'focus',
+  'chaos',
+  'flare',
+  'missile',
+  'shatter',
+  'bombard',
+];
 const STANDARD_UPGRADE_TYPES: WeaponUpgradeType[] = [
   'rapid',
   'twin',
@@ -215,6 +230,10 @@ function getChaosOverdriveWeapon(weapon: PrototypeWeapon): PrototypeWeapon {
 
 function getActiveWeapon(state: PrototypeGameState): PrototypeWeapon {
   return state.chaosTimer > 0 ? getChaosOverdriveWeapon(state.weapon) : state.weapon;
+}
+
+function getMissingGuaranteedUpgradeTypes(state: PrototypeGameState): WeaponUpgradeType[] {
+  return ALL_UPGRADE_TYPES.filter((type) => !state.revealedUpgradeTypes.includes(type));
 }
 
 const UPGRADE_DEFINITIONS: Record<
@@ -428,6 +447,7 @@ function createInitialState(boardWidth: number, boardHeight: number): PrototypeG
     pickupMessage: 'Drag to move. Catch falling upgrades with the ship.',
     pickupTimer: 3.5,
     collectedUpgradeCount: 0,
+    revealedUpgradeTypes: [],
   };
 }
 
@@ -1002,10 +1022,20 @@ function createEnemy(
 function createUpgrade(
   state: PrototypeGameState,
   boardWidth: number
-): Pick<PrototypeGameState, 'upgrades' | 'nextUpgradeId' | 'upgradeCooldown'> {
+): Pick<PrototypeGameState, 'upgrades' | 'nextUpgradeId' | 'upgradeCooldown' | 'revealedUpgradeTypes'> {
+  const difficultyTier = getDifficultyTier(state.elapsed);
+  const missingGuaranteedTypes = getMissingGuaranteedUpgradeTypes(state);
+  const shouldForceReveal = difficultyTier <= GUARANTEED_UPGRADE_REVEAL_TIER && missingGuaranteedTypes.length > 0;
   const typePool = state.nextUpgradeId === 1 ? OPENING_UPGRADE_TYPES : STANDARD_UPGRADE_TYPES;
   const type =
-    state.nextUpgradeId === 2 && state.weapon.shotCount <= 1 && state.weapon.missileLevel === 0 && state.weapon.shatterLevel === 0
+    shouldForceReveal && state.nextUpgradeId === 2 && missingGuaranteedTypes.includes('twin') && state.weapon.shotCount <= 1
+      ? 'twin'
+      : shouldForceReveal
+        ? randomChoice(missingGuaranteedTypes)
+        : state.nextUpgradeId === 2 &&
+            state.weapon.shotCount <= 1 &&
+            state.weapon.missileLevel === 0 &&
+            state.weapon.shatterLevel === 0
       ? 'twin'
       : randomChoice(typePool);
   const definition = UPGRADE_DEFINITIONS[type];
@@ -1025,7 +1055,8 @@ function createUpgrade(
   return {
     upgrades: [...state.upgrades, upgrade],
     nextUpgradeId: state.nextUpgradeId + 1,
-    upgradeCooldown: 14.2 + Math.random() * 4.8,
+    upgradeCooldown: shouldForceReveal ? 8.2 + Math.random() * 2.4 : 14.2 + Math.random() * 4.8,
+    revealedUpgradeTypes: state.revealedUpgradeTypes.includes(type) ? state.revealedUpgradeTypes : [...state.revealedUpgradeTypes, type],
   };
 }
 
@@ -1074,6 +1105,9 @@ function tickPrototypeState(
   boardWidth: number,
   boardHeight: number
 ): PrototypeGameState {
+  const shouldForceUpgradeRevealFromPreviousState =
+    getDifficultyTier(previousState.elapsed) <= GUARANTEED_UPGRADE_REVEAL_TIER &&
+    getMissingGuaranteedUpgradeTypes(previousState).length > 0;
   const nextState: PrototypeGameState = {
     ...previousState,
     elapsed: previousState.elapsed + deltaSeconds,
@@ -1100,7 +1134,9 @@ function tickPrototypeState(
     chaosTimer: Math.max(0, previousState.chaosTimer - deltaSeconds),
     enemyCooldown: previousState.enemyCooldown - deltaSeconds,
     upgradeCooldown:
-      previousState.upgrades.length < 2 ? previousState.upgradeCooldown - deltaSeconds : previousState.upgradeCooldown,
+      shouldForceUpgradeRevealFromPreviousState || previousState.upgrades.length < 2
+        ? previousState.upgradeCooldown - deltaSeconds
+        : previousState.upgradeCooldown,
     pickupTimer: Math.max(0, previousState.pickupTimer - deltaSeconds),
   };
 
@@ -1200,12 +1236,24 @@ function tickPrototypeState(
     nextState.enemyCooldown += spawnGroup.cooldown;
   }
 
-  if (nextState.upgrades.length < 2) {
+  const shouldForceUpgradeReveal =
+    getDifficultyTier(nextState.elapsed) <= GUARANTEED_UPGRADE_REVEAL_TIER && getMissingGuaranteedUpgradeTypes(nextState).length > 0;
+  const maxActiveUpgrades = shouldForceUpgradeReveal ? GUARANTEED_UPGRADE_ACTIVE_CAP : 2;
+
+  if (shouldForceUpgradeReveal || nextState.upgrades.length < maxActiveUpgrades) {
     while (nextState.upgradeCooldown <= 0) {
       const spawn = createUpgrade(nextState, boardWidth);
       nextState.upgrades = spawn.upgrades;
       nextState.nextUpgradeId = spawn.nextUpgradeId;
+      nextState.revealedUpgradeTypes = spawn.revealedUpgradeTypes;
+      if (shouldForceUpgradeReveal && nextState.upgrades.length > GUARANTEED_UPGRADE_ACTIVE_CAP) {
+        nextState.upgrades = nextState.upgrades.slice(nextState.upgrades.length - GUARANTEED_UPGRADE_ACTIVE_CAP);
+      }
       nextState.upgradeCooldown += spawn.upgradeCooldown;
+
+      if (!shouldForceUpgradeReveal && nextState.upgrades.length >= maxActiveUpgrades) {
+        break;
+      }
     }
   }
 
