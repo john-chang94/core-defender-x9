@@ -354,7 +354,7 @@ function createInitialState(boardWidth: number, boardHeight: number): PrototypeG
     fireCooldown: 0.03,
     missileCooldown: 0.4,
     shatterCooldown: 0.9,
-    enemyCooldown: 2.7,
+    enemyCooldown: 4.8,
     upgradeCooldown: 13.5,
     nextBulletId: 1,
     nextEnemyId: 1,
@@ -716,9 +716,9 @@ function buildEnemySpawnDrafts(state: PrototypeGameState, boardWidth: number) {
   const lanes = getSpawnLanes(boardWidth);
   const centerLane = Math.floor(Math.random() * lanes.length);
   const drafts: EnemySpawnDraft[] = [{ x: lanes[centerLane] }];
-  let cooldown = Math.max(0.8, 2.15 - difficultyTier * 0.06 - Math.random() * 0.16);
+  let cooldown = Math.max(1.2, 3.45 - difficultyTier * 0.08 - Math.random() * 0.22);
 
-  if (difficultyTier >= 4 && Math.random() < Math.min(0.2, 0.04 + difficultyTier * 0.016)) {
+  if (difficultyTier >= 6 && Math.random() < Math.min(0.14, 0.02 + difficultyTier * 0.012)) {
     const sideOffset = centerLane <= 1 ? 1 : centerLane >= lanes.length - 2 ? -1 : Math.random() < 0.5 ? -1 : 1;
     drafts.push({
       x: lanes[centerLane + sideOffset],
@@ -726,10 +726,10 @@ function buildEnemySpawnDrafts(state: PrototypeGameState, boardWidth: number) {
       healthMultiplier: 0.8,
       speedMultiplier: 1.04,
     });
-    cooldown += 0.24;
+    cooldown += 0.42;
   }
 
-  if (difficultyTier >= 8 && Math.random() < Math.min(0.12, 0.015 + difficultyTier * 0.008)) {
+  if (difficultyTier >= 10 && Math.random() < Math.min(0.08, 0.01 + difficultyTier * 0.006)) {
     const leftLane = Math.max(0, centerLane - 1);
     const rightLane = Math.min(lanes.length - 1, centerLane + 1);
     if (leftLane !== centerLane) {
@@ -750,10 +750,10 @@ function buildEnemySpawnDrafts(state: PrototypeGameState, boardWidth: number) {
         shape: 'circle',
       });
     }
-    cooldown += 0.34;
+    cooldown += 0.56;
   }
 
-  if (difficultyTier >= 6 && Math.random() < Math.min(0.12, 0.02 + difficultyTier * 0.01)) {
+  if (difficultyTier >= 8 && Math.random() < Math.min(0.08, 0.01 + difficultyTier * 0.008)) {
     const eliteIndex = Math.floor(Math.random() * drafts.length);
     drafts[eliteIndex] = {
       ...drafts[eliteIndex],
@@ -763,7 +763,7 @@ function buildEnemySpawnDrafts(state: PrototypeGameState, boardWidth: number) {
       healthMultiplier: 1.35,
       speedMultiplier: 0.88,
     };
-    cooldown += 0.18;
+    cooldown += 0.24;
   }
 
   return {
