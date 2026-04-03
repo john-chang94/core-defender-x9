@@ -5,11 +5,13 @@ import { Pressable, SafeAreaView, StyleSheet, Text, View, useWindowDimensions } 
 type AppGameId = 'defender' | 'prototype';
 
 type EnemyShape = 'circle' | 'square' | 'diamond';
-type WeaponUpgradeType = 'rapid' | 'twin' | 'heavy' | 'pierce' | 'focus' | 'chaos' | 'flare';
+type WeaponUpgradeType = 'rapid' | 'twin' | 'heavy' | 'pierce' | 'focus' | 'chaos' | 'flare' | 'missile';
 type PrototypeEffectKind = 'muzzle' | 'burst' | 'pickup';
+type PrototypeProjectileKind = 'standard' | 'missile';
 
 type PrototypeBullet = {
   id: string;
+  kind: PrototypeProjectileKind;
   x: number;
   y: number;
   angle: number;
@@ -25,6 +27,9 @@ type PrototypeBullet = {
   color: string;
   glowColor: string;
   trailScale: number;
+  curveDirection: number;
+  launchDuration: number;
+  turnRate: number;
 };
 
 type PrototypeEnemy = {
@@ -67,6 +72,7 @@ type PrototypeWeapon = {
   glowColor: string;
   muzzleColor: string;
   trailScale: number;
+  missileLevel: number;
 };
 
 type PrototypeEffect = {
@@ -100,6 +106,7 @@ type PrototypeGameState = {
   effects: PrototypeEffect[];
   weapon: PrototypeWeapon;
   fireCooldown: number;
+  missileCooldown: number;
   enemyCooldown: number;
   upgradeCooldown: number;
   nextBulletId: number;
@@ -108,6 +115,7 @@ type PrototypeGameState = {
   nextEffectId: number;
   pickupMessage: string | null;
   pickupTimer: number;
+  collectedUpgradeCount: number;
 };
 
 type PrototypeShooterScreenProps = {
@@ -135,6 +143,8 @@ const STANDARD_UPGRADE_TYPES: WeaponUpgradeType[] = [
   'chaos',
   'flare',
   'flare',
+  'missile',
+  'missile',
 ];
 const BASE_WEAPON: PrototypeWeapon = {
   damage: 1,
@@ -151,6 +161,7 @@ const BASE_WEAPON: PrototypeWeapon = {
   glowColor: '#79DFFF',
   muzzleColor: '#F4FCFF',
   trailScale: 1,
+  missileLevel: 0,
 };
 
 const UPGRADE_DEFINITIONS: Record<
@@ -246,6 +257,16 @@ const UPGRADE_DEFINITIONS: Record<
       trailScale: Math.min(1.9, weapon.trailScale + 0.12),
     }),
   },
+  missile: {
+    label: 'Missile',
+    color: '#FF7B63',
+    accent: '#FFE2DB',
+    apply: (weapon) => ({
+      ...weapon,
+      missileLevel: Math.min(3, weapon.missileLevel + 1),
+      effectIntensity: Math.min(2.25, weapon.effectIntensity + 0.16),
+    }),
+  },
 };
 
 const ENEMY_PALETTE = [
@@ -264,6 +285,10 @@ function randomChoice<T>(items: readonly T[]): T {
   return items[Math.floor(Math.random() * items.length)];
 }
 
+function lerp(start: number, end: number, progress: number) {
+  return start + (end - start) * progress;
+}
+
 function normalizeAngle(angle: number) {
   let nextAngle = angle;
   while (nextAngle > Math.PI) {
@@ -277,6 +302,14 @@ function normalizeAngle(angle: number) {
 
 function getDifficultyTier(elapsedSeconds: number) {
   return Math.floor(elapsedSeconds / DIFFICULTY_TIER_DURATION_SECONDS);
+}
+
+function getUpgradePressureMultiplier(collectedUpgradeCount: number) {
+  return Math.min(6, Math.pow(1.2, collectedUpgradeCount));
+}
+
+function getUpgradeSpeedPenalty(collectedUpgradeCount: number) {
+  return 1 - Math.min(0.14, collectedUpgradeCount * 0.012);
 }
 
 function getPlayerShipTop(boardHeight: number) {
@@ -295,14 +328,16 @@ function createInitialState(boardWidth: number, boardHeight: number): PrototypeG
     effects: [],
     weapon: BASE_WEAPON,
     fireCooldown: 0.03,
+    missileCooldown: 0.4,
     enemyCooldown: 2.1,
-    upgradeCooldown: 4.8,
+    upgradeCooldown: 8.4,
     nextBulletId: 1,
     nextEnemyId: 1,
     nextUpgradeId: 1,
     nextEffectId: 1,
     pickupMessage: 'Drag to move. Catch falling upgrades with the ship.',
     pickupTimer: 3.5,
+    collectedUpgradeCount: 0,
   };
 }
 
@@ -331,6 +366,7 @@ function createBulletVolleys(
     const vy = -Math.cos(angle) * state.weapon.bulletSpeed;
     bullets.push({
       id: `B${nextBulletId}`,
+      kind: 'standard',
       x: originX,
       y: muzzleY,
       angle,
@@ -346,6 +382,9 @@ function createBulletVolleys(
       color: state.weapon.bulletColor,
       glowColor: state.weapon.glowColor,
       trailScale: state.weapon.trailScale,
+      curveDirection: 0,
+      launchDuration: 0,
+      turnRate: 0,
     });
     nextBulletId += 1;
   }
@@ -378,6 +417,75 @@ function createPrototypeEffect(
   };
 }
 
+function getMissileVolleyCooldown(weapon: PrototypeWeapon) {
+  return Math.max(0.9, 2.3 - weapon.missileLevel * 0.38 - weapon.effectIntensity * 0.1);
+}
+
+function createMissileVolley(
+  state: PrototypeGameState,
+  boardHeight: number
+): Pick<PrototypeGameState, 'bullets' | 'nextBulletId' | 'missileCooldown'> & {
+  launchPoints: { x: number; y: number; color: string; size: number }[];
+} {
+  const bullets = [...state.bullets];
+  let nextBulletId = state.nextBulletId;
+  const salvoCount = 1 + state.weapon.missileLevel;
+  const muzzleY = boardHeight - PLAYER_HEIGHT - 14;
+  const slotPatterns: Record<number, number[]> = {
+    1: [0],
+    2: [-1, 1],
+    3: [-1, 0, 1],
+    4: [-1.5, -0.5, 0.5, 1.5],
+  };
+  const slots = slotPatterns[salvoCount] ?? [-1, 1];
+  const launchPoints: { x: number; y: number; color: string; size: number }[] = [];
+  const missileSpeed = Math.min(980, state.weapon.bulletSpeed * 0.84 + 120 + state.weapon.missileLevel * 35);
+  const missileDamage = state.weapon.damage + 2 + state.weapon.missileLevel;
+  const missileSize = state.weapon.bulletSize + 3.2;
+
+  for (const slot of slots) {
+    const curveDirection = slot === 0 ? (Math.random() < 0.5 ? -1 : 1) : Math.sign(slot);
+    const originX = state.playerX + slot * 11;
+    const angle = curveDirection * (0.92 - Math.min(0.18, Math.abs(slot) * 0.08));
+    bullets.push({
+      id: `B${nextBulletId}`,
+      kind: 'missile',
+      x: originX,
+      y: muzzleY + 2,
+      angle,
+      speed: missileSpeed,
+      vx: Math.sin(angle) * missileSpeed * 0.42,
+      vy: -Math.cos(angle) * missileSpeed,
+      damage: missileDamage,
+      size: missileSize,
+      pierce: state.weapon.pierce,
+      age: 0,
+      phase: Math.random() * Math.PI * 2,
+      aimAssist: Math.max(0.18, state.weapon.aimAssist + 0.12 + state.weapon.missileLevel * 0.03),
+      color: '#FFE8D8',
+      glowColor: '#FF7B63',
+      trailScale: Math.max(1.45, state.weapon.trailScale + 0.38),
+      curveDirection,
+      launchDuration: 0.22 + Math.random() * 0.05,
+      turnRate: 0.42 + state.weapon.missileLevel * 0.08,
+    });
+    launchPoints.push({
+      x: originX,
+      y: muzzleY + 2,
+      color: '#FFC3B6',
+      size: 16 + state.weapon.effectIntensity * 5,
+    });
+    nextBulletId += 1;
+  }
+
+  return {
+    bullets,
+    nextBulletId,
+    missileCooldown: getMissileVolleyCooldown(state.weapon),
+    launchPoints,
+  };
+}
+
 function findAimAssistTarget(enemies: PrototypeEnemy[], originX: number, originY: number) {
   let bestEnemy: PrototypeEnemy | null = null;
   let bestScore = -Infinity;
@@ -404,9 +512,33 @@ function advanceBullet(
   enemies: PrototypeEnemy[]
 ): PrototypeBullet {
   let nextAngle = bullet.angle;
+  let nextSpeed = bullet.speed;
+
+  if (bullet.kind === 'missile') {
+    if (bullet.age < bullet.launchDuration) {
+      const launchProgress = clamp(bullet.age / bullet.launchDuration, 0, 1);
+      const launchAngle = bullet.curveDirection * lerp(0.98, 0.22, launchProgress);
+      nextAngle = launchAngle;
+      nextSpeed = bullet.speed * lerp(0.34, 0.78, launchProgress);
+    } else {
+      const target = findAimAssistTarget(enemies, bullet.x, bullet.y);
+      if (target) {
+        const desiredAngle = Math.atan2(target.x - bullet.x, bullet.y - target.y);
+        const angleDelta = clamp(normalizeAngle(desiredAngle - bullet.angle), -0.34, 0.34);
+        nextAngle = bullet.angle + angleDelta * Math.min(0.34, bullet.turnRate * deltaSeconds * 5.8);
+      } else {
+        const recoveryAngle = bullet.curveDirection * 0.02;
+        const angleDelta = clamp(normalizeAngle(recoveryAngle - bullet.angle), -0.18, 0.18);
+        nextAngle = bullet.angle + angleDelta * Math.min(0.18, bullet.turnRate * deltaSeconds * 4.6);
+      }
+
+      const cruiseAge = bullet.age - bullet.launchDuration;
+      nextSpeed = bullet.speed * Math.min(1, 0.8 + cruiseAge * 1.6);
+    }
+  }
 
   if (bullet.aimAssist > 0) {
-    const target = findAimAssistTarget(enemies, bullet.x, bullet.y);
+    const target = bullet.kind === 'missile' ? null : findAimAssistTarget(enemies, bullet.x, bullet.y);
     if (target) {
       const desiredAngle = Math.atan2(target.x - bullet.x, bullet.y - target.y);
       const angleDelta = clamp(normalizeAngle(desiredAngle - bullet.angle), -0.22, 0.22);
@@ -414,12 +546,13 @@ function advanceBullet(
     }
   }
 
-  const vx = Math.sin(nextAngle) * bullet.speed * 0.42;
-  const vy = -Math.cos(nextAngle) * bullet.speed;
+  const vx = Math.sin(nextAngle) * nextSpeed * 0.42;
+  const vy = -Math.cos(nextAngle) * nextSpeed;
 
   return {
     ...bullet,
     angle: nextAngle,
+    speed: bullet.speed,
     vx,
     vy,
     x: bullet.x + vx * deltaSeconds,
@@ -514,11 +647,13 @@ function createEnemy(
   const shapePool: EnemyShape[] =
     difficultyTier >= 7 ? ['circle', 'square', 'diamond'] : difficultyTier >= 4 ? ['circle', 'square'] : ['circle'];
   const shape = draft?.shape ?? randomChoice(shapePool);
+  const upgradePressureMultiplier = getUpgradePressureMultiplier(state.collectedUpgradeCount);
+  const upgradeSpeedPenalty = getUpgradeSpeedPenalty(state.collectedUpgradeCount);
   const maxHealth = Math.max(
     2,
-    Math.round((2.5 + difficultyTier * 0.9 + size / 12 + Math.random() * 2.6) * healthMultiplier)
+    Math.round((2.5 + difficultyTier * 0.9 + size / 12 + Math.random() * 2.6) * healthMultiplier * upgradePressureMultiplier)
   );
-  const speed = (60 + difficultyTier * 5.8 + Math.random() * 22) * speedMultiplier;
+  const speed = (60 + difficultyTier * 5.8 + Math.random() * 22) * speedMultiplier * upgradeSpeedPenalty;
   const spawnPadding = size / 2 + 12;
   const enemy: PrototypeEnemy = {
     id: `E${state.nextEnemyId}`,
@@ -566,7 +701,7 @@ function createUpgrade(
   return {
     upgrades: [...state.upgrades, upgrade],
     nextUpgradeId: state.nextUpgradeId + 1,
-    upgradeCooldown: 6.4 + Math.random() * 3.2,
+    upgradeCooldown: 12 + Math.random() * 4.5,
   };
 }
 
@@ -636,6 +771,7 @@ function tickPrototypeState(
       }))
       .filter((effect) => effect.age < effect.duration),
     fireCooldown: previousState.fireCooldown - deltaSeconds,
+    missileCooldown: previousState.missileCooldown - deltaSeconds,
     enemyCooldown: previousState.enemyCooldown - deltaSeconds,
     upgradeCooldown:
       previousState.upgrades.length < 2 ? previousState.upgradeCooldown - deltaSeconds : previousState.upgradeCooldown,
@@ -675,6 +811,29 @@ function tickPrototypeState(
             boardHeight - PLAYER_HEIGHT - 20 - Math.random() * 6,
             (10 + nextState.weapon.shotCount * 2) * (0.85 + nextState.weapon.effectIntensity * 0.16),
             nextState.weapon.glowColor,
+            nextState.nextEffectId
+          ),
+        ]);
+        nextState.nextEffectId += 1;
+      }
+    }
+  }
+
+  if (nextState.weapon.missileLevel > 0) {
+    while (nextState.missileCooldown <= 0) {
+      const missileVolley = createMissileVolley(nextState, boardHeight);
+      nextState.bullets = missileVolley.bullets;
+      nextState.nextBulletId = missileVolley.nextBulletId;
+      nextState.missileCooldown += missileVolley.missileCooldown;
+      for (const launchPoint of missileVolley.launchPoints) {
+        nextState.effects = trimEffects([
+          ...nextState.effects,
+          createPrototypeEffect(
+            'muzzle',
+            launchPoint.x,
+            launchPoint.y,
+            launchPoint.size,
+            launchPoint.color,
             nextState.nextEffectId
           ),
         ]);
@@ -765,7 +924,12 @@ function tickPrototypeState(
 
     if (hitTestUpgradePickup(nextState.playerX, boardHeight, upgrade)) {
       const definition = UPGRADE_DEFINITIONS[upgrade.type];
+      const previousMissileLevel = nextState.weapon.missileLevel;
       nextState.weapon = definition.apply(nextState.weapon);
+      nextState.collectedUpgradeCount += 1;
+      if (nextState.weapon.missileLevel > previousMissileLevel) {
+        nextState.missileCooldown = Math.min(nextState.missileCooldown, 0.24);
+      }
       nextState.pickupMessage = `${definition.label} upgrade secured`;
       nextState.pickupTimer = 1.8;
       nextState.score += 25;
@@ -833,6 +997,93 @@ function BulletNode({ bullet }: { bullet: PrototypeBullet }) {
   const trailHeight = bullet.size * (2.8 + bullet.trailScale * (0.45 + Math.sin(bullet.age * 18 + bullet.phase) * 0.12));
   const glowScale = 1 + Math.sin(bullet.age * 20 + bullet.phase) * 0.08;
   const angleDegrees = (bullet.angle * 180) / Math.PI;
+  const isMissile = bullet.kind === 'missile';
+
+  if (isMissile) {
+    const missileTrailHeight = bullet.size * (3.3 + bullet.trailScale * (0.82 + Math.sin(bullet.age * 16 + bullet.phase) * 0.16));
+    const bodyHeight = bullet.size * 1.75;
+    const shellWidth = bullet.size * 2.4;
+
+    return (
+      <View
+        pointerEvents="none"
+        style={[
+          shooterStyles.bulletShell,
+          {
+            left: bullet.x - shellWidth / 2,
+            top: bullet.y - missileTrailHeight + bullet.size * 0.65,
+            width: shellWidth,
+            height: missileTrailHeight,
+            transform: [{ rotate: `${angleDegrees}deg` }],
+          },
+        ]}>
+        <View
+          style={[
+            shooterStyles.bulletGlow,
+            {
+              backgroundColor: bullet.glowColor,
+              opacity: 0.28 + bullet.trailScale * 0.05,
+              transform: [{ scaleX: 1.18 + bullet.trailScale * 0.09 }, { scaleY: 1.08 + glowScale * 0.12 }],
+            },
+          ]}
+        />
+        <View
+          style={[
+            shooterStyles.missileExhaust,
+            {
+              width: bullet.size * 0.72,
+              height: missileTrailHeight - bodyHeight * 0.7,
+              backgroundColor: bullet.glowColor,
+              opacity: 0.3 + Math.sin(bullet.age * 26 + bullet.phase) * 0.06,
+            },
+          ]}
+        />
+        <View
+          style={[
+            shooterStyles.missileBody,
+            {
+              width: bullet.size * 0.86,
+              height: bodyHeight,
+              backgroundColor: bullet.color,
+              borderColor: bullet.glowColor,
+            },
+          ]}>
+          <View
+            style={[
+              shooterStyles.missileNose,
+              {
+                marginLeft: -(bullet.size * 0.42),
+                borderLeftWidth: bullet.size * 0.42,
+                borderRightWidth: bullet.size * 0.42,
+                borderBottomWidth: bullet.size * 0.82,
+                borderBottomColor: bullet.color,
+              },
+            ]}
+          />
+          <View
+            style={[
+              shooterStyles.missileFinLeft,
+              {
+                borderTopWidth: bullet.size * 0.42,
+                borderRightWidth: bullet.size * 0.34,
+                borderTopColor: bullet.glowColor,
+              },
+            ]}
+          />
+          <View
+            style={[
+              shooterStyles.missileFinRight,
+              {
+                borderTopWidth: bullet.size * 0.42,
+                borderLeftWidth: bullet.size * 0.34,
+                borderTopColor: bullet.glowColor,
+              },
+            ]}
+          />
+        </View>
+      </View>
+    );
+  }
 
   return (
     <View
@@ -1502,6 +1753,51 @@ const shooterStyles = StyleSheet.create({
   bullet: {
     borderWidth: 1,
     alignSelf: 'center',
+  },
+  missileExhaust: {
+    position: 'absolute',
+    bottom: 0,
+    borderRadius: 999,
+    alignSelf: 'center',
+  },
+  missileBody: {
+    position: 'absolute',
+    top: 0,
+    alignSelf: 'center',
+    borderWidth: 1,
+    borderRadius: 999,
+    overflow: 'visible',
+  },
+  missileNose: {
+    position: 'absolute',
+    left: '50%',
+    marginLeft: -1,
+    top: -6,
+    width: 0,
+    height: 0,
+    borderLeftColor: 'transparent',
+    borderRightColor: 'transparent',
+    backgroundColor: 'transparent',
+  },
+  missileFinLeft: {
+    position: 'absolute',
+    left: -5,
+    bottom: 3,
+    width: 0,
+    height: 0,
+    borderTopColor: '#FF7B63',
+    borderRightColor: 'transparent',
+    backgroundColor: 'transparent',
+  },
+  missileFinRight: {
+    position: 'absolute',
+    right: -5,
+    bottom: 3,
+    width: 0,
+    height: 0,
+    borderTopColor: '#FF7B63',
+    borderLeftColor: 'transparent',
+    backgroundColor: 'transparent',
   },
   upgradeToken: {
     position: 'absolute',
