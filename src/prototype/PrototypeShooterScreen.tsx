@@ -354,7 +354,7 @@ function createInitialState(boardWidth: number, boardHeight: number): PrototypeG
     fireCooldown: 0.03,
     missileCooldown: 0.4,
     shatterCooldown: 0.9,
-    enemyCooldown: 2.1,
+    enemyCooldown: 2.7,
     upgradeCooldown: 13.5,
     nextBulletId: 1,
     nextEnemyId: 1,
@@ -716,7 +716,7 @@ function buildEnemySpawnDrafts(state: PrototypeGameState, boardWidth: number) {
   const lanes = getSpawnLanes(boardWidth);
   const centerLane = Math.floor(Math.random() * lanes.length);
   const drafts: EnemySpawnDraft[] = [{ x: lanes[centerLane] }];
-  let cooldown = Math.max(0.55, 1.68 - difficultyTier * 0.05 - Math.random() * 0.14);
+  let cooldown = Math.max(0.8, 2.15 - difficultyTier * 0.06 - Math.random() * 0.16);
 
   if (difficultyTier >= 4 && Math.random() < Math.min(0.2, 0.04 + difficultyTier * 0.016)) {
     const sideOffset = centerLane <= 1 ? 1 : centerLane >= lanes.length - 2 ? -1 : Math.random() < 0.5 ? -1 : 1;
@@ -726,7 +726,7 @@ function buildEnemySpawnDrafts(state: PrototypeGameState, boardWidth: number) {
       healthMultiplier: 0.8,
       speedMultiplier: 1.04,
     });
-    cooldown += 0.18;
+    cooldown += 0.24;
   }
 
   if (difficultyTier >= 8 && Math.random() < Math.min(0.12, 0.015 + difficultyTier * 0.008)) {
@@ -750,7 +750,7 @@ function buildEnemySpawnDrafts(state: PrototypeGameState, boardWidth: number) {
         shape: 'circle',
       });
     }
-    cooldown += 0.26;
+    cooldown += 0.34;
   }
 
   if (difficultyTier >= 6 && Math.random() < Math.min(0.12, 0.02 + difficultyTier * 0.01)) {
@@ -763,7 +763,7 @@ function buildEnemySpawnDrafts(state: PrototypeGameState, boardWidth: number) {
       healthMultiplier: 1.35,
       speedMultiplier: 0.88,
     };
-    cooldown += 0.14;
+    cooldown += 0.18;
   }
 
   return {
