@@ -5,8 +5,18 @@ import { Pressable, SafeAreaView, StyleSheet, Text, View, useWindowDimensions } 
 type AppGameId = 'defender' | 'prototype';
 
 type EnemyShape = 'circle' | 'square' | 'diamond';
-type WeaponUpgradeType = 'rapid' | 'twin' | 'heavy' | 'pierce' | 'focus' | 'chaos' | 'flare' | 'missile' | 'shatter';
-type PrototypeEffectKind = 'muzzle' | 'burst' | 'pickup';
+type WeaponUpgradeType =
+  | 'rapid'
+  | 'twin'
+  | 'heavy'
+  | 'pierce'
+  | 'focus'
+  | 'chaos'
+  | 'flare'
+  | 'missile'
+  | 'shatter'
+  | 'bombard';
+type PrototypeEffectKind = 'muzzle' | 'burst' | 'pickup' | 'bombard';
 type PrototypeProjectileKind = 'standard' | 'missile' | 'shatterShell' | 'shatterShard';
 
 type PrototypeBullet = {
@@ -155,6 +165,7 @@ const STANDARD_UPGRADE_TYPES: WeaponUpgradeType[] = [
   'missile',
   'shatter',
   'shatter',
+  'bombard',
 ];
 const BASE_WEAPON: PrototypeWeapon = {
   damage: 1,
@@ -288,6 +299,12 @@ const UPGRADE_DEFINITIONS: Record<
       effectIntensity: Math.min(2.3, weapon.effectIntensity + 0.22),
     }),
   },
+  bombard: {
+    label: 'Bombard',
+    color: '#FF6B5E',
+    accent: '#FFE0D7',
+    apply: (weapon) => weapon,
+  },
 };
 
 const ENEMY_PALETTE = [
@@ -338,7 +355,19 @@ function getUpgradeSpeedPenalty(collectedUpgradeCount: number) {
 }
 
 function getHealthSpeedPenalty(maxHealth: number) {
-  return 1 - Math.min(0.38, Math.sqrt(maxHealth) * 0.018);
+  if (maxHealth <= 100) {
+    return 1;
+  }
+  if (maxHealth <= 200) {
+    return lerp(1, 0.62, (maxHealth - 100) / 100);
+  }
+  if (maxHealth <= 350) {
+    return lerp(0.62, 0.34, (maxHealth - 200) / 150);
+  }
+  if (maxHealth <= 700) {
+    return lerp(0.34, 0.16, (maxHealth - 350) / 350);
+  }
+  return Math.max(0.09, 0.16 - (maxHealth - 700) * 0.00008);
 }
 
 function getPlayerShipTop(boardHeight: number) {
@@ -437,7 +466,7 @@ function createPrototypeEffect(
   color: string,
   nextEffectId: number
 ): PrototypeEffect {
-  const duration = kind === 'muzzle' ? 0.12 : kind === 'pickup' ? 0.42 : 0.28;
+  const duration = kind === 'muzzle' ? 0.12 : kind === 'pickup' ? 0.42 : kind === 'bombard' ? 0.52 : 0.28;
   return {
     id: `FX${nextEffectId}`,
     kind,
@@ -448,6 +477,69 @@ function createPrototypeEffect(
     duration,
     color,
   };
+}
+
+function getBombardDamage(state: PrototypeGameState, enemy: PrototypeEnemy) {
+  const difficultyTier = getDifficultyTier(state.elapsed);
+  const flatDamage = 34 + state.weapon.damage * 8 + difficultyTier * 6 + state.weapon.effectIntensity * 10;
+  const percentDamage = 0.28 + Math.min(0.12, state.weapon.effectIntensity * 0.04);
+  return Math.max(flatDamage, enemy.maxHealth * percentDamage);
+}
+
+function triggerBombardment(state: PrototypeGameState, boardWidth: number, boardHeight: number) {
+  const queuedEffects = [...state.effects];
+  const strikeCount = Math.min(6, Math.max(4, Math.round(boardWidth / 96)));
+
+  for (let index = 0; index < strikeCount; index += 1) {
+    const laneX = ((index + 0.5) / strikeCount) * boardWidth;
+    const strikeX = clamp(laneX + (Math.random() - 0.5) * Math.min(26, boardWidth * 0.08), 20, boardWidth - 20);
+    queuedEffects.push(
+      createPrototypeEffect('bombard', strikeX, boardHeight * 0.48, boardHeight * 0.96, '#FFB26B', state.nextEffectId)
+    );
+    state.nextEffectId += 1;
+  }
+
+  queuedEffects.push(
+    createPrototypeEffect(
+      'pickup',
+      state.playerX,
+      getPlayerShipTop(boardHeight) + PLAYER_HEIGHT * 0.35,
+      70,
+      '#FFBF73',
+      state.nextEffectId
+    )
+  );
+  state.nextEffectId += 1;
+
+  const activeEnemies = state.enemies.filter((enemy) => enemy.health > 0);
+  const burstStride = Math.max(1, Math.ceil(activeEnemies.length / 7));
+  let activeIndex = 0;
+
+  for (const enemy of state.enemies) {
+    if (enemy.health <= 0) {
+      continue;
+    }
+
+    const damage = getBombardDamage(state, enemy);
+    enemy.health = Math.max(0, enemy.health - damage);
+    enemy.flash = 1;
+
+    if (enemy.health <= 0) {
+      state.score += enemy.maxHealth * 10;
+      queuedEffects.push(createPrototypeEffect('burst', enemy.x, enemy.y, enemy.size * 1.32, '#FFD39B', state.nextEffectId));
+      state.nextEffectId += 1;
+      continue;
+    }
+
+    if (activeIndex % burstStride === 0) {
+      queuedEffects.push(createPrototypeEffect('burst', enemy.x, enemy.y, enemy.size * 0.96, '#FFB26B', state.nextEffectId));
+      state.nextEffectId += 1;
+    }
+    activeIndex += 1;
+  }
+
+  state.enemies = state.enemies.filter((enemy) => enemy.health > 0);
+  state.effects = trimEffects(queuedEffects);
 }
 
 function getMissileVolleyCooldown(weapon: PrototypeWeapon) {
@@ -1110,24 +1202,30 @@ function tickPrototypeState(
 
     if (hitTestUpgradePickup(nextState.playerX, boardHeight, upgrade)) {
       const definition = UPGRADE_DEFINITIONS[upgrade.type];
-      const previousMissileLevel = nextState.weapon.missileLevel;
-      const previousShatterLevel = nextState.weapon.shatterLevel;
-      nextState.weapon = definition.apply(nextState.weapon);
-      nextState.collectedUpgradeCount += 1;
-      if (nextState.weapon.missileLevel > previousMissileLevel) {
-        nextState.missileCooldown = Math.min(nextState.missileCooldown, 0.24);
+      if (upgrade.type === 'bombard') {
+        triggerBombardment(nextState, boardWidth, boardHeight);
+        nextState.pickupMessage = 'Bombardment triggered';
+        nextState.score += 40;
+      } else {
+        const previousMissileLevel = nextState.weapon.missileLevel;
+        const previousShatterLevel = nextState.weapon.shatterLevel;
+        nextState.weapon = definition.apply(nextState.weapon);
+        nextState.collectedUpgradeCount += 1;
+        if (nextState.weapon.missileLevel > previousMissileLevel) {
+          nextState.missileCooldown = Math.min(nextState.missileCooldown, 0.24);
+        }
+        if (nextState.weapon.shatterLevel > previousShatterLevel) {
+          nextState.shatterCooldown = Math.min(nextState.shatterCooldown, 0.3);
+        }
+        nextState.pickupMessage = `${definition.label} upgrade secured`;
+        nextState.score += 25;
+        nextState.effects = trimEffects([
+          ...nextState.effects,
+          createPrototypeEffect('pickup', upgrade.x, upgrade.y, upgrade.size * 1.15, definition.color, nextState.nextEffectId),
+        ]);
+        nextState.nextEffectId += 1;
       }
-      if (nextState.weapon.shatterLevel > previousShatterLevel) {
-        nextState.shatterCooldown = Math.min(nextState.shatterCooldown, 0.3);
-      }
-      nextState.pickupMessage = `${definition.label} upgrade secured`;
       nextState.pickupTimer = 1.8;
-      nextState.score += 25;
-      nextState.effects = trimEffects([
-        ...nextState.effects,
-        createPrototypeEffect('pickup', upgrade.x, upgrade.y, upgrade.size * 1.15, definition.color, nextState.nextEffectId),
-      ]);
-      nextState.nextEffectId += 1;
       continue;
     }
 
@@ -1440,6 +1538,62 @@ function EffectNode({ effect }: { effect: PrototypeEffect }) {
           },
         ]}
       />
+    );
+  }
+
+  if (effect.kind === 'bombard') {
+    const height = effect.size * (1.06 - progress * 0.12);
+    const glowWidth = Math.max(26, effect.size * 0.18);
+    const coreWidth = Math.max(8, effect.size * 0.042);
+    return (
+      <>
+        <View
+          pointerEvents="none"
+          style={[
+            shooterStyles.effectNode,
+            shooterStyles.effectBombardGlow,
+            {
+              left: effect.x - glowWidth / 2,
+              top: effect.y - height / 2,
+              width: glowWidth,
+              height,
+              opacity: opacity * 0.22,
+              backgroundColor: effect.color,
+              transform: [{ scaleY: 0.9 + progress * 0.16 }],
+            },
+          ]}
+        />
+        <View
+          pointerEvents="none"
+          style={[
+            shooterStyles.effectNode,
+            shooterStyles.effectBombardColumn,
+            {
+              left: effect.x - coreWidth,
+              top: effect.y - height / 2,
+              width: coreWidth * 2,
+              height,
+              opacity: 0.24 + opacity * 0.5,
+              backgroundColor: effect.color,
+              borderColor: '#FFE5C7',
+            },
+          ]}
+        />
+        <View
+          pointerEvents="none"
+          style={[
+            shooterStyles.effectNode,
+            shooterStyles.effectBombardCore,
+            {
+              left: effect.x - coreWidth * 0.24,
+              top: effect.y - height / 2 + 8,
+              width: coreWidth * 0.48,
+              height: height - 16,
+              opacity: opacity * 0.92,
+            },
+          ]}
+        />
+      </>
     );
   }
 
@@ -1947,6 +2101,17 @@ const shooterStyles = StyleSheet.create({
     borderRadius: 999,
     borderWidth: 1,
     borderColor: '#D7F7FF',
+  },
+  effectBombardGlow: {
+    borderRadius: 999,
+  },
+  effectBombardColumn: {
+    borderRadius: 999,
+    borderWidth: 1,
+  },
+  effectBombardCore: {
+    borderRadius: 999,
+    backgroundColor: '#FFF6E1',
   },
   effectRing: {
     borderRadius: 999,
