@@ -108,14 +108,16 @@ const MAX_FRAME_DELTA_SECONDS = 0.1;
 const FIXED_STEP_SECONDS = 1 / 60;
 const MAX_CATCH_UP_STEPS = 5;
 const MAX_ACTIVE_EFFECTS = 28;
+const DIFFICULTY_TIER_DURATION_SECONDS = 15;
+const OPENING_UPGRADE_TYPES: WeaponUpgradeType[] = ['rapid', 'twin', 'heavy'];
 const BASE_WEAPON: PrototypeWeapon = {
   damage: 1,
-  fireInterval: 0.11,
+  fireInterval: 0.1,
   shotCount: 1,
   pierce: 0,
-  bulletSize: 7,
-  bulletSpeed: 720,
-  spread: 16,
+  bulletSize: 8,
+  bulletSpeed: 760,
+  spread: 15,
 };
 
 const UPGRADE_DEFINITIONS: Record<
@@ -193,6 +195,10 @@ function randomChoice<T>(items: readonly T[]): T {
   return items[Math.floor(Math.random() * items.length)];
 }
 
+function getDifficultyTier(elapsedSeconds: number) {
+  return Math.floor(elapsedSeconds / DIFFICULTY_TIER_DURATION_SECONDS);
+}
+
 function getPlayerShipTop(boardHeight: number) {
   return Math.max(0, boardHeight - PLAYER_HEIGHT - PLAYER_FLOOR_OFFSET);
 }
@@ -208,9 +214,9 @@ function createInitialState(boardWidth: number, boardHeight: number): PrototypeG
     upgrades: [],
     effects: [],
     weapon: BASE_WEAPON,
-    fireCooldown: 0.05,
-    enemyCooldown: 0.8,
-    upgradeCooldown: 5.2,
+    fireCooldown: 0.03,
+    enemyCooldown: 1.35,
+    upgradeCooldown: 4.2,
     nextBulletId: 1,
     nextEnemyId: 1,
     nextUpgradeId: 1,
@@ -286,58 +292,58 @@ function getSpawnLanes(boardWidth: number) {
 }
 
 function buildEnemySpawnDrafts(state: PrototypeGameState, boardWidth: number) {
-  const difficultyTier = Math.floor(state.elapsed / 11);
+  const difficultyTier = getDifficultyTier(state.elapsed);
   const lanes = getSpawnLanes(boardWidth);
   const centerLane = Math.floor(Math.random() * lanes.length);
   const drafts: EnemySpawnDraft[] = [{ x: lanes[centerLane] }];
-  let cooldown = Math.max(0.22, 0.9 - difficultyTier * 0.035 - Math.random() * 0.08);
+  let cooldown = Math.max(0.42, 1.22 - difficultyTier * 0.045 - Math.random() * 0.1);
 
-  if (difficultyTier >= 2 && Math.random() < Math.min(0.36, 0.16 + difficultyTier * 0.025)) {
+  if (difficultyTier >= 3 && Math.random() < Math.min(0.28, 0.08 + difficultyTier * 0.02)) {
     const sideOffset = centerLane <= 1 ? 1 : centerLane >= lanes.length - 2 ? -1 : Math.random() < 0.5 ? -1 : 1;
     drafts.push({
       x: lanes[centerLane + sideOffset],
-      sizeMultiplier: 0.92,
-      healthMultiplier: 0.86,
-      speedMultiplier: 1.08,
+      sizeMultiplier: 0.9,
+      healthMultiplier: 0.82,
+      speedMultiplier: 1.06,
     });
-    cooldown += 0.08;
+    cooldown += 0.12;
   }
 
-  if (difficultyTier >= 5 && Math.random() < Math.min(0.28, 0.08 + difficultyTier * 0.018)) {
+  if (difficultyTier >= 6 && Math.random() < Math.min(0.18, 0.03 + difficultyTier * 0.012)) {
     const leftLane = Math.max(0, centerLane - 1);
     const rightLane = Math.min(lanes.length - 1, centerLane + 1);
     if (leftLane !== centerLane) {
       drafts.push({
         x: lanes[leftLane],
-        sizeMultiplier: 0.88,
-        healthMultiplier: 0.82,
-        speedMultiplier: 1.16,
+        sizeMultiplier: 0.86,
+        healthMultiplier: 0.78,
+        speedMultiplier: 1.12,
         shape: 'circle',
       });
     }
     if (rightLane !== centerLane && rightLane !== leftLane) {
       drafts.push({
         x: lanes[rightLane],
-        sizeMultiplier: 0.88,
-        healthMultiplier: 0.82,
-        speedMultiplier: 1.16,
+        sizeMultiplier: 0.86,
+        healthMultiplier: 0.78,
+        speedMultiplier: 1.12,
         shape: 'circle',
       });
     }
-    cooldown += 0.12;
+    cooldown += 0.18;
   }
 
-  if (difficultyTier >= 4 && Math.random() < Math.min(0.24, 0.07 + difficultyTier * 0.014)) {
+  if (difficultyTier >= 5 && Math.random() < Math.min(0.16, 0.03 + difficultyTier * 0.012)) {
     const eliteIndex = Math.floor(Math.random() * drafts.length);
     drafts[eliteIndex] = {
       ...drafts[eliteIndex],
       shape: 'diamond',
       color: '#FF7CA2',
-      sizeMultiplier: 1.18,
-      healthMultiplier: 1.5,
-      speedMultiplier: 0.9,
+      sizeMultiplier: 1.14,
+      healthMultiplier: 1.35,
+      speedMultiplier: 0.88,
     };
-    cooldown += 0.06;
+    cooldown += 0.1;
   }
 
   return {
@@ -350,17 +356,17 @@ function createEnemy(
   state: PrototypeGameState,
   boardWidth: number,
   draft?: EnemySpawnDraft
-): Pick<PrototypeGameState, 'enemies' | 'nextEnemyId' | 'enemyCooldown'> {
-  const difficultyTier = Math.floor(state.elapsed / 11);
+): Pick<PrototypeGameState, 'enemies' | 'nextEnemyId'> {
+  const difficultyTier = getDifficultyTier(state.elapsed);
   const sizeMultiplier = draft?.sizeMultiplier ?? 1;
   const healthMultiplier = draft?.healthMultiplier ?? 1;
   const speedMultiplier = draft?.speedMultiplier ?? 1;
-  const size = clamp((34 + difficultyTier * 1.8 + Math.random() * 16) * sizeMultiplier, 30, 86);
+  const size = clamp((30 + difficultyTier * 1.5 + Math.random() * 14) * sizeMultiplier, 28, 82);
   const shapePool: EnemyShape[] =
-    difficultyTier >= 7 ? ['circle', 'square', 'diamond'] : difficultyTier >= 3 ? ['circle', 'square'] : ['circle'];
+    difficultyTier >= 7 ? ['circle', 'square', 'diamond'] : difficultyTier >= 4 ? ['circle', 'square'] : ['circle'];
   const shape = draft?.shape ?? randomChoice(shapePool);
-  const maxHealth = Math.max(2, Math.round((3 + difficultyTier * 0.9 + size / 12 + Math.random() * 3) * healthMultiplier));
-  const speed = (78 + difficultyTier * 8 + Math.random() * 34) * speedMultiplier;
+  const maxHealth = Math.max(2, Math.round((2 + difficultyTier * 0.75 + size / 13 + Math.random() * 2.4) * healthMultiplier));
+  const speed = (64 + difficultyTier * 6.5 + Math.random() * 24) * speedMultiplier;
   const spawnPadding = size / 2 + 12;
   const enemy: PrototypeEnemy = {
     id: `E${state.nextEnemyId}`,
@@ -382,7 +388,6 @@ function createEnemy(
   return {
     enemies: [...state.enemies, enemy],
     nextEnemyId: state.nextEnemyId + 1,
-    enemyCooldown: Math.max(0.24, 0.92 - difficultyTier * 0.04 - Math.random() * 0.12),
   };
 }
 
@@ -390,15 +395,17 @@ function createUpgrade(
   state: PrototypeGameState,
   boardWidth: number
 ): Pick<PrototypeGameState, 'upgrades' | 'nextUpgradeId' | 'upgradeCooldown'> {
-  const type = randomChoice(Object.keys(UPGRADE_DEFINITIONS) as WeaponUpgradeType[]);
+  const typePool =
+    state.nextUpgradeId === 1 ? OPENING_UPGRADE_TYPES : (Object.keys(UPGRADE_DEFINITIONS) as WeaponUpgradeType[]);
+  const type = randomChoice(typePool);
   const definition = UPGRADE_DEFINITIONS[type];
-  const size = 48;
+  const size = 52;
   const upgrade: PrototypeUpgrade = {
     id: `U${state.nextUpgradeId}`,
     x: clamp(size / 2 + 10 + Math.random() * (boardWidth - size - 20), size / 2 + 10, boardWidth - size / 2 - 10),
     y: -size,
     size,
-    speed: 82 + Math.random() * 28,
+    speed: 68 + Math.random() * 20,
     type,
     label: definition.label,
     color: definition.color,
@@ -408,7 +415,7 @@ function createUpgrade(
   return {
     upgrades: [...state.upgrades, upgrade],
     nextUpgradeId: state.nextUpgradeId + 1,
-    upgradeCooldown: 6.5 + Math.random() * 4.5,
+    upgradeCooldown: 5.5 + Math.random() * 2.5,
   };
 }
 
@@ -876,7 +883,7 @@ export function PrototypeShooterScreen({ onSwitchGame }: PrototypeShooterScreenP
     }
   }, [gameState.status]);
 
-  const difficultyTier = Math.floor(gameState.elapsed / 11) + 1;
+  const difficultyTier = getDifficultyTier(gameState.elapsed) + 1;
   const displayMessage =
     !hasStarted
       ? 'Press Start to deploy the ship.'
