@@ -166,6 +166,9 @@ const STANDARD_UPGRADE_TYPES: WeaponUpgradeType[] = [
   'shatter',
   'shatter',
   'bombard',
+  'bombard',
+  'bombard',
+  'bombard',
 ];
 const BASE_WEAPON: PrototypeWeapon = {
   damage: 1,
@@ -958,7 +961,10 @@ function createUpgrade(
   boardWidth: number
 ): Pick<PrototypeGameState, 'upgrades' | 'nextUpgradeId' | 'upgradeCooldown'> {
   const typePool = state.nextUpgradeId === 1 ? OPENING_UPGRADE_TYPES : STANDARD_UPGRADE_TYPES;
-  const type = randomChoice(typePool);
+  const type =
+    state.nextUpgradeId === 2 && state.weapon.shotCount <= 1 && state.weapon.missileLevel === 0 && state.weapon.shatterLevel === 0
+      ? 'twin'
+      : randomChoice(typePool);
   const definition = UPGRADE_DEFINITIONS[type];
   const size = 52;
   const upgrade: PrototypeUpgrade = {
