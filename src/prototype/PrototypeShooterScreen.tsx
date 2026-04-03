@@ -364,10 +364,13 @@ function getHealthSpeedPenalty(maxHealth: number) {
   if (maxHealth <= 350) {
     return lerp(0.62, 0.34, (maxHealth - 200) / 150);
   }
-  if (maxHealth <= 700) {
-    return lerp(0.34, 0.16, (maxHealth - 350) / 350);
+  if (maxHealth <= 500) {
+    return lerp(0.34, 0.18, (maxHealth - 350) / 150);
   }
-  return Math.max(0.09, 0.16 - (maxHealth - 700) * 0.00008);
+  if (maxHealth <= 900) {
+    return lerp(0.18, 0.07, (maxHealth - 500) / 400);
+  }
+  return Math.max(0.04, 0.07 - (maxHealth - 900) * 0.00005);
 }
 
 function getPlayerShipTop(boardHeight: number) {
@@ -861,6 +864,10 @@ function buildEnemySpawnDrafts(state: PrototypeGameState, boardWidth: number) {
       speedMultiplier: 0.88,
     };
     cooldown += 0.24;
+  }
+
+  if (difficultyTier >= 8) {
+    cooldown += 0.2 + Math.min(0.18, (difficultyTier - 8) * 0.05);
   }
 
   return {
