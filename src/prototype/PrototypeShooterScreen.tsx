@@ -5,9 +5,9 @@ import { Pressable, SafeAreaView, StyleSheet, Text, View, useWindowDimensions } 
 type AppGameId = 'defender' | 'prototype';
 
 type EnemyShape = 'circle' | 'square' | 'diamond';
-type WeaponUpgradeType = 'rapid' | 'twin' | 'heavy' | 'pierce' | 'focus' | 'chaos' | 'flare' | 'missile';
+type WeaponUpgradeType = 'rapid' | 'twin' | 'heavy' | 'pierce' | 'focus' | 'chaos' | 'flare' | 'missile' | 'shatter';
 type PrototypeEffectKind = 'muzzle' | 'burst' | 'pickup';
-type PrototypeProjectileKind = 'standard' | 'missile';
+type PrototypeProjectileKind = 'standard' | 'missile' | 'shatterShell' | 'shatterShard';
 
 type PrototypeBullet = {
   id: string;
@@ -30,6 +30,9 @@ type PrototypeBullet = {
   curveDirection: number;
   launchDuration: number;
   turnRate: number;
+  maxAge: number | null;
+  burstAge: number | null;
+  fragmentCount: number;
 };
 
 type PrototypeEnemy = {
@@ -73,6 +76,7 @@ type PrototypeWeapon = {
   muzzleColor: string;
   trailScale: number;
   missileLevel: number;
+  shatterLevel: number;
 };
 
 type PrototypeEffect = {
@@ -107,6 +111,7 @@ type PrototypeGameState = {
   weapon: PrototypeWeapon;
   fireCooldown: number;
   missileCooldown: number;
+  shatterCooldown: number;
   enemyCooldown: number;
   upgradeCooldown: number;
   nextBulletId: number;
@@ -132,7 +137,7 @@ const FIXED_STEP_SECONDS = 1 / 60;
 const MAX_CATCH_UP_STEPS = 5;
 const MAX_ACTIVE_EFFECTS = 28;
 const DIFFICULTY_TIER_DURATION_SECONDS = 15;
-const MAX_STRAIGHT_GUNS = 4;
+const MAX_STRAIGHT_GUNS = 3;
 const MAX_MISSILE_LEVEL = 2;
 const OPENING_UPGRADE_TYPES: WeaponUpgradeType[] = ['rapid', 'twin', 'heavy'];
 const STANDARD_UPGRADE_TYPES: WeaponUpgradeType[] = [
@@ -147,6 +152,8 @@ const STANDARD_UPGRADE_TYPES: WeaponUpgradeType[] = [
   'flare',
   'missile',
   'missile',
+  'shatter',
+  'shatter',
 ];
 const BASE_WEAPON: PrototypeWeapon = {
   damage: 1,
@@ -164,6 +171,7 @@ const BASE_WEAPON: PrototypeWeapon = {
   muzzleColor: '#F4FCFF',
   trailScale: 1,
   missileLevel: 0,
+  shatterLevel: 0,
 };
 
 const UPGRADE_DEFINITIONS: Record<
@@ -269,6 +277,16 @@ const UPGRADE_DEFINITIONS: Record<
       effectIntensity: Math.min(2.25, weapon.effectIntensity + 0.16),
     }),
   },
+  shatter: {
+    label: 'Shatter',
+    color: '#FFB86B',
+    accent: '#FFF1D8',
+    apply: (weapon) => ({
+      ...weapon,
+      shatterLevel: Math.min(3, weapon.shatterLevel + 1),
+      effectIntensity: Math.min(2.3, weapon.effectIntensity + 0.22),
+    }),
+  },
 };
 
 const ENEMY_PALETTE = [
@@ -307,11 +325,11 @@ function getDifficultyTier(elapsedSeconds: number) {
 }
 
 function getUpgradePressureMultiplier(collectedUpgradeCount: number) {
-  return Math.min(28, Math.pow(1.24, collectedUpgradeCount));
+  return Math.min(30, Math.pow(1.26, collectedUpgradeCount));
 }
 
 function getTimePressureMultiplier(difficultyTier: number) {
-  return Math.pow(1.22, difficultyTier);
+  return Math.pow(1.35, difficultyTier);
 }
 
 function getUpgradeSpeedPenalty(collectedUpgradeCount: number) {
@@ -335,6 +353,7 @@ function createInitialState(boardWidth: number, boardHeight: number): PrototypeG
     weapon: BASE_WEAPON,
     fireCooldown: 0.03,
     missileCooldown: 0.4,
+    shatterCooldown: 0.9,
     enemyCooldown: 2.1,
     upgradeCooldown: 13.5,
     nextBulletId: 1,
@@ -391,6 +410,9 @@ function createBulletVolleys(
       curveDirection: 0,
       launchDuration: 0,
       turnRate: 0,
+      maxAge: null,
+      burstAge: null,
+      fragmentCount: 0,
     });
     nextBulletId += 1;
   }
@@ -425,6 +447,10 @@ function createPrototypeEffect(
 
 function getMissileVolleyCooldown(weapon: PrototypeWeapon) {
   return Math.max(1.2, 2.55 - weapon.missileLevel * 0.26 - weapon.effectIntensity * 0.08);
+}
+
+function getShatterVolleyCooldown(weapon: PrototypeWeapon) {
+  return Math.max(1.45, 2.9 - weapon.shatterLevel * 0.34 - weapon.effectIntensity * 0.08);
 }
 
 function createMissileVolley(
@@ -467,6 +493,9 @@ function createMissileVolley(
       curveDirection,
       launchDuration: 0.34 + Math.random() * 0.06,
       turnRate: 0.36 + state.weapon.missileLevel * 0.07,
+      maxAge: null,
+      burstAge: null,
+      fragmentCount: 0,
     });
     launchPoints.push({
       x: originX,
@@ -483,6 +512,110 @@ function createMissileVolley(
     missileCooldown: getMissileVolleyCooldown(state.weapon),
     launchPoints,
   };
+}
+
+function createShatterVolley(
+  state: PrototypeGameState,
+  boardHeight: number
+): Pick<PrototypeGameState, 'bullets' | 'nextBulletId' | 'shatterCooldown'> & {
+  launchPoint: { x: number; y: number; color: string; size: number };
+} {
+  const bullets = [...state.bullets];
+  let nextBulletId = state.nextBulletId;
+  const muzzleY = boardHeight - PLAYER_HEIGHT - 20;
+  const aimTarget = findAimAssistTarget(state.enemies, state.playerX, muzzleY);
+  const defaultAngle = (Math.random() - 0.5) * 0.12;
+  let angle = defaultAngle;
+  if (aimTarget) {
+    const desiredAngle = Math.atan2(aimTarget.x - state.playerX, muzzleY - aimTarget.y);
+    const angleDelta = clamp(normalizeAngle(desiredAngle - defaultAngle), -0.22, 0.22);
+    angle += angleDelta * Math.min(0.18, state.weapon.aimAssist + 0.08);
+  }
+
+  const shellSpeed = Math.min(860, state.weapon.bulletSpeed * 0.74 + 70 + state.weapon.shatterLevel * 18);
+  const shellSize = state.weapon.bulletSize + 4 + state.weapon.shatterLevel * 0.45;
+  bullets.push({
+    id: `B${nextBulletId}`,
+    kind: 'shatterShell',
+    x: state.playerX,
+    y: muzzleY,
+    angle,
+    speed: shellSpeed,
+    vx: Math.sin(angle) * shellSpeed * 0.42,
+    vy: -Math.cos(angle) * shellSpeed,
+    damage: state.weapon.damage + 2 + state.weapon.shatterLevel,
+    size: shellSize,
+    pierce: 0,
+    age: 0,
+    phase: Math.random() * Math.PI * 2,
+    aimAssist: Math.min(0.18, state.weapon.aimAssist * 0.6 + 0.06),
+    color: '#FFE7C8',
+    glowColor: '#FFB36B',
+    trailScale: Math.max(1.25, state.weapon.trailScale + 0.22),
+    curveDirection: 0,
+    launchDuration: 0,
+    turnRate: 0,
+    maxAge: 0.72 + state.weapon.shatterLevel * 0.05,
+    burstAge: 0.34 - state.weapon.shatterLevel * 0.02,
+    fragmentCount: 4 + state.weapon.shatterLevel,
+  });
+  nextBulletId += 1;
+
+  return {
+    bullets,
+    nextBulletId,
+    shatterCooldown: getShatterVolleyCooldown(state.weapon),
+    launchPoint: {
+      x: state.playerX,
+      y: muzzleY,
+      color: '#FFD8A8',
+      size: 18 + state.weapon.effectIntensity * 5,
+    },
+  };
+}
+
+function burstShatterShell(shell: PrototypeBullet, nextState: PrototypeGameState) {
+  nextState.effects = trimEffects([
+    ...nextState.effects,
+    createPrototypeEffect('burst', shell.x, shell.y, shell.size * 1.5, shell.glowColor, nextState.nextEffectId),
+  ]);
+  nextState.nextEffectId += 1;
+
+  const fragmentCount = Math.max(4, shell.fragmentCount);
+  const centerAngle = clamp(shell.angle * 0.65, -0.45, 0.45);
+  const shardSpeed = Math.max(420, shell.speed * 0.82);
+  const shardDamage = Math.max(1, Math.round(shell.damage * 0.58));
+
+  for (let index = 0; index < fragmentCount; index += 1) {
+    const lane = index - (fragmentCount - 1) / 2;
+    const angle = centerAngle + lane * 0.24 + (Math.random() - 0.5) * 0.18;
+    nextState.bullets.push({
+      id: `B${nextState.nextBulletId}`,
+      kind: 'shatterShard',
+      x: shell.x,
+      y: shell.y,
+      angle,
+      speed: shardSpeed,
+      vx: Math.sin(angle) * shardSpeed * 0.42,
+      vy: -Math.cos(angle) * shardSpeed,
+      damage: shardDamage,
+      size: shell.size * 0.56,
+      pierce: 0,
+      age: 0,
+      phase: Math.random() * Math.PI * 2,
+      aimAssist: 0,
+      color: '#FFF1D8',
+      glowColor: '#FFB36B',
+      trailScale: 1.18,
+      curveDirection: 0,
+      launchDuration: 0,
+      turnRate: 0,
+      maxAge: 0.46 + Math.random() * 0.08,
+      burstAge: null,
+      fragmentCount: 0,
+    });
+    nextState.nextBulletId += 1;
+  }
 }
 
 function findAimAssistTarget(enemies: PrototypeEnemy[], originX: number, originY: number) {
@@ -658,7 +791,7 @@ function createEnemy(
   const maxHealth = Math.max(
     2,
     Math.round(
-      (18 + difficultyTier * 12 + size * 0.95 + Math.random() * 10) *
+      (4 + difficultyTier * 6 + size * 0.16 + Math.random() * 3) *
         healthMultiplier *
         timePressureMultiplier *
         upgradePressureMultiplier
@@ -783,6 +916,7 @@ function tickPrototypeState(
       .filter((effect) => effect.age < effect.duration),
     fireCooldown: previousState.fireCooldown - deltaSeconds,
     missileCooldown: previousState.missileCooldown - deltaSeconds,
+    shatterCooldown: previousState.shatterCooldown - deltaSeconds,
     enemyCooldown: previousState.enemyCooldown - deltaSeconds,
     upgradeCooldown:
       previousState.upgrades.length < 2 ? previousState.upgradeCooldown - deltaSeconds : previousState.upgradeCooldown,
@@ -853,6 +987,27 @@ function tickPrototypeState(
     }
   }
 
+  if (nextState.weapon.shatterLevel > 0) {
+    while (nextState.shatterCooldown <= 0) {
+      const shatterVolley = createShatterVolley(nextState, boardHeight);
+      nextState.bullets = shatterVolley.bullets;
+      nextState.nextBulletId = shatterVolley.nextBulletId;
+      nextState.shatterCooldown += shatterVolley.shatterCooldown;
+      nextState.effects = trimEffects([
+        ...nextState.effects,
+        createPrototypeEffect(
+          'muzzle',
+          shatterVolley.launchPoint.x,
+          shatterVolley.launchPoint.y,
+          shatterVolley.launchPoint.size,
+          shatterVolley.launchPoint.color,
+          nextState.nextEffectId
+        ),
+      ]);
+      nextState.nextEffectId += 1;
+    }
+  }
+
   while (nextState.enemyCooldown <= 0) {
     const spawnGroup = buildEnemySpawnDrafts(nextState, boardWidth);
     for (const draft of spawnGroup.drafts) {
@@ -877,6 +1032,13 @@ function tickPrototypeState(
 
   for (const bullet of nextState.bullets) {
     let activeBullet: PrototypeBullet | null = bullet;
+
+    if (bullet.maxAge !== null && bullet.age >= bullet.maxAge) {
+      if (bullet.kind === 'shatterShell') {
+        burstShatterShell(bullet, nextState);
+      }
+      continue;
+    }
 
     if (
       bullet.y < -bullet.size * 3 ||
@@ -910,6 +1072,12 @@ function tickPrototypeState(
         nextState.nextEffectId += 1;
       }
 
+      if (activeBullet.kind === 'shatterShell') {
+        burstShatterShell(activeBullet, nextState);
+        activeBullet = null;
+        continue;
+      }
+
       if (activeBullet.pierce > 0) {
         activeBullet = {
           ...activeBullet,
@@ -936,10 +1104,14 @@ function tickPrototypeState(
     if (hitTestUpgradePickup(nextState.playerX, boardHeight, upgrade)) {
       const definition = UPGRADE_DEFINITIONS[upgrade.type];
       const previousMissileLevel = nextState.weapon.missileLevel;
+      const previousShatterLevel = nextState.weapon.shatterLevel;
       nextState.weapon = definition.apply(nextState.weapon);
       nextState.collectedUpgradeCount += 1;
       if (nextState.weapon.missileLevel > previousMissileLevel) {
         nextState.missileCooldown = Math.min(nextState.missileCooldown, 0.24);
+      }
+      if (nextState.weapon.shatterLevel > previousShatterLevel) {
+        nextState.shatterCooldown = Math.min(nextState.shatterCooldown, 0.3);
       }
       nextState.pickupMessage = `${definition.label} upgrade secured`;
       nextState.pickupTimer = 1.8;
@@ -1005,6 +1177,8 @@ function BulletNode({ bullet }: { bullet: PrototypeBullet }) {
   const glowScale = 1 + Math.sin(bullet.age * 20 + bullet.phase) * 0.08;
   const angleDegrees = (bullet.angle * 180) / Math.PI;
   const isMissile = bullet.kind === 'missile';
+  const isShatterShell = bullet.kind === 'shatterShell';
+  const isShatterShard = bullet.kind === 'shatterShard';
 
   if (isMissile) {
     const missileTrailHeight = bullet.size * (3.3 + bullet.trailScale * (0.82 + Math.sin(bullet.age * 16 + bullet.phase) * 0.16));
@@ -1088,6 +1262,87 @@ function BulletNode({ bullet }: { bullet: PrototypeBullet }) {
             ]}
           />
         </View>
+      </View>
+    );
+  }
+
+  if (isShatterShell) {
+    const shellSize = bullet.size * 1.3;
+    return (
+      <View
+        pointerEvents="none"
+        style={[
+          shooterStyles.bulletShell,
+          {
+            left: bullet.x - shellSize,
+            top: bullet.y - shellSize * 1.25,
+            width: shellSize * 2,
+            height: shellSize * 2.4,
+            transform: [{ rotate: `${angleDegrees}deg` }],
+          },
+        ]}>
+        <View
+          style={[
+            shooterStyles.bulletGlow,
+            {
+              backgroundColor: bullet.glowColor,
+              opacity: 0.26,
+              transform: [{ scaleX: 1.14 }, { scaleY: 1.1 + glowScale * 0.1 }],
+            },
+          ]}
+        />
+        <View
+          style={[
+            shooterStyles.shatterShellCore,
+            {
+              width: shellSize,
+              height: shellSize,
+              backgroundColor: bullet.color,
+              borderColor: bullet.glowColor,
+              transform: [{ rotate: '45deg' }],
+            },
+          ]}
+        />
+      </View>
+    );
+  }
+
+  if (isShatterShard) {
+    const shardSize = bullet.size * 1.15;
+    return (
+      <View
+        pointerEvents="none"
+        style={[
+          shooterStyles.bulletShell,
+          {
+            left: bullet.x - shardSize,
+            top: bullet.y - shardSize * 1.2,
+            width: shardSize * 2,
+            height: shardSize * 2.2,
+            transform: [{ rotate: `${angleDegrees}deg` }],
+          },
+        ]}>
+        <View
+          style={[
+            shooterStyles.bulletGlow,
+            {
+              backgroundColor: bullet.glowColor,
+              opacity: 0.22,
+              transform: [{ scaleX: 1.06 }, { scaleY: 1 + glowScale * 0.08 }],
+            },
+          ]}
+        />
+        <View
+          style={[
+            shooterStyles.shatterShard,
+            {
+              borderBottomColor: bullet.color,
+              borderLeftWidth: shardSize * 0.42,
+              borderRightWidth: shardSize * 0.42,
+              borderBottomWidth: shardSize * 1.18,
+            },
+          ]}
+        />
       </View>
     );
   }
@@ -1738,6 +1993,21 @@ const shooterStyles = StyleSheet.create({
   bullet: {
     borderWidth: 1,
     alignSelf: 'center',
+  },
+  shatterShellCore: {
+    position: 'absolute',
+    alignSelf: 'center',
+    borderWidth: 1.5,
+    borderRadius: 6,
+  },
+  shatterShard: {
+    position: 'absolute',
+    alignSelf: 'center',
+    width: 0,
+    height: 0,
+    borderLeftColor: 'transparent',
+    borderRightColor: 'transparent',
+    backgroundColor: 'transparent',
   },
   missileExhaust: {
     position: 'absolute',
