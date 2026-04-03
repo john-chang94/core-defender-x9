@@ -392,7 +392,7 @@ function createInitialState(boardWidth: number, boardHeight: number): PrototypeG
     missileCooldown: 0.4,
     shatterCooldown: 0.9,
     enemyCooldown: 5.4,
-    upgradeCooldown: 11.5,
+    upgradeCooldown: 10.8,
     nextBulletId: 1,
     nextEnemyId: 1,
     nextUpgradeId: 1,
@@ -813,12 +813,22 @@ function getSpawnLanes(boardWidth: number) {
 
 function buildEnemySpawnDrafts(state: PrototypeGameState, boardWidth: number) {
   const difficultyTier = getDifficultyTier(state.elapsed);
+  const isCrowdClampTier = difficultyTier >= 13;
   const lanes = getSpawnLanes(boardWidth);
   const centerLane = Math.floor(Math.random() * lanes.length);
   const drafts: EnemySpawnDraft[] = [{ x: lanes[centerLane] }];
   let cooldown = Math.max(1.45, 4.15 - difficultyTier * 0.06 - Math.random() * 0.24);
+  const sideSpawnChance = isCrowdClampTier
+    ? Math.min(0.055, 0.014 + (difficultyTier - 13) * 0.004)
+    : Math.min(0.14, 0.02 + difficultyTier * 0.012);
+  const flankBurstChance = isCrowdClampTier
+    ? Math.min(0.025, 0.006 + (difficultyTier - 13) * 0.004)
+    : Math.min(0.08, 0.01 + difficultyTier * 0.006);
+  const eliteSpawnChance = isCrowdClampTier
+    ? Math.min(0.05, 0.01 + (difficultyTier - 13) * 0.004)
+    : Math.min(0.08, 0.01 + difficultyTier * 0.008);
 
-  if (difficultyTier >= 6 && Math.random() < Math.min(0.14, 0.02 + difficultyTier * 0.012)) {
+  if (difficultyTier >= 6 && Math.random() < sideSpawnChance) {
     const sideOffset = centerLane <= 1 ? 1 : centerLane >= lanes.length - 2 ? -1 : Math.random() < 0.5 ? -1 : 1;
     drafts.push({
       x: lanes[centerLane + sideOffset],
@@ -829,31 +839,42 @@ function buildEnemySpawnDrafts(state: PrototypeGameState, boardWidth: number) {
     cooldown += 0.42;
   }
 
-  if (difficultyTier >= 10 && Math.random() < Math.min(0.08, 0.01 + difficultyTier * 0.006)) {
+  if (difficultyTier >= 10 && Math.random() < flankBurstChance) {
     const leftLane = Math.max(0, centerLane - 1);
     const rightLane = Math.min(lanes.length - 1, centerLane + 1);
-    if (leftLane !== centerLane) {
-      drafts.push({
-        x: lanes[leftLane],
-        sizeMultiplier: 0.86,
-        healthMultiplier: 0.78,
-        speedMultiplier: 1.12,
-        shape: 'circle',
-      });
+    const flankDraft = {
+      sizeMultiplier: 0.86,
+      healthMultiplier: 0.78,
+      speedMultiplier: 1.12,
+      shape: 'circle' as const,
+    };
+
+    if (isCrowdClampTier) {
+      const flankLane = Math.random() < 0.5 ? leftLane : rightLane;
+      if (flankLane !== centerLane) {
+        drafts.push({
+          x: lanes[flankLane],
+          ...flankDraft,
+        });
+      }
+    } else {
+      if (leftLane !== centerLane) {
+        drafts.push({
+          x: lanes[leftLane],
+          ...flankDraft,
+        });
+      }
+      if (rightLane !== centerLane && rightLane !== leftLane) {
+        drafts.push({
+          x: lanes[rightLane],
+          ...flankDraft,
+        });
+      }
     }
-    if (rightLane !== centerLane && rightLane !== leftLane) {
-      drafts.push({
-        x: lanes[rightLane],
-        sizeMultiplier: 0.86,
-        healthMultiplier: 0.78,
-        speedMultiplier: 1.12,
-        shape: 'circle',
-      });
-    }
-    cooldown += 0.56;
+    cooldown += isCrowdClampTier ? 0.72 : 0.56;
   }
 
-  if (difficultyTier >= 8 && Math.random() < Math.min(0.08, 0.01 + difficultyTier * 0.008)) {
+  if (difficultyTier >= 8 && Math.random() < eliteSpawnChance) {
     const eliteIndex = Math.floor(Math.random() * drafts.length);
     drafts[eliteIndex] = {
       ...drafts[eliteIndex],
@@ -868,6 +889,10 @@ function buildEnemySpawnDrafts(state: PrototypeGameState, boardWidth: number) {
 
   if (difficultyTier >= 8) {
     cooldown += 0.2 + Math.min(0.18, (difficultyTier - 8) * 0.05);
+  }
+
+  if (isCrowdClampTier) {
+    cooldown += 0.8 + Math.min(0.5, (difficultyTier - 13) * 0.16);
   }
 
   return {
@@ -951,7 +976,7 @@ function createUpgrade(
   return {
     upgrades: [...state.upgrades, upgrade],
     nextUpgradeId: state.nextUpgradeId + 1,
-    upgradeCooldown: 15.5 + Math.random() * 5,
+    upgradeCooldown: 14.2 + Math.random() * 4.8,
   };
 }
 
