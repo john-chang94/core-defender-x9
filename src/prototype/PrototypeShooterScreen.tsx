@@ -360,7 +360,7 @@ function createInitialState(boardWidth: number, boardHeight: number): PrototypeG
     missileCooldown: 0.4,
     shatterCooldown: 0.9,
     enemyCooldown: 5.4,
-    upgradeCooldown: 13.5,
+    upgradeCooldown: 11.5,
     nextBulletId: 1,
     nextEnemyId: 1,
     nextUpgradeId: 1,
@@ -852,7 +852,7 @@ function createUpgrade(
   return {
     upgrades: [...state.upgrades, upgrade],
     nextUpgradeId: state.nextUpgradeId + 1,
-    upgradeCooldown: 18 + Math.random() * 6,
+    upgradeCooldown: 15.5 + Math.random() * 5,
   };
 }
 
