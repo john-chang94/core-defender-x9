@@ -27,6 +27,7 @@ import {
 import { DEFAULT_GAME_MAP_ID, listGameMaps, loadGameMap } from '@/src/game/maps';
 import { cellCenter } from '@/src/game/path';
 import type { GameEvent, GameMapId, GameMode, TargetMode, TowerTypeId } from '@/src/game/types';
+import { PrototypeShooterScreen } from '@/src/prototype/PrototypeShooterScreen';
 
 const BOARD_PADDING = 14;
 const TARGET_MODE_LABELS: Record<TargetMode, string> = {
@@ -44,6 +45,7 @@ const DEFAULT_MUSIC_VOLUME = 0.45;
 const VOLUME_STEP = 0.1;
 
 type SimulationSpeed = 1 | 2 | 3;
+type AppGameId = 'defender' | 'prototype';
 type SoundEffectKey =
   | 'hit'
   | 'place'
@@ -221,7 +223,7 @@ function mapGameEventToSound(event: GameEvent): SoundEffectKey | null {
   return null;
 }
 
-export default function DefenseScreen() {
+function DefenseScreen({ onSwitchGame }: { onSwitchGame: (game: AppGameId) => void }) {
   const [gameState, setGameState] = useState(() => createInitialGameState(DEFAULT_GAME_MAP_ID));
   const [selectedBuildTower, setSelectedBuildTower] = useState<TowerTypeId>('pulse');
   const [selectedPlacedTowerId, setSelectedPlacedTowerId] = useState<string | null>(null);
@@ -691,6 +693,11 @@ export default function DefenseScreen() {
     setIsMenuOpen(false);
   };
 
+  const handleSwitchGame = (game: AppGameId) => {
+    setIsMenuOpen(false);
+    onSwitchGame(game);
+  };
+
   return (
     <SafeAreaView style={styles.container}>
       <View style={styles.gameShell}>
@@ -795,6 +802,18 @@ export default function DefenseScreen() {
           {isMenuOpen ? (
             <View style={styles.menuPanel}>
               <Text style={styles.menuTitle}>Menu</Text>
+              <Text style={styles.menuLabel}>Game</Text>
+              <View style={styles.menuModeRow}>
+                <Pressable style={[styles.menuModeButton, styles.menuModeButtonActive]}>
+                  <Text style={styles.menuModeButtonText}>Defender</Text>
+                </Pressable>
+                <Pressable
+                  onPress={() => handleSwitchGame('prototype')}
+                  style={styles.menuModeButton}>
+                  <Text style={styles.menuModeButtonText}>Shooter Test</Text>
+                </Pressable>
+              </View>
+
               <Text style={styles.menuLabel}>Mode</Text>
               <View style={styles.menuModeRow}>
                 {(['classic', 'endless'] as GameMode[]).map((mode) => {
@@ -1005,6 +1024,16 @@ export default function DefenseScreen() {
       ) : null}
     </SafeAreaView>
   );
+}
+
+export default function HomeScreen() {
+  const [activeGame, setActiveGame] = useState<AppGameId>('defender');
+
+  if (activeGame === 'prototype') {
+    return <PrototypeShooterScreen onSwitchGame={setActiveGame} />;
+  }
+
+  return <DefenseScreen onSwitchGame={setActiveGame} />;
 }
 
 const styles = StyleSheet.create({
