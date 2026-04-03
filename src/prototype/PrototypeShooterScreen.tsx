@@ -132,6 +132,8 @@ const FIXED_STEP_SECONDS = 1 / 60;
 const MAX_CATCH_UP_STEPS = 5;
 const MAX_ACTIVE_EFFECTS = 28;
 const DIFFICULTY_TIER_DURATION_SECONDS = 15;
+const MAX_STRAIGHT_GUNS = 4;
+const MAX_MISSILE_LEVEL = 2;
 const OPENING_UPGRADE_TYPES: WeaponUpgradeType[] = ['rapid', 'twin', 'heavy'];
 const STANDARD_UPGRADE_TYPES: WeaponUpgradeType[] = [
   'rapid',
@@ -188,7 +190,7 @@ const UPGRADE_DEFINITIONS: Record<
     accent: '#EEE8FF',
     apply: (weapon) => ({
       ...weapon,
-      shotCount: Math.min(5, weapon.shotCount + 1),
+      shotCount: Math.min(MAX_STRAIGHT_GUNS, weapon.shotCount + 1),
       spread: Math.min(28, weapon.spread + 2),
     }),
   },
@@ -232,7 +234,7 @@ const UPGRADE_DEFINITIONS: Record<
     accent: '#FFF0DE',
     apply: (weapon) => ({
       ...weapon,
-      shotCount: Math.min(6, weapon.shotCount + 1),
+      shotCount: Math.min(MAX_STRAIGHT_GUNS, weapon.shotCount + 1),
       spread: Math.min(40, weapon.spread + 5),
       spreadJitter: Math.min(14, weapon.spreadJitter + 3.5),
       effectIntensity: Math.min(2.1, weapon.effectIntensity + 0.3),
@@ -263,7 +265,7 @@ const UPGRADE_DEFINITIONS: Record<
     accent: '#FFE2DB',
     apply: (weapon) => ({
       ...weapon,
-      missileLevel: Math.min(3, weapon.missileLevel + 1),
+      missileLevel: Math.min(MAX_MISSILE_LEVEL, weapon.missileLevel + 1),
       effectIntensity: Math.min(2.25, weapon.effectIntensity + 0.16),
     }),
   },
@@ -305,11 +307,15 @@ function getDifficultyTier(elapsedSeconds: number) {
 }
 
 function getUpgradePressureMultiplier(collectedUpgradeCount: number) {
-  return Math.min(6, Math.pow(1.2, collectedUpgradeCount));
+  return Math.min(28, Math.pow(1.24, collectedUpgradeCount));
+}
+
+function getTimePressureMultiplier(difficultyTier: number) {
+  return Math.pow(1.22, difficultyTier);
 }
 
 function getUpgradeSpeedPenalty(collectedUpgradeCount: number) {
-  return 1 - Math.min(0.14, collectedUpgradeCount * 0.012);
+  return 1 - Math.min(0.18, collectedUpgradeCount * 0.014);
 }
 
 function getPlayerShipTop(boardHeight: number) {
@@ -330,7 +336,7 @@ function createInitialState(boardWidth: number, boardHeight: number): PrototypeG
     fireCooldown: 0.03,
     missileCooldown: 0.4,
     enemyCooldown: 2.1,
-    upgradeCooldown: 8.4,
+    upgradeCooldown: 13.5,
     nextBulletId: 1,
     nextEnemyId: 1,
     nextUpgradeId: 1,
@@ -418,7 +424,7 @@ function createPrototypeEffect(
 }
 
 function getMissileVolleyCooldown(weapon: PrototypeWeapon) {
-  return Math.max(0.9, 2.3 - weapon.missileLevel * 0.38 - weapon.effectIntensity * 0.1);
+  return Math.max(1.2, 2.55 - weapon.missileLevel * 0.26 - weapon.effectIntensity * 0.08);
 }
 
 function createMissileVolley(
@@ -429,24 +435,17 @@ function createMissileVolley(
 } {
   const bullets = [...state.bullets];
   let nextBulletId = state.nextBulletId;
-  const salvoCount = 1 + state.weapon.missileLevel;
   const muzzleY = boardHeight - PLAYER_HEIGHT - 14;
-  const slotPatterns: Record<number, number[]> = {
-    1: [0],
-    2: [-1, 1],
-    3: [-1, 0, 1],
-    4: [-1.5, -0.5, 0.5, 1.5],
-  };
-  const slots = slotPatterns[salvoCount] ?? [-1, 1];
+  const slots = [-1, 1];
   const launchPoints: { x: number; y: number; color: string; size: number }[] = [];
-  const missileSpeed = Math.min(980, state.weapon.bulletSpeed * 0.84 + 120 + state.weapon.missileLevel * 35);
-  const missileDamage = state.weapon.damage + 2 + state.weapon.missileLevel;
+  const missileSpeed = Math.min(940, state.weapon.bulletSpeed * 0.8 + 105 + state.weapon.missileLevel * 28);
+  const missileDamage = state.weapon.damage + 2 + state.weapon.missileLevel * 2;
   const missileSize = state.weapon.bulletSize + 3.2;
 
   for (const slot of slots) {
-    const curveDirection = slot === 0 ? (Math.random() < 0.5 ? -1 : 1) : Math.sign(slot);
-    const originX = state.playerX + slot * 11;
-    const angle = curveDirection * (0.92 - Math.min(0.18, Math.abs(slot) * 0.08));
+    const curveDirection = Math.sign(slot);
+    const originX = state.playerX + slot * 18;
+    const angle = curveDirection * 1.42;
     bullets.push({
       id: `B${nextBulletId}`,
       kind: 'missile',
@@ -466,8 +465,8 @@ function createMissileVolley(
       glowColor: '#FF7B63',
       trailScale: Math.max(1.45, state.weapon.trailScale + 0.38),
       curveDirection,
-      launchDuration: 0.22 + Math.random() * 0.05,
-      turnRate: 0.42 + state.weapon.missileLevel * 0.08,
+      launchDuration: 0.34 + Math.random() * 0.06,
+      turnRate: 0.36 + state.weapon.missileLevel * 0.07,
     });
     launchPoints.push({
       x: originX,
@@ -517,15 +516,21 @@ function advanceBullet(
   if (bullet.kind === 'missile') {
     if (bullet.age < bullet.launchDuration) {
       const launchProgress = clamp(bullet.age / bullet.launchDuration, 0, 1);
-      const launchAngle = bullet.curveDirection * lerp(0.98, 0.22, launchProgress);
-      nextAngle = launchAngle;
-      nextSpeed = bullet.speed * lerp(0.34, 0.78, launchProgress);
+      if (launchProgress < 0.58) {
+        const outwardProgress = launchProgress / 0.58;
+        nextAngle = bullet.curveDirection * lerp(1.55, 2.9, outwardProgress);
+        nextSpeed = bullet.speed * lerp(0.18, 0.32, outwardProgress);
+      } else {
+        const curveProgress = (launchProgress - 0.58) / 0.42;
+        nextAngle = bullet.curveDirection * lerp(2.9, 0.08, curveProgress);
+        nextSpeed = bullet.speed * lerp(0.32, 0.74, curveProgress);
+      }
     } else {
       const target = findAimAssistTarget(enemies, bullet.x, bullet.y);
       if (target) {
         const desiredAngle = Math.atan2(target.x - bullet.x, bullet.y - target.y);
         const angleDelta = clamp(normalizeAngle(desiredAngle - bullet.angle), -0.34, 0.34);
-        nextAngle = bullet.angle + angleDelta * Math.min(0.34, bullet.turnRate * deltaSeconds * 5.8);
+        nextAngle = bullet.angle + angleDelta * Math.min(0.3, bullet.turnRate * deltaSeconds * 5.1);
       } else {
         const recoveryAngle = bullet.curveDirection * 0.02;
         const angleDelta = clamp(normalizeAngle(recoveryAngle - bullet.angle), -0.18, 0.18);
@@ -533,7 +538,7 @@ function advanceBullet(
       }
 
       const cruiseAge = bullet.age - bullet.launchDuration;
-      nextSpeed = bullet.speed * Math.min(1, 0.8 + cruiseAge * 1.6);
+      nextSpeed = bullet.speed * Math.min(1, 0.72 + cruiseAge * 1.25);
     }
   }
 
@@ -647,13 +652,19 @@ function createEnemy(
   const shapePool: EnemyShape[] =
     difficultyTier >= 7 ? ['circle', 'square', 'diamond'] : difficultyTier >= 4 ? ['circle', 'square'] : ['circle'];
   const shape = draft?.shape ?? randomChoice(shapePool);
+  const timePressureMultiplier = getTimePressureMultiplier(difficultyTier);
   const upgradePressureMultiplier = getUpgradePressureMultiplier(state.collectedUpgradeCount);
   const upgradeSpeedPenalty = getUpgradeSpeedPenalty(state.collectedUpgradeCount);
   const maxHealth = Math.max(
     2,
-    Math.round((2.5 + difficultyTier * 0.9 + size / 12 + Math.random() * 2.6) * healthMultiplier * upgradePressureMultiplier)
+    Math.round(
+      (18 + difficultyTier * 12 + size * 0.95 + Math.random() * 10) *
+        healthMultiplier *
+        timePressureMultiplier *
+        upgradePressureMultiplier
+    )
   );
-  const speed = (60 + difficultyTier * 5.8 + Math.random() * 22) * speedMultiplier * upgradeSpeedPenalty;
+  const speed = (54 + difficultyTier * 4.8 + Math.random() * 16) * speedMultiplier * upgradeSpeedPenalty;
   const spawnPadding = size / 2 + 12;
   const enemy: PrototypeEnemy = {
     id: `E${state.nextEnemyId}`,
@@ -701,7 +712,7 @@ function createUpgrade(
   return {
     upgrades: [...state.upgrades, upgrade],
     nextUpgradeId: state.nextUpgradeId + 1,
-    upgradeCooldown: 12 + Math.random() * 4.5,
+    upgradeCooldown: 18 + Math.random() * 6,
   };
 }
 
@@ -952,10 +963,6 @@ function tickPrototypeState(
   }
 
   return nextState;
-}
-
-function formatRate(weapon: PrototypeWeapon) {
-  return `${(1 / weapon.fireInterval).toFixed(1)}/s`;
 }
 
 function EnemyNode({ enemy }: { enemy: PrototypeEnemy }) {
@@ -1431,28 +1438,6 @@ export function PrototypeShooterScreen({ onSwitchGame }: PrototypeShooterScreenP
           <Text style={shooterStyles.hudLabel}>Pressure</Text>
           <Text style={shooterStyles.hudValue}>T{difficultyTier}</Text>
         </View>
-        <View style={[shooterStyles.hudChip, isPortraitViewport && shooterStyles.hudChipPortrait]}>
-          <Text style={shooterStyles.hudLabel}>Rate</Text>
-          <Text style={shooterStyles.hudValue}>{formatRate(gameState.weapon)}</Text>
-        </View>
-        <View style={[shooterStyles.hudChip, isPortraitViewport && shooterStyles.hudChipPortrait]}>
-          <Text style={shooterStyles.hudLabel}>Payload</Text>
-          <Text style={shooterStyles.hudValue}>
-            {gameState.weapon.damage} dmg · {gameState.weapon.shotCount} shot
-          </Text>
-        </View>
-      </View>
-
-      <View style={[shooterStyles.weaponRow, isPortraitViewport && shooterStyles.weaponRowPortrait]}>
-        <View style={shooterStyles.weaponPill}>
-          <Text style={shooterStyles.weaponPillText}>Pierce {gameState.weapon.pierce}</Text>
-        </View>
-        <View style={shooterStyles.weaponPill}>
-          <Text style={shooterStyles.weaponPillText}>Speed {Math.round(gameState.weapon.bulletSpeed)}</Text>
-        </View>
-        <View style={[shooterStyles.weaponPill, isPortraitViewport && shooterStyles.weaponPillWide]}>
-          <Text style={shooterStyles.weaponPillText}>Catch upgrades to evolve the gun</Text>
-        </View>
       </View>
 
       <View style={shooterStyles.boardFrame}>
@@ -1624,7 +1609,7 @@ const shooterStyles = StyleSheet.create({
     fontWeight: '700',
   },
   hudRow: {
-    marginTop: 8,
+    marginTop: 6,
     flexDirection: 'row',
     gap: 8,
   },
@@ -1638,7 +1623,7 @@ const shooterStyles = StyleSheet.create({
     borderColor: '#22314A',
     backgroundColor: '#0D1724',
     paddingHorizontal: 10,
-    paddingVertical: 6,
+    paddingVertical: 5,
   },
   hudChipPortrait: {
     flexBasis: '48%',
@@ -1682,7 +1667,7 @@ const shooterStyles = StyleSheet.create({
   },
   boardFrame: {
     flex: 1,
-    marginTop: 10,
+    marginTop: 6,
     position: 'relative',
   },
   board: {
