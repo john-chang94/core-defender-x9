@@ -156,17 +156,11 @@ const CHAOS_OVERDRIVE_DURATION_SECONDS = 6;
 const GUARANTEED_UPGRADE_REVEAL_TIER = 7;
 const GUARANTEED_UPGRADE_ACTIVE_CAP = 5;
 const OPENING_UPGRADE_TYPES: WeaponUpgradeType[] = ['rapid', 'twin', 'heavy'];
-const ALL_UPGRADE_TYPES: WeaponUpgradeType[] = [
+const REQUIRED_EARLY_UPGRADE_TYPES: WeaponUpgradeType[] = [
   'rapid',
   'twin',
   'heavy',
-  'pierce',
-  'focus',
-  'chaos',
   'flare',
-  'missile',
-  'shatter',
-  'bombard',
 ];
 const STANDARD_UPGRADE_TYPES: WeaponUpgradeType[] = [
   'rapid',
@@ -233,7 +227,7 @@ function getActiveWeapon(state: PrototypeGameState): PrototypeWeapon {
 }
 
 function getMissingGuaranteedUpgradeTypes(state: PrototypeGameState): WeaponUpgradeType[] {
-  return ALL_UPGRADE_TYPES.filter((type) => !state.revealedUpgradeTypes.includes(type));
+  return REQUIRED_EARLY_UPGRADE_TYPES.filter((type) => !state.revealedUpgradeTypes.includes(type));
 }
 
 const UPGRADE_DEFINITIONS: Record<
@@ -1026,7 +1020,11 @@ function createUpgrade(
   const difficultyTier = getDifficultyTier(state.elapsed);
   const missingGuaranteedTypes = getMissingGuaranteedUpgradeTypes(state);
   const shouldForceReveal = difficultyTier <= GUARANTEED_UPGRADE_REVEAL_TIER && missingGuaranteedTypes.length > 0;
-  const typePool = state.nextUpgradeId === 1 ? OPENING_UPGRADE_TYPES : STANDARD_UPGRADE_TYPES;
+  const standardTypePool =
+    difficultyTier >= GUARANTEED_UPGRADE_REVEAL_TIER
+      ? STANDARD_UPGRADE_TYPES
+      : STANDARD_UPGRADE_TYPES.filter((type) => type !== 'chaos');
+  const typePool = state.nextUpgradeId === 1 ? OPENING_UPGRADE_TYPES : standardTypePool;
   const type =
     shouldForceReveal && state.nextUpgradeId === 2 && missingGuaranteedTypes.includes('twin') && state.weapon.shotCount <= 1
       ? 'twin'
