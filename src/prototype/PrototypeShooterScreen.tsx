@@ -155,6 +155,7 @@ const MAX_MISSILE_LEVEL = 2;
 const CHAOS_OVERDRIVE_DURATION_SECONDS = 6;
 const GUARANTEED_UPGRADE_REVEAL_TIER = 7;
 const GUARANTEED_UPGRADE_ACTIVE_CAP = 5;
+const CHAOS_AND_BOMBARD_UNLOCK_TIER = 9;
 const OPENING_UPGRADE_TYPES: WeaponUpgradeType[] = ['rapid', 'twin', 'heavy'];
 const REQUIRED_EARLY_UPGRADE_TYPES: WeaponUpgradeType[] = [
   'rapid',
@@ -168,6 +169,7 @@ const STANDARD_UPGRADE_TYPES: WeaponUpgradeType[] = [
   'heavy',
   'pierce',
   'focus',
+  'chaos',
   'chaos',
   'chaos',
   'flare',
@@ -228,6 +230,31 @@ function getActiveWeapon(state: PrototypeGameState): PrototypeWeapon {
 
 function getMissingGuaranteedUpgradeTypes(state: PrototypeGameState): WeaponUpgradeType[] {
   return REQUIRED_EARLY_UPGRADE_TYPES.filter((type) => !state.revealedUpgradeTypes.includes(type));
+}
+
+function getStandardUpgradeTypePool(state: PrototypeGameState, difficultyTier: number): WeaponUpgradeType[] {
+  const basePool =
+    difficultyTier >= CHAOS_AND_BOMBARD_UNLOCK_TIER
+      ? [...STANDARD_UPGRADE_TYPES]
+      : STANDARD_UPGRADE_TYPES.filter((type) => type !== 'chaos' && type !== 'bombard');
+
+  if (difficultyTier < CHAOS_AND_BOMBARD_UNLOCK_TIER) {
+    return basePool;
+  }
+
+  const activeEnemyCount = state.enemies.length;
+  const chaosBonusWeight = Math.min(6, Math.floor(activeEnemyCount / 4));
+  const bombardBonusWeight = Math.min(8, Math.floor((activeEnemyCount + 1) / 3));
+
+  for (let index = 0; index < chaosBonusWeight; index += 1) {
+    basePool.push('chaos');
+  }
+
+  for (let index = 0; index < bombardBonusWeight; index += 1) {
+    basePool.push('bombard');
+  }
+
+  return basePool;
 }
 
 const UPGRADE_DEFINITIONS: Record<
@@ -1020,10 +1047,7 @@ function createUpgrade(
   const difficultyTier = getDifficultyTier(state.elapsed);
   const missingGuaranteedTypes = getMissingGuaranteedUpgradeTypes(state);
   const shouldForceReveal = difficultyTier <= GUARANTEED_UPGRADE_REVEAL_TIER && missingGuaranteedTypes.length > 0;
-  const standardTypePool =
-    difficultyTier >= GUARANTEED_UPGRADE_REVEAL_TIER
-      ? STANDARD_UPGRADE_TYPES
-      : STANDARD_UPGRADE_TYPES.filter((type) => type !== 'chaos');
+  const standardTypePool = getStandardUpgradeTypePool(state, difficultyTier);
   const typePool = state.nextUpgradeId === 1 ? OPENING_UPGRADE_TYPES : standardTypePool;
   const type =
     shouldForceReveal && state.nextUpgradeId === 2 && missingGuaranteedTypes.includes('twin') && state.weapon.shotCount <= 1
