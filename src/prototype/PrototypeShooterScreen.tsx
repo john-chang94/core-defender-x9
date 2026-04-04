@@ -1686,7 +1686,7 @@ function buildBossEscortDrafts(
       archetype: 'swarm',
       sizeMultiplier: 0.82,
       healthMultiplier: 0.74,
-      speedMultiplier: 1.18,
+      speedMultiplier: 0.9,
     },
   ];
 
@@ -1698,7 +1698,7 @@ function buildBossEscortDrafts(
       color: phase >= 3 ? '#FF8CBD' : '#7BEAFF',
       sizeMultiplier: phase >= 3 ? 0.92 : 0.84,
       healthMultiplier: phase >= 3 ? 0.88 : 0.72,
-      speedMultiplier: phase >= 3 ? 0.96 : 1.16,
+      speedMultiplier: phase >= 3 ? 0.72 : 0.84,
     });
   }
 
