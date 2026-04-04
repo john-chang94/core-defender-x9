@@ -1931,7 +1931,15 @@ function createEnemy(
   );
   const size = clamp(24 + difficultyTier * 0.6 + Math.sqrt(maxHealth) * 4.1, 30, MAX_ENEMY_RENDER_SIZE);
   const healthSpeedPenalty = getHealthSpeedPenalty(maxHealth);
-  const speed = (54 + difficultyTier * 4.8 + Math.random() * 16) * speedMultiplier * upgradeSpeedPenalty * healthSpeedPenalty;
+  const isEarlyMidTankPressureTier = difficultyTier >= 9 && difficultyTier <= 24;
+  const tankierEnemySpeedBoost =
+    archetype !== 'boss' && isEarlyMidTankPressureTier && maxHealth >= 180 && maxHealth <= 650 ? 1.12 : 1;
+  const speed =
+    (54 + difficultyTier * 4.8 + Math.random() * 16) *
+    speedMultiplier *
+    upgradeSpeedPenalty *
+    healthSpeedPenalty *
+    tankierEnemySpeedBoost;
   const spawnPadding = size / 2 + 12;
   const enemy: PrototypeEnemy = {
     id: `E${state.nextEnemyId}`,
