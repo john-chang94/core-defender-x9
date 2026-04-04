@@ -281,6 +281,38 @@ const BUILD_PROTOCOL_DEFINITIONS: Record<
   },
 };
 
+function applyDoctrineAdjustedUpgrade(
+  state: PrototypeGameState,
+  type: WeaponUpgradeType
+): { weapon: PrototypeWeapon; pickupMessage: string } {
+  const definition = UPGRADE_DEFINITIONS[type];
+
+  if (type === 'twin' && state.buildProtocol === 'railFocus') {
+    if (state.weapon.shotCount < 2) {
+      return {
+        weapon: definition.apply(state.weapon),
+        pickupMessage: 'Second rail synced',
+      };
+    }
+
+    return {
+      weapon: {
+        ...state.weapon,
+        damage: Math.min(14, state.weapon.damage + 1),
+        pierce: Math.min(5, state.weapon.pierce + 1),
+        bulletSpeed: Math.min(1180, state.weapon.bulletSpeed + 40),
+        effectIntensity: Math.min(2.15, state.weapon.effectIntensity + 0.08),
+      },
+      pickupMessage: 'Twin compressed into rail payload',
+    };
+  }
+
+  return {
+    weapon: definition.apply(state.weapon),
+    pickupMessage: `${definition.label} upgrade secured`,
+  };
+}
+
 function getChaosOverdriveWeapon(weapon: PrototypeWeapon): PrototypeWeapon {
   return {
     ...weapon,
@@ -365,15 +397,26 @@ function getBuildProtocolOptionDescription(protocol: BuildProtocolKey, nextLevel
   return `${prefix} ${definition.summary}`;
 }
 
+function getProtocolRamp(level: number) {
+  const normalizedLevel = Math.max(1, level);
+  const linear = normalizedLevel - 1;
+  return {
+    linear,
+    curved: Math.sqrt(linear),
+    logarithmic: Math.log2(normalizedLevel + 1),
+  };
+}
+
 function getBuildProtocolSupport(state: PrototypeGameState) {
   const level = state.buildProtocolLevel;
+  const ramp = getProtocolRamp(level);
   switch (state.buildProtocol) {
     case 'missileCommand':
       return {
         missileCountFloor: level >= 2 ? 4 : 2,
-        missileDamageBonus: 1 + level * 2,
-        missileCooldownMultiplier: 0.84 - level * 0.06,
-        missileTurnBonus: 0.08 * level,
+        missileDamageBonus: 1 + Math.round(ramp.linear * 1.4 + ramp.curved * 1.8),
+        missileCooldownMultiplier: Math.max(0.56, 0.84 - ramp.linear * 0.035),
+        missileTurnBonus: Math.min(0.34, 0.08 + ramp.linear * 0.026),
         shatterFragmentBonus: 0,
         shatterDamageBonus: 0,
         shatterCooldownMultiplier: 1,
@@ -384,9 +427,9 @@ function getBuildProtocolSupport(state: PrototypeGameState) {
         missileDamageBonus: 0,
         missileCooldownMultiplier: 1,
         missileTurnBonus: 0,
-        shatterFragmentBonus: 1 + level,
-        shatterDamageBonus: 1 + level,
-        shatterCooldownMultiplier: 0.9 - level * 0.07,
+        shatterFragmentBonus: Math.min(5, 1 + Math.floor(ramp.linear / 2)),
+        shatterDamageBonus: 1 + Math.round(ramp.linear * 1.2 + ramp.curved * 1.4),
+        shatterCooldownMultiplier: Math.max(0.58, 0.9 - ramp.linear * 0.05),
       };
     default:
       return {
@@ -403,51 +446,53 @@ function getBuildProtocolSupport(state: PrototypeGameState) {
 
 function getBuildProtocolWeapon(state: PrototypeGameState, weapon: PrototypeWeapon): PrototypeWeapon {
   const level = state.buildProtocolLevel;
+  const ramp = getProtocolRamp(level);
   switch (state.buildProtocol) {
     case 'railFocus': {
       const suppressedShots = Math.max(0, weapon.shotCount - 2);
       return {
         ...weapon,
-        damage: Math.min(20, weapon.damage + 2 + level + suppressedShots),
-        fireInterval: Math.max(0.038, weapon.fireInterval * (0.96 - level * 0.04)),
+        damage: weapon.damage + 2 + suppressedShots + Math.round(ramp.linear * 0.8 + ramp.curved * 1.2),
+        fireInterval: Math.max(0.032, weapon.fireInterval * Math.pow(0.965, ramp.linear)),
         shotCount: Math.min(2, Math.max(1, weapon.shotCount)),
-        pierce: Math.min(7, weapon.pierce + 1 + Math.floor(level / 2)),
-        bulletSize: Math.min(15, weapon.bulletSize + level * 0.28),
-        bulletSpeed: Math.min(1500, weapon.bulletSpeed + level * 80),
+        pierce: Math.min(8, weapon.pierce + 1 + Math.floor((ramp.linear + 1) / 2)),
+        bulletSize: Math.min(15.5, weapon.bulletSize + 0.28 + ramp.linear * 0.18),
+        bulletSpeed: Math.min(1750, weapon.bulletSpeed + 80 + ramp.linear * 28 + ramp.curved * 18),
         spread: Math.max(9, weapon.spread * 0.58),
-        aimAssist: Math.min(0.55, weapon.aimAssist + level * 0.08),
+        aimAssist: Math.min(0.58, weapon.aimAssist + 0.08 + ramp.linear * 0.025),
         spreadJitter: weapon.spreadJitter * 0.45,
-        effectIntensity: Math.min(2.45, weapon.effectIntensity + level * 0.12),
+        effectIntensity: Math.min(2.8, weapon.effectIntensity + 0.12 + ramp.linear * 0.05),
         bulletColor: '#FFE3F8',
         glowColor: '#FF86E1',
         muzzleColor: '#FFF0FA',
-        trailScale: Math.min(2.15, weapon.trailScale + level * 0.12),
+        trailScale: Math.min(2.3, weapon.trailScale + 0.12 + ramp.linear * 0.04),
       };
     }
     case 'novaBloom':
       return {
         ...weapon,
-        damage: Math.min(18, weapon.damage + 1 + Math.floor(level / 2)),
-        fireInterval: Math.max(0.04, weapon.fireInterval * 0.9),
-        shotCount: Math.min(MAX_STRAIGHT_GUNS, weapon.shotCount + level),
-        bulletSize: Math.min(16, weapon.bulletSize + level * 0.8),
-        spread: Math.min(54, weapon.spread + 8 + level * 4),
-        aimAssist: Math.min(0.28, weapon.aimAssist + level * 0.03),
-        spreadJitter: Math.min(24, weapon.spreadJitter + 5 + level * 2.4),
-        effectIntensity: Math.min(2.7, weapon.effectIntensity + level * 0.24),
+        damage: weapon.damage + 1 + Math.round(ramp.linear * 0.55 + ramp.curved * 0.8),
+        fireInterval: Math.max(0.034, weapon.fireInterval * Math.pow(0.97, ramp.linear)),
+        shotCount: Math.min(MAX_STRAIGHT_GUNS, weapon.shotCount + Math.min(ramp.linear + 1, MAX_STRAIGHT_GUNS)),
+        bulletSize: Math.min(17.5, weapon.bulletSize + 0.8 + ramp.linear * 0.22),
+        spread: Math.min(60, weapon.spread + 8 + ramp.linear * 3.2),
+        aimAssist: Math.min(0.32, weapon.aimAssist + 0.03 + ramp.linear * 0.012),
+        spreadJitter: Math.min(26, weapon.spreadJitter + 5 + ramp.linear * 1.7),
+        effectIntensity: Math.min(2.95, weapon.effectIntensity + 0.24 + ramp.linear * 0.08),
         bulletColor: '#FFF2C3',
         glowColor: '#FFAA52',
         muzzleColor: '#FFF3BA',
-        trailScale: Math.min(2.3, weapon.trailScale + level * 0.16),
-        pierce: Math.min(5, weapon.pierce + (level >= 3 ? 1 : 0)),
+        trailScale: Math.min(2.45, weapon.trailScale + 0.16 + ramp.linear * 0.05),
+        pierce: Math.min(6, weapon.pierce + (level >= 3 ? 1 : 0) + (level >= 8 ? 1 : 0)),
       };
     case 'missileCommand':
       return {
         ...weapon,
-        fireInterval: Math.max(0.042, weapon.fireInterval * (0.99 - level * 0.02)),
-        aimAssist: Math.min(0.44, weapon.aimAssist + level * 0.04),
-        effectIntensity: Math.min(2.5, weapon.effectIntensity + level * 0.12),
-        trailScale: Math.min(2.1, weapon.trailScale + level * 0.08),
+        damage: weapon.damage + Math.round(ramp.linear * 0.35 + ramp.curved * 0.45),
+        fireInterval: Math.max(0.038, weapon.fireInterval * Math.pow(0.985, ramp.linear)),
+        aimAssist: Math.min(0.5, weapon.aimAssist + 0.04 + ramp.linear * 0.02),
+        effectIntensity: Math.min(2.8, weapon.effectIntensity + 0.12 + ramp.linear * 0.05),
+        trailScale: Math.min(2.3, weapon.trailScale + 0.08 + ramp.linear * 0.04),
         missileLevel: Math.max(1, weapon.missileLevel),
         bulletColor: '#FFECE6',
         glowColor: '#FF7B63',
@@ -456,10 +501,11 @@ function getBuildProtocolWeapon(state: PrototypeGameState, weapon: PrototypeWeap
     case 'fractureCore':
       return {
         ...weapon,
-        damage: Math.min(18, weapon.damage + 1 + level),
-        bulletSize: Math.min(15, weapon.bulletSize + level * 0.42),
-        effectIntensity: Math.min(2.55, weapon.effectIntensity + level * 0.18),
-        trailScale: Math.min(2.1, weapon.trailScale + level * 0.1),
+        damage: weapon.damage + 1 + Math.round(ramp.linear * 0.9 + ramp.curved * 1.1),
+        fireInterval: Math.max(0.04, weapon.fireInterval * Math.pow(0.982, ramp.linear)),
+        bulletSize: Math.min(15.8, weapon.bulletSize + 0.42 + ramp.linear * 0.12),
+        effectIntensity: Math.min(2.85, weapon.effectIntensity + 0.18 + ramp.linear * 0.06),
+        trailScale: Math.min(2.25, weapon.trailScale + 0.1 + ramp.linear * 0.04),
         shatterLevel: Math.max(1, weapon.shatterLevel),
         bulletColor: '#FFF0D9',
         glowColor: '#FFB36B',
@@ -2554,7 +2600,8 @@ function tickPrototypeState(
       } else {
         const previousMissileLevel = nextState.weapon.missileLevel;
         const previousShatterLevel = nextState.weapon.shatterLevel;
-        nextState.weapon = definition.apply(nextState.weapon);
+        const upgradeResult = applyDoctrineAdjustedUpgrade(nextState, upgrade.type);
+        nextState.weapon = upgradeResult.weapon;
         nextState.collectedUpgradeCount += 1;
         if (nextState.weapon.missileLevel > previousMissileLevel) {
           nextState.missileCooldown = Math.min(nextState.missileCooldown, 0.24);
@@ -2562,7 +2609,7 @@ function tickPrototypeState(
         if (nextState.weapon.shatterLevel > previousShatterLevel) {
           nextState.shatterCooldown = Math.min(nextState.shatterCooldown, 0.3);
         }
-        nextState.pickupMessage = `${definition.label} upgrade secured`;
+        nextState.pickupMessage = upgradeResult.pickupMessage;
         nextState.score += 25;
         nextState.effects = trimEffects([
           ...nextState.effects,
@@ -2677,7 +2724,7 @@ function EnemyNode({ enemy }: { enemy: PrototypeEnemy }) {
 }
 
 function BulletNode({ bullet }: { bullet: PrototypeBullet }) {
-  const trailHeight = bullet.size * (2.8 + bullet.trailScale * (0.45 + Math.sin(bullet.age * 18 + bullet.phase) * 0.12));
+  const trailHeight = bullet.size * (2.5 + bullet.trailScale * (0.38 + Math.sin(bullet.age * 18 + bullet.phase) * 0.1));
   const glowScale = 1 + Math.sin(bullet.age * 20 + bullet.phase) * 0.08;
   const angleDegrees = (bullet.angle * 180) / Math.PI;
   const isMissile = bullet.kind === 'missile';
@@ -2685,7 +2732,7 @@ function BulletNode({ bullet }: { bullet: PrototypeBullet }) {
   const isShatterShard = bullet.kind === 'shatterShard';
 
   if (isMissile) {
-    const missileTrailHeight = bullet.size * (3.3 + bullet.trailScale * (0.82 + Math.sin(bullet.age * 16 + bullet.phase) * 0.16));
+    const missileTrailHeight = bullet.size * (3 + bullet.trailScale * (0.72 + Math.sin(bullet.age * 16 + bullet.phase) * 0.14));
     const bodyHeight = bullet.size * 1.75;
     const shellWidth = bullet.size * 2.4;
 
@@ -3405,11 +3452,8 @@ export function PrototypeShooterScreen({ onSwitchGame }: PrototypeShooterScreenP
       }
 
       const isMaintainingProtocol = previousState.buildProtocol === protocol;
-      const nextLevel = isMaintainingProtocol ? Math.min(3, previousState.buildProtocolLevel + 1) : 1;
-      const nextMessage =
-        isMaintainingProtocol && previousState.buildProtocolLevel >= 3
-          ? `${definition.label} stabilized`
-          : `${definition.label} synced ${getBuildProtocolLevelLabel(nextLevel)}`;
+      const nextLevel = isMaintainingProtocol ? previousState.buildProtocolLevel + 1 : 1;
+      const nextMessage = `${definition.label} synced ${getBuildProtocolLevelLabel(nextLevel)}`;
 
       return {
         ...previousState,
@@ -3597,7 +3641,7 @@ export function PrototypeShooterScreen({ onSwitchGame }: PrototypeShooterScreenP
               {gameState.pendingArmoryChoice.options.map((protocol) => {
                 const definition = BUILD_PROTOCOL_DEFINITIONS[protocol];
                 const isCurrentProtocol = gameState.buildProtocol === protocol;
-                const nextLevel = isCurrentProtocol ? Math.min(3, gameState.buildProtocolLevel + 1) : 1;
+                const nextLevel = isCurrentProtocol ? gameState.buildProtocolLevel + 1 : 1;
                 return (
                   <Pressable
                     key={protocol}
