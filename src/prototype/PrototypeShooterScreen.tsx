@@ -166,6 +166,10 @@ type PrototypeGameState = {
   buildProtocol: BuildProtocolKey | null;
   buildProtocolLevel: number;
   pendingArmoryChoice: PrototypeArmoryChoice | null;
+  queuedArmoryChoice: PrototypeArmoryChoice | null;
+  armoryTransitionTimer: number;
+  armoryTransitionLabel: string | null;
+  armoryTransitionColor: string | null;
   ultimateCharge: number;
 };
 
@@ -186,6 +190,7 @@ const MAX_ENEMY_RENDER_SIZE = 92;
 const MAX_ULTIMATE_CHARGE = 100;
 const DIFFICULTY_TIER_DURATION_SECONDS = 15;
 const BOSS_TIER_INTERVAL = 5;
+const BOSS_CLEAR_TRANSITION_SECONDS = 1.45;
 const TIER_EVENT_START_DISPLAY_TIER = 6;
 const MAX_STRAIGHT_GUNS = 4;
 const MAX_MISSILE_LEVEL = 2;
@@ -210,12 +215,14 @@ const STANDARD_UPGRADE_TYPES: WeaponUpgradeType[] = [
   'chaos',
   'chaos',
   'chaos',
+  'chaos',
   'flare',
   'flare',
   'missile',
   'missile',
   'shatter',
   'shatter',
+  'bombard',
   'bombard',
   'bombard',
 ];
@@ -317,8 +324,8 @@ function getStandardUpgradeTypePool(state: PrototypeGameState, difficultyTier: n
   }
 
   const activeEnemyCount = state.enemies.length;
-  const chaosBonusWeight = Math.min(10, Math.floor(activeEnemyCount / 3));
-  const bombardBonusWeight = Math.min(4, Math.floor(activeEnemyCount / 6));
+  const chaosBonusWeight = Math.min(16, Math.floor(activeEnemyCount / 2));
+  const bombardBonusWeight = Math.min(8, Math.floor(activeEnemyCount / 4));
 
   for (let index = 0; index < chaosBonusWeight; index += 1) {
     basePool.push('chaos');
@@ -798,16 +805,13 @@ function formatCompactHealth(value: number) {
   if (roundedValue < 1000) {
     return `${roundedValue}`;
   }
-  if (roundedValue < 10000) {
-    return `${(roundedValue / 1000).toFixed(1).replace(/\.0$/, '')}K`;
-  }
-  if (roundedValue < 999500) {
-    return `${Math.round(roundedValue / 1000)}K`;
+  if (roundedValue < 999950) {
+    return `${(roundedValue / 1000).toFixed(1)}k`;
   }
   if (roundedValue < 10000000) {
-    return `${(roundedValue / 1000000).toFixed(1).replace(/\.0$/, '')}M`;
+    return `${(roundedValue / 1000000).toFixed(1)}M`;
   }
-  return `${Math.round(roundedValue / 1000000)}M`;
+  return `${(roundedValue / 1000000).toFixed(1)}M`;
 }
 
 function getUpgradePressureMultiplier(collectedUpgradeCount: number) {
@@ -1035,6 +1039,10 @@ function createInitialState(boardWidth: number, boardHeight: number): PrototypeG
     buildProtocol: null,
     buildProtocolLevel: 0,
     pendingArmoryChoice: null,
+    queuedArmoryChoice: null,
+    armoryTransitionTimer: 0,
+    armoryTransitionLabel: null,
+    armoryTransitionColor: null,
     ultimateCharge: 0,
   };
 }
@@ -1118,6 +1126,18 @@ function createPrototypeEffect(
     duration,
     color,
   };
+}
+
+function queueEffect(
+  state: PrototypeGameState,
+  kind: PrototypeEffectKind,
+  x: number,
+  y: number,
+  size: number,
+  color: string
+) {
+  state.effects = trimEffects([...state.effects, createPrototypeEffect(kind, x, y, size, color, state.nextEffectId)]);
+  state.nextEffectId += 1;
 }
 
 function getBombardDamage(state: PrototypeGameState, enemy: PrototypeEnemy) {
@@ -2024,16 +2044,26 @@ function resolveEnemyDefeat(
   if (enemy.archetype === 'boss' && enemy.bossVariant) {
     const sourceDisplayTier = nextState.activeEncounter?.displayTier ?? getDisplayTier(nextState.elapsed);
     const rewardEffectSize = enemy.size * 1.62;
-    nextState.effects = trimEffects([
-      ...nextState.effects,
-      createPrototypeEffect('pickup', enemy.x, enemy.y, rewardEffectSize, enemy.color, nextState.nextEffectId),
-    ]);
-    nextState.nextEffectId += 1;
+    const transitionColor = enemy.bossVariant === 'bulwark' ? '#FFE3A0' : '#FFC1E5';
+    queueEffect(nextState, 'pickup', enemy.x, enemy.y, rewardEffectSize, enemy.color);
+    queueEffect(nextState, 'ultimate', enemy.x, enemy.y, enemy.size * 2.45, transitionColor);
+    for (const lingeringEnemy of nextState.enemies) {
+      if (lingeringEnemy.id === enemy.id || lingeringEnemy.health <= 0) {
+        continue;
+      }
+      lingeringEnemy.health = 0;
+      lingeringEnemy.flash = 1;
+      createEnemyDefeatEffect(nextState, lingeringEnemy, transitionColor);
+    }
     nextState.activeEncounter = null;
     nextState.bossEscortCooldown = 2.8;
-    nextState.pickupMessage = `${getBossLabel(enemy.bossVariant)} destroyed`;
-    nextState.pickupTimer = 2.8;
-    nextState.pendingArmoryChoice = createArmoryChoice(nextState, sourceDisplayTier);
+    nextState.enemyCooldown = Math.max(nextState.enemyCooldown, BOSS_CLEAR_TRANSITION_SECONDS + 1.1);
+    nextState.pickupMessage = `${getBossLabel(enemy.bossVariant)} neutralized`;
+    nextState.pickupTimer = BOSS_CLEAR_TRANSITION_SECONDS;
+    nextState.queuedArmoryChoice = createArmoryChoice(nextState, sourceDisplayTier);
+    nextState.armoryTransitionTimer = BOSS_CLEAR_TRANSITION_SECONDS;
+    nextState.armoryTransitionLabel = `${getBossLabel(enemy.bossVariant)} neutralized`;
+    nextState.armoryTransitionColor = transitionColor;
   }
 
   return spawnedEnemies;
@@ -2090,11 +2120,8 @@ function triggerUltimate(state: PrototypeGameState, boardWidth: number, boardHei
   state.ultimateCharge = 0;
   state.pickupMessage = `${definition.label} engaged`;
   state.pickupTimer = 2.2;
-  state.effects = trimEffects([
-    ...state.effects,
-    createPrototypeEffect('ultimate', state.playerX, shipEffectY, Math.max(boardWidth, boardHeight) * 0.78, definition.color, state.nextEffectId),
-  ]);
-  state.nextEffectId += 1;
+  queueEffect(state, 'ultimate', state.playerX, shipEffectY, Math.max(boardWidth, boardHeight) * 0.84, definition.color);
+  queueEffect(state, 'pickup', state.playerX, shipEffectY, 88 + protocolLevel * 10, definition.color);
 
   const applyUltimateDamage = (enemy: PrototypeEnemy, damage: number, effectColor: string) => {
     const previousEnemyHealth = enemy.health;
@@ -2107,22 +2134,15 @@ function triggerUltimate(state: PrototypeGameState, boardWidth: number, boardHei
       return;
     }
 
-    state.effects = trimEffects([
-      ...state.effects,
-      createPrototypeEffect('burst', enemy.x, enemy.y, enemy.size * 1.02, effectColor, state.nextEffectId),
-    ]);
-    state.nextEffectId += 1;
+    queueEffect(state, 'burst', enemy.x, enemy.y, enemy.size * 1.02, effectColor);
   };
 
   switch (state.buildProtocol) {
     case 'railFocus': {
       const targetCount = Math.min(6, 4 + protocolLevel);
       for (const enemy of threatTargets.slice(0, targetCount)) {
-        state.effects = trimEffects([
-          ...state.effects,
-          createPrototypeEffect('bombard', enemy.x, boardHeight * 0.48, boardHeight * 0.92, definition.color, state.nextEffectId),
-        ]);
-        state.nextEffectId += 1;
+        queueEffect(state, 'bombard', enemy.x, boardHeight * 0.48, boardHeight * 0.92, definition.color);
+        queueEffect(state, 'ultimate', enemy.x, enemy.y, enemy.size * 1.26, '#FFD4F7');
         applyUltimateDamage(
           enemy,
           Math.max(96 + weapon.damage * 16 + protocolLevel * 24, enemy.maxHealth * (0.26 + protocolLevel * 0.06)),
@@ -2132,6 +2152,18 @@ function triggerUltimate(state: PrototypeGameState, boardWidth: number, boardHei
       break;
     }
     case 'novaBloom': {
+      const bloomBursts = 5 + protocolLevel * 2;
+      for (let index = 0; index < bloomBursts; index += 1) {
+        const progress = (index + 0.5) / bloomBursts;
+        const angle = progress * Math.PI * 2;
+        const radius = lerp(boardWidth * 0.12, boardWidth * 0.42, (index % 3) / 2);
+        const bloomX = clamp(state.playerX + Math.cos(angle) * radius, 42, boardWidth - 42);
+        const bloomY = clamp(boardHeight * 0.46 + Math.sin(angle) * boardHeight * 0.2, 58, boardHeight - 84);
+        queueEffect(state, 'ultimate', bloomX, bloomY, Math.max(boardWidth, boardHeight) * (0.18 + (index % 2) * 0.05), '#FFD789');
+        if (index % 2 === 0) {
+          queueEffect(state, 'pickup', bloomX, bloomY, 44 + protocolLevel * 6, '#FFF0B2');
+        }
+      }
       for (const enemy of activeEnemies) {
         const proximityToBottom = clamp(enemy.y / Math.max(1, boardHeight), 0.12, 1);
         const intensity = 0.74 + proximityToBottom * 0.5;
@@ -2145,12 +2177,14 @@ function triggerUltimate(state: PrototypeGameState, boardWidth: number, boardHei
     }
     case 'missileCommand': {
       const targetCount = Math.min(8, 5 + protocolLevel);
+      const salvoCount = Math.min(4, 2 + protocolLevel);
+      for (let index = 0; index < salvoCount; index += 1) {
+        const strikeX = ((index + 0.5) / salvoCount) * boardWidth;
+        queueEffect(state, 'bombard', strikeX, boardHeight * 0.5, boardHeight * 0.98, definition.color);
+      }
       for (const enemy of threatTargets.slice(0, targetCount)) {
-        state.effects = trimEffects([
-          ...state.effects,
-          createPrototypeEffect('bombard', enemy.x, boardHeight * 0.48, boardHeight * 0.96, definition.color, state.nextEffectId),
-        ]);
-        state.nextEffectId += 1;
+        queueEffect(state, 'bombard', enemy.x, boardHeight * 0.48, boardHeight * 0.96, definition.color);
+        queueEffect(state, 'pickup', enemy.x, enemy.y, enemy.size * 0.8, '#FFE4D8');
         applyUltimateDamage(
           enemy,
           Math.max(74 + weapon.damage * 13 + protocolLevel * 18, enemy.maxHealth * (0.22 + protocolLevel * 0.05)),
@@ -2161,6 +2195,9 @@ function triggerUltimate(state: PrototypeGameState, boardWidth: number, boardHei
     }
     case 'fractureCore': {
       const focusedTargets = threatTargets.slice(0, Math.min(4, 2 + protocolLevel));
+      for (const enemy of focusedTargets) {
+        queueEffect(state, 'ultimate', enemy.x, enemy.y, enemy.size * 1.38, '#FFE4BE');
+      }
       for (const enemy of activeEnemies) {
         const isFocused = focusedTargets.includes(enemy);
         const baseDamage = Math.max(34 + weapon.damage * 10 + protocolLevel * 10, enemy.maxHealth * (0.14 + protocolLevel * 0.03));
@@ -2172,6 +2209,8 @@ function triggerUltimate(state: PrototypeGameState, boardWidth: number, boardHei
       break;
     }
     default: {
+      queueEffect(state, 'ultimate', boardWidth * 0.28, boardHeight * 0.44, Math.max(boardWidth, boardHeight) * 0.22, '#C5F3FF');
+      queueEffect(state, 'ultimate', boardWidth * 0.72, boardHeight * 0.44, Math.max(boardWidth, boardHeight) * 0.22, '#C5F3FF');
       for (const enemy of activeEnemies) {
         applyUltimateDamage(
           enemy,
@@ -2198,6 +2237,7 @@ function tickPrototypeState(
   const shouldForceUpgradeRevealFromPreviousState =
     getDifficultyTier(previousState.elapsed) <= GUARANTEED_UPGRADE_REVEAL_TIER &&
     getMissingGuaranteedUpgradeTypes(previousState).length > 0;
+  const wasArmoryTransitionActive = previousState.armoryTransitionTimer > 0;
   const nextState: PrototypeGameState = {
     ...previousState,
     elapsed: previousState.elapsed + deltaSeconds,
@@ -2224,6 +2264,7 @@ function tickPrototypeState(
     chaosTimer: Math.max(0, previousState.chaosTimer - deltaSeconds),
     enemyCooldown: previousState.enemyCooldown - deltaSeconds,
     bossEscortCooldown: previousState.bossEscortCooldown - deltaSeconds,
+    armoryTransitionTimer: Math.max(0, previousState.armoryTransitionTimer - deltaSeconds),
     upgradeCooldown:
       shouldForceUpgradeRevealFromPreviousState || previousState.upgrades.length < 2
         ? previousState.upgradeCooldown - deltaSeconds
@@ -2233,6 +2274,20 @@ function tickPrototypeState(
 
   if (nextState.pickupTimer <= 0) {
     nextState.pickupMessage = null;
+  }
+
+  if (
+    wasArmoryTransitionActive &&
+    nextState.armoryTransitionTimer <= 0 &&
+    nextState.queuedArmoryChoice &&
+    !nextState.pendingArmoryChoice
+  ) {
+    nextState.pendingArmoryChoice = nextState.queuedArmoryChoice;
+    nextState.queuedArmoryChoice = null;
+    nextState.armoryTransitionLabel = null;
+    nextState.armoryTransitionColor = null;
+    nextState.pickupMessage = 'Armory sync ready';
+    nextState.pickupTimer = 1.2;
   }
 
   if (
@@ -2252,7 +2307,7 @@ function tickPrototypeState(
     nextState.lastProcessedDisplayTier = currentDisplayTier;
   }
 
-  while (nextState.fireCooldown <= 0) {
+  while (!wasArmoryTransitionActive && nextState.fireCooldown <= 0) {
     const activeWeapon = getActiveWeapon(nextState);
     const volley = createBulletVolleys(nextState, boardHeight);
     nextState.bullets = volley.bullets;
@@ -2290,7 +2345,7 @@ function tickPrototypeState(
     }
   }
 
-  if (getActiveWeapon(nextState).missileLevel > 0) {
+  if (!wasArmoryTransitionActive && getActiveWeapon(nextState).missileLevel > 0) {
     while (nextState.missileCooldown <= 0) {
       const missileVolley = createMissileVolley(nextState, boardHeight);
       nextState.bullets = missileVolley.bullets;
@@ -2313,7 +2368,7 @@ function tickPrototypeState(
     }
   }
 
-  if (getActiveWeapon(nextState).shatterLevel > 0) {
+  if (!wasArmoryTransitionActive && getActiveWeapon(nextState).shatterLevel > 0) {
     while (nextState.shatterCooldown <= 0) {
       const shatterVolley = createShatterVolley(nextState, boardHeight);
       nextState.bullets = shatterVolley.bullets;
@@ -2334,7 +2389,7 @@ function tickPrototypeState(
     }
   }
 
-  if (nextState.activeEncounter?.type === 'boss' && !getActiveBossEnemy(nextState.enemies)) {
+  if (!wasArmoryTransitionActive && nextState.activeEncounter?.type === 'boss' && !getActiveBossEnemy(nextState.enemies)) {
     const bossSpawn = createBossEnemy(nextState, boardWidth, nextState.activeEncounter.displayTier);
     nextState.enemies = bossSpawn.enemies;
     nextState.nextEnemyId = bossSpawn.nextEnemyId;
@@ -2355,7 +2410,7 @@ function tickPrototypeState(
   }
 
   const activeBoss = getActiveBossEnemy(nextState.enemies);
-  if (activeBoss) {
+  if (!wasArmoryTransitionActive && activeBoss) {
     while (nextState.bossEscortCooldown <= 0) {
       const escortGroup = buildBossEscortDrafts(nextState, boardWidth, activeBoss);
       for (const draft of escortGroup.drafts) {
@@ -2367,7 +2422,7 @@ function tickPrototypeState(
     }
   }
 
-  while (nextState.enemyCooldown <= 0) {
+  while (!wasArmoryTransitionActive && nextState.enemyCooldown <= 0) {
     const spawnGroup = buildEnemySpawnDrafts(nextState, boardWidth);
     for (const draft of spawnGroup.drafts) {
       const spawn = createEnemy(nextState, boardWidth, draft);
@@ -2381,7 +2436,7 @@ function tickPrototypeState(
     getDifficultyTier(nextState.elapsed) <= GUARANTEED_UPGRADE_REVEAL_TIER && getMissingGuaranteedUpgradeTypes(nextState).length > 0;
   const maxActiveUpgrades = shouldForceUpgradeReveal ? GUARANTEED_UPGRADE_ACTIVE_CAP : 2;
 
-  if (shouldForceUpgradeReveal || nextState.upgrades.length < maxActiveUpgrades) {
+  if (!wasArmoryTransitionActive && (shouldForceUpgradeReveal || nextState.upgrades.length < maxActiveUpgrades)) {
     while (nextState.upgradeCooldown <= 0) {
       const spawn = createUpgrade(nextState, boardWidth);
       nextState.upgrades = spawn.upgrades;
@@ -2888,6 +2943,9 @@ function EffectNode({ effect }: { effect: PrototypeEffect }) {
   if (effect.kind === 'ultimate') {
     const size = effect.size * (0.36 + progress * 0.9);
     const innerSize = size * (0.36 + (1 - progress) * 0.18);
+    const outerRingSize = size * 1.18;
+    const petalLength = size * 0.78;
+    const petalThickness = Math.max(8, size * 0.08);
     return (
       <>
         <View
@@ -2906,6 +2964,40 @@ function EffectNode({ effect }: { effect: PrototypeEffect }) {
             },
           ]}
         />
+        <View
+          pointerEvents="none"
+          style={[
+            shooterStyles.effectNode,
+            shooterStyles.effectRing,
+            {
+              left: effect.x - outerRingSize / 2,
+              top: effect.y - outerRingSize / 2,
+              width: outerRingSize,
+              height: outerRingSize,
+              opacity: opacity * 0.34,
+              borderColor: effect.color,
+            },
+          ]}
+        />
+        {[0, 60, 120].map((rotation) => (
+          <View
+            key={`ultimate-petal-${effect.id}-${rotation}`}
+            pointerEvents="none"
+            style={[
+              shooterStyles.effectNode,
+              shooterStyles.effectUltimatePetal,
+              {
+                left: effect.x - petalLength / 2,
+                top: effect.y - petalThickness / 2,
+                width: petalLength,
+                height: petalThickness,
+                opacity: opacity * 0.22,
+                backgroundColor: effect.color,
+                transform: [{ rotate: `${rotation + progress * 18}deg` }, { scaleX: 0.86 + progress * 0.2 }],
+              },
+            ]}
+          />
+        ))}
         <View
           pointerEvents="none"
           style={[
@@ -3090,6 +3182,7 @@ export function PrototypeShooterScreen({ onSwitchGame }: PrototypeShooterScreenP
   const hasInitializedBoardRef = useRef(false);
   const isPortraitViewport = windowHeight >= windowWidth;
   const isArmoryOpen = gameState.pendingArmoryChoice !== null;
+  const isArmoryTransitionActive = gameState.armoryTransitionTimer > 0;
 
   useEffect(() => {
     if (boardSize.width <= 0 || boardSize.height <= 0) {
@@ -3182,6 +3275,12 @@ export function PrototypeShooterScreen({ onSwitchGame }: PrototypeShooterScreenP
     }
   }, [gameState.pendingArmoryChoice, gameState.status, hasStarted]);
 
+  useEffect(() => {
+    if (isArmoryTransitionActive) {
+      setIsMenuOpen(false);
+    }
+  }, [isArmoryTransitionActive]);
+
   const difficultyTier = getDifficultyTier(gameState.elapsed) + 1;
   const activeBoss = getActiveBossEnemy(gameState.enemies);
   const buildProtocolDisplay = getBuildProtocolDisplay(gameState);
@@ -3208,11 +3307,28 @@ export function PrototypeShooterScreen({ onSwitchGame }: PrototypeShooterScreenP
     gameState.activeEncounter && gameState.activeEncounter.endsAt !== null
       ? Math.max(0, gameState.activeEncounter.endsAt - gameState.elapsed)
       : null;
+  const armoryTransitionProgress =
+    isArmoryTransitionActive && BOSS_CLEAR_TRANSITION_SECONDS > 0
+      ? 1 - gameState.armoryTransitionTimer / BOSS_CLEAR_TRANSITION_SECONDS
+      : 0;
+  const buildHudValue = buildProtocolDisplay ? `${buildProtocolDisplay.label} ${buildProtocolDisplay.levelLabel}` : 'No doctrine';
+  const encounterHudValue = gameState.activeEncounter
+    ? gameState.activeEncounter.label
+    : isArmoryTransitionActive
+      ? 'Boss clear'
+      : 'Standby';
+  const bossHudValue = activeBoss
+    ? formatCompactHealth(activeBoss.health)
+    : isArmoryTransitionActive
+      ? 'Resolved'
+      : 'No target';
   const displayMessage =
     !hasStarted
       ? 'Press Start to deploy the ship.'
       : gameState.status === 'lost'
         ? 'Game over. Restart to run again.'
+        : isArmoryTransitionActive
+          ? `${gameState.armoryTransitionLabel ?? 'Boss neutralized'} Armory sync stabilizing...`
         : isArmoryOpen
           ? 'Armory sync ready.'
         : isPaused
@@ -3231,13 +3347,14 @@ export function PrototypeShooterScreen({ onSwitchGame }: PrototypeShooterScreenP
 
   const handleBoardTouch = (event: GestureResponderEvent) => {
     if (
-      boardSize.width <= 0 ||
-      boardSize.height <= 0 ||
-      isMenuOpen ||
-      isArmoryOpen ||
-      !hasStarted ||
-      isPaused ||
-      gameState.status !== 'running'
+          boardSize.width <= 0 ||
+          boardSize.height <= 0 ||
+          isMenuOpen ||
+          isArmoryOpen ||
+          isArmoryTransitionActive ||
+          !hasStarted ||
+          isPaused ||
+          gameState.status !== 'running'
     ) {
       return;
     }
@@ -3299,6 +3416,10 @@ export function PrototypeShooterScreen({ onSwitchGame }: PrototypeShooterScreenP
         buildProtocol: protocol,
         buildProtocolLevel: nextLevel,
         pendingArmoryChoice: null,
+        queuedArmoryChoice: null,
+        armoryTransitionTimer: 0,
+        armoryTransitionLabel: null,
+        armoryTransitionColor: null,
         pickupMessage: nextMessage,
         pickupTimer: 2.4,
         missileCooldown:
@@ -3332,6 +3453,7 @@ export function PrototypeShooterScreen({ onSwitchGame }: PrototypeShooterScreenP
       !hasStarted ||
       isPaused ||
       isArmoryOpen ||
+      isArmoryTransitionActive ||
       isMenuOpen ||
       gameState.status !== 'running' ||
       !ultimateReady
@@ -3366,7 +3488,7 @@ export function PrototypeShooterScreen({ onSwitchGame }: PrototypeShooterScreenP
       <View style={shooterStyles.topBar}>
         <Pressable
           onPress={() => {
-            if (isArmoryOpen) {
+            if (isArmoryOpen || isArmoryTransitionActive) {
               return;
             }
             if (!hasStarted) {
@@ -3391,12 +3513,14 @@ export function PrototypeShooterScreen({ onSwitchGame }: PrototypeShooterScreenP
         </Pressable>
 
         <View style={shooterStyles.statusPill}>
-          <Text style={shooterStyles.statusPillText}>{displayMessage}</Text>
+          <Text numberOfLines={1} style={shooterStyles.statusPillText}>
+            {displayMessage}
+          </Text>
         </View>
 
         <Pressable
           onPress={() => {
-            if (isArmoryOpen) {
+            if (isArmoryOpen || isArmoryTransitionActive) {
               return;
             }
             setIsMenuOpen((previousValue) => !previousValue);
@@ -3417,7 +3541,7 @@ export function PrototypeShooterScreen({ onSwitchGame }: PrototypeShooterScreenP
         </View>
         <Pressable
           onPress={handleTriggerUltimate}
-          disabled={!ultimateReady || isPaused || !hasStarted || isArmoryOpen}
+          disabled={!ultimateReady || isPaused || !hasStarted || isArmoryOpen || isArmoryTransitionActive}
           style={[
             shooterStyles.hudChip,
             shooterStyles.hudChipAction,
@@ -3429,30 +3553,35 @@ export function PrototypeShooterScreen({ onSwitchGame }: PrototypeShooterScreenP
             {ultimateReady ? `${ultimateDefinition.label} READY` : `${ultimateDefinition.label} ${Math.round(gameState.ultimateCharge)}%`}
           </Text>
         </Pressable>
-        {buildProtocolDisplay ? (
-          <View style={[shooterStyles.hudChip, isPortraitViewport && shooterStyles.hudChipPortrait]}>
-            <Text style={shooterStyles.hudLabel}>Build</Text>
-            <Text style={[shooterStyles.hudValue, { color: buildProtocolDisplay.color }]}>
-              {buildProtocolDisplay.label} {buildProtocolDisplay.levelLabel}
-            </Text>
-          </View>
-        ) : null}
-        {gameState.activeEncounter ? (
-          <View style={[shooterStyles.hudChip, isPortraitViewport && shooterStyles.hudChipPortrait]}>
-            <Text style={shooterStyles.hudLabel}>Encounter</Text>
-            <Text style={[shooterStyles.hudValue, { color: gameState.activeEncounter.accentColor }]}>
-              {gameState.activeEncounter.label}
-            </Text>
-          </View>
-        ) : null}
-        {activeBoss ? (
-          <View style={[shooterStyles.hudChip, isPortraitViewport && shooterStyles.hudChipPortrait]}>
-            <Text style={shooterStyles.hudLabel}>Boss</Text>
-            <Text style={shooterStyles.hudValue}>
-              {formatCompactHealth(activeBoss.health)}
-            </Text>
-          </View>
-        ) : null}
+        <View style={[shooterStyles.hudChip, isPortraitViewport && shooterStyles.hudChipPortrait]}>
+          <Text style={shooterStyles.hudLabel}>Build</Text>
+          <Text
+            style={[
+              shooterStyles.hudValue,
+              !buildProtocolDisplay && shooterStyles.hudValueDim,
+              buildProtocolDisplay && { color: buildProtocolDisplay.color },
+            ]}>
+            {buildHudValue}
+          </Text>
+        </View>
+        <View style={[shooterStyles.hudChip, isPortraitViewport && shooterStyles.hudChipPortrait]}>
+          <Text style={shooterStyles.hudLabel}>Encounter</Text>
+          <Text
+            style={[
+              shooterStyles.hudValue,
+              !gameState.activeEncounter && !isArmoryTransitionActive && shooterStyles.hudValueDim,
+              gameState.activeEncounter && { color: gameState.activeEncounter.accentColor },
+              isArmoryTransitionActive && gameState.armoryTransitionColor && { color: gameState.armoryTransitionColor },
+            ]}>
+            {encounterHudValue}
+          </Text>
+        </View>
+        <View style={[shooterStyles.hudChip, isPortraitViewport && shooterStyles.hudChipPortrait]}>
+          <Text style={shooterStyles.hudLabel}>Boss</Text>
+          <Text style={[shooterStyles.hudValue, !activeBoss && !isArmoryTransitionActive && shooterStyles.hudValueDim]}>
+            {bossHudValue}
+          </Text>
+        </View>
       </View>
 
       {gameState.pendingArmoryChoice ? (
@@ -3490,6 +3619,30 @@ export function PrototypeShooterScreen({ onSwitchGame }: PrototypeShooterScreenP
               })}
             </View>
           </View>
+        </View>
+      ) : null}
+
+      {isArmoryTransitionActive ? (
+        <View pointerEvents="none" style={shooterStyles.bossClearOverlay}>
+          <View
+            style={[
+              shooterStyles.bossClearGlow,
+              {
+                backgroundColor: hexToRgba(gameState.armoryTransitionColor ?? '#FFE6A8', 0.18 + armoryTransitionProgress * 0.18),
+                transform: [{ scale: 0.82 + armoryTransitionProgress * 0.32 }],
+              },
+            ]}
+          />
+          <View
+            style={[
+              shooterStyles.bossClearBeam,
+              {
+                backgroundColor: hexToRgba(gameState.armoryTransitionColor ?? '#FFE6A8', 0.26 + armoryTransitionProgress * 0.24),
+              },
+            ]}
+          />
+          <Text style={shooterStyles.bossClearTitle}>{gameState.armoryTransitionLabel ?? 'Boss neutralized'}</Text>
+          <Text style={shooterStyles.bossClearSubtitle}>Armory sync calibrating</Text>
         </View>
       ) : null}
 
@@ -3653,7 +3806,7 @@ const shooterStyles = StyleSheet.create({
   },
   primaryButtonText: {
     color: '#F2F7FF',
-    fontSize: 12,
+    fontSize: 11,
     fontWeight: '800',
   },
   statusPill: {
@@ -3668,7 +3821,7 @@ const shooterStyles = StyleSheet.create({
   },
   statusPillText: {
     color: '#D9EBFF',
-    fontSize: 12,
+    fontSize: 11,
     fontWeight: '700',
     textAlign: 'center',
   },
@@ -3688,16 +3841,19 @@ const shooterStyles = StyleSheet.create({
   },
   quickButtonText: {
     color: '#E3F3FF',
-    fontSize: 12,
+    fontSize: 11,
     fontWeight: '700',
   },
   hudRow: {
     marginTop: 6,
     flexDirection: 'row',
     gap: 8,
+    minHeight: 42,
   },
   hudRowPortrait: {
     flexWrap: 'wrap',
+    minHeight: 118,
+    alignContent: 'flex-start',
   },
   hudChip: {
     flex: 1,
@@ -3706,7 +3862,7 @@ const shooterStyles = StyleSheet.create({
     borderColor: '#22314A',
     backgroundColor: '#0D1724',
     paddingHorizontal: 10,
-    paddingVertical: 5,
+    paddingVertical: 4,
   },
   hudChipPortrait: {
     flexBasis: '48%',
@@ -3721,15 +3877,18 @@ const shooterStyles = StyleSheet.create({
   },
   hudLabel: {
     color: '#7D93B5',
-    fontSize: 10,
+    fontSize: 9,
     fontWeight: '700',
     textTransform: 'uppercase',
   },
   hudValue: {
     color: '#EEF5FF',
-    fontSize: 13,
+    fontSize: 12,
     fontWeight: '800',
     marginTop: 2,
+  },
+  hudValueDim: {
+    color: '#7E92AF',
   },
   weaponRow: {
     marginTop: 8,
@@ -3759,6 +3918,41 @@ const shooterStyles = StyleSheet.create({
     flex: 1,
     marginTop: 6,
     position: 'relative',
+  },
+  bossClearOverlay: {
+    ...StyleSheet.absoluteFillObject,
+    zIndex: 22,
+    justifyContent: 'center',
+    alignItems: 'center',
+    backgroundColor: 'rgba(4, 10, 18, 0.26)',
+    gap: 6,
+    paddingHorizontal: 18,
+  },
+  bossClearGlow: {
+    position: 'absolute',
+    width: 240,
+    height: 240,
+    borderRadius: 120,
+  },
+  bossClearBeam: {
+    position: 'absolute',
+    width: 18,
+    top: '24%',
+    bottom: '24%',
+    borderRadius: 999,
+  },
+  bossClearTitle: {
+    color: '#FFF5E1',
+    fontSize: 20,
+    fontWeight: '900',
+    textAlign: 'center',
+  },
+  bossClearSubtitle: {
+    color: '#D6E5F8',
+    fontSize: 12,
+    fontWeight: '700',
+    letterSpacing: 0.3,
+    textTransform: 'uppercase',
   },
   armoryOverlay: {
     ...StyleSheet.absoluteFillObject,
@@ -3842,6 +4036,9 @@ const shooterStyles = StyleSheet.create({
     borderRadius: 999,
   },
   effectUltimateGlow: {
+    borderRadius: 999,
+  },
+  effectUltimatePetal: {
     borderRadius: 999,
   },
   effectBombardColumn: {
