@@ -188,6 +188,7 @@ const MAX_CATCH_UP_STEPS = 5;
 const MAX_ACTIVE_EFFECTS = 28;
 const MAX_ENEMY_RENDER_SIZE = 92;
 const MAX_ULTIMATE_CHARGE = 100;
+const ULTIMATE_CHARGE_GAIN_MULTIPLIER = 1.3;
 const DIFFICULTY_TIER_DURATION_SECONDS = 15;
 const BOSS_TIER_INTERVAL = 5;
 const BOSS_CLEAR_TRANSITION_SECONDS = 1.45;
@@ -603,7 +604,7 @@ function addUltimateCharge(state: PrototypeGameState, amount: number) {
   if (amount <= 0) {
     return;
   }
-  state.ultimateCharge = clamp(state.ultimateCharge + amount, 0, MAX_ULTIMATE_CHARGE);
+  state.ultimateCharge = clamp(state.ultimateCharge + amount * ULTIMATE_CHARGE_GAIN_MULTIPLIER, 0, MAX_ULTIMATE_CHARGE);
 }
 
 function getUltimateHitCharge(enemy: PrototypeEnemy, dealtDamage: number) {
