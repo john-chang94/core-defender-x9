@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
 import type { GestureResponderEvent, LayoutChangeEvent } from 'react-native';
 import { Pressable, SafeAreaView, StyleSheet, Text, View, useWindowDimensions } from 'react-native';
 
@@ -3087,6 +3087,7 @@ export function PrototypeShooterScreen({ onSwitchGame }: PrototypeShooterScreenP
   const [hasStarted, setHasStarted] = useState(false);
   const [isPaused, setIsPaused] = useState(true);
   const [isMenuOpen, setIsMenuOpen] = useState(false);
+  const hasInitializedBoardRef = useRef(false);
   const isPortraitViewport = windowHeight >= windowWidth;
   const isArmoryOpen = gameState.pendingArmoryChoice !== null;
 
@@ -3095,9 +3096,26 @@ export function PrototypeShooterScreen({ onSwitchGame }: PrototypeShooterScreenP
       return;
     }
 
-    setGameState(createInitialState(boardSize.width, boardSize.height));
-    setHasStarted(false);
-    setIsPaused(true);
+    if (!hasInitializedBoardRef.current) {
+      hasInitializedBoardRef.current = true;
+      setGameState(createInitialState(boardSize.width, boardSize.height));
+      setHasStarted(false);
+      setIsPaused(true);
+      return;
+    }
+
+    setGameState((previousState) => ({
+      ...previousState,
+      playerX: clamp(previousState.playerX, PLAYER_HALF_WIDTH + PLAYER_MARGIN, boardSize.width - PLAYER_HALF_WIDTH - PLAYER_MARGIN),
+      enemies: previousState.enemies.map((enemy) => ({
+        ...enemy,
+        x: clamp(enemy.x, enemy.size / 2 + 8, boardSize.width - enemy.size / 2 - 8),
+      })),
+      upgrades: previousState.upgrades.map((upgrade) => ({
+        ...upgrade,
+        x: clamp(upgrade.x, upgrade.size / 2 + 10, boardSize.width - upgrade.size / 2 - 10),
+      })),
+    }));
   }, [boardSize.height, boardSize.width]);
 
   useEffect(() => {
@@ -3251,6 +3269,7 @@ export function PrototypeShooterScreen({ onSwitchGame }: PrototypeShooterScreenP
       return;
     }
 
+    hasInitializedBoardRef.current = true;
     setGameState(createInitialState(boardSize.width, boardSize.height));
     setHasStarted(false);
     setIsPaused(true);
