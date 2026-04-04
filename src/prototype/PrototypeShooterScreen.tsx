@@ -801,7 +801,7 @@ function formatCompactHealth(value: number) {
   if (roundedValue < 10000) {
     return `${(roundedValue / 1000).toFixed(1).replace(/\.0$/, '')}K`;
   }
-  if (roundedValue < 1000000) {
+  if (roundedValue < 999500) {
     return `${Math.round(roundedValue / 1000)}K`;
   }
   if (roundedValue < 10000000) {
@@ -3048,14 +3048,14 @@ function BackgroundGrid({
   height: number;
   atmosphere: ReturnType<typeof getBoardAtmosphere>;
 }) {
-  const verticalLines = useMemo(
-    () => Array.from({ length: Math.max(6, Math.floor(width / 64)) }, (_, index) => ((index + 1) * width) / 14),
-    [width]
-  );
-  const horizontalLines = useMemo(
-    () => Array.from({ length: Math.max(4, Math.floor(height / 60)) }, (_, index) => ((index + 1) * height) / 10),
-    [height]
-  );
+  const verticalLines = useMemo(() => {
+    const lineCount = Math.max(6, Math.floor(width / 64));
+    return Array.from({ length: lineCount }, (_, index) => ((index + 1) * width) / (lineCount + 1));
+  }, [width]);
+  const horizontalLines = useMemo(() => {
+    const lineCount = Math.max(4, Math.floor(height / 60));
+    return Array.from({ length: lineCount }, (_, index) => ((index + 1) * height) / (lineCount + 1));
+  }, [height]);
 
   return (
     <>
@@ -3328,7 +3328,7 @@ export function PrototypeShooterScreen({ onSwitchGame }: PrototypeShooterScreenP
       const nextState: PrototypeGameState = {
         ...previousState,
         bullets: [...previousState.bullets],
-        enemies: [...previousState.enemies],
+        enemies: previousState.enemies.map((enemy) => ({ ...enemy })),
         upgrades: [...previousState.upgrades],
         effects: [...previousState.effects],
       };
