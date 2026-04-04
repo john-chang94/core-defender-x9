@@ -5,6 +5,10 @@ import { Pressable, SafeAreaView, StyleSheet, Text, View, useWindowDimensions } 
 type AppGameId = 'defender' | 'prototype';
 
 type EnemyShape = 'circle' | 'square' | 'diamond';
+type EnemyArchetype = 'standard' | 'swarm' | 'tank' | 'splitter' | 'boss';
+type BossVariant = 'prism' | 'bulwark';
+type PrototypeEncounterType = 'swarmRush' | 'fortressLine' | 'splitterStorm' | 'salvageDrift' | 'boss';
+type BuildProtocolKey = 'railFocus' | 'novaBloom' | 'missileCommand' | 'fractureCore';
 type WeaponUpgradeType =
   | 'rapid'
   | 'twin'
@@ -16,7 +20,7 @@ type WeaponUpgradeType =
   | 'missile'
   | 'shatter'
   | 'bombard';
-type PrototypeEffectKind = 'muzzle' | 'burst' | 'pickup' | 'bombard';
+type PrototypeEffectKind = 'muzzle' | 'burst' | 'pickup' | 'bombard' | 'ultimate';
 type PrototypeProjectileKind = 'standard' | 'missile' | 'shatterShell' | 'shatterShard';
 
 type PrototypeBullet = {
@@ -54,8 +58,28 @@ type PrototypeEnemy = {
   health: number;
   maxHealth: number;
   shape: EnemyShape;
+  archetype: EnemyArchetype;
+  bossVariant: BossVariant | null;
+  bossPhase: number;
+  rewardMultiplier: number;
+  splitGeneration: number;
   color: string;
   flash: number;
+};
+
+type PrototypeEncounter = {
+  type: PrototypeEncounterType;
+  label: string;
+  accentColor: string;
+  endsAt: number | null;
+  displayTier: number;
+};
+
+type PrototypeArmoryChoice = {
+  title: string;
+  prompt: string;
+  sourceDisplayTier: number;
+  options: BuildProtocolKey[];
 };
 
 type PrototypeUpgrade = {
@@ -102,11 +126,14 @@ type PrototypeEffect = {
 
 type EnemySpawnDraft = {
   x: number;
+  archetype?: EnemyArchetype;
   shape?: EnemyShape;
   color?: string;
   sizeMultiplier?: number;
   healthMultiplier?: number;
   speedMultiplier?: number;
+  rewardMultiplier?: number;
+  splitGeneration?: number;
 };
 
 type PrototypeGameState = {
@@ -133,6 +160,13 @@ type PrototypeGameState = {
   pickupTimer: number;
   collectedUpgradeCount: number;
   revealedUpgradeTypes: WeaponUpgradeType[];
+  activeEncounter: PrototypeEncounter | null;
+  lastProcessedDisplayTier: number;
+  bossEscortCooldown: number;
+  buildProtocol: BuildProtocolKey | null;
+  buildProtocolLevel: number;
+  pendingArmoryChoice: PrototypeArmoryChoice | null;
+  ultimateCharge: number;
 };
 
 type PrototypeShooterScreenProps = {
@@ -149,13 +183,16 @@ const FIXED_STEP_SECONDS = 1 / 60;
 const MAX_CATCH_UP_STEPS = 5;
 const MAX_ACTIVE_EFFECTS = 28;
 const MAX_ENEMY_RENDER_SIZE = 92;
+const MAX_ULTIMATE_CHARGE = 100;
 const DIFFICULTY_TIER_DURATION_SECONDS = 15;
+const BOSS_TIER_INTERVAL = 5;
+const TIER_EVENT_START_DISPLAY_TIER = 6;
 const MAX_STRAIGHT_GUNS = 4;
 const MAX_MISSILE_LEVEL = 2;
 const CHAOS_OVERDRIVE_DURATION_SECONDS = 6;
 const GUARANTEED_UPGRADE_REVEAL_TIER = 7;
 const GUARANTEED_UPGRADE_ACTIVE_CAP = 5;
-const CHAOS_AND_BOMBARD_UNLOCK_TIER = 9;
+const CHAOS_AND_BOMBARD_UNLOCK_DISPLAY_TIER = 10;
 const OPENING_UPGRADE_TYPES: WeaponUpgradeType[] = ['rapid', 'twin', 'heavy'];
 const REQUIRED_EARLY_UPGRADE_TYPES: WeaponUpgradeType[] = [
   'rapid',
@@ -172,17 +209,17 @@ const STANDARD_UPGRADE_TYPES: WeaponUpgradeType[] = [
   'chaos',
   'chaos',
   'chaos',
+  'chaos',
   'flare',
   'flare',
   'missile',
   'missile',
   'shatter',
   'shatter',
-  'bombard',
-  'bombard',
   'bombard',
   'bombard',
 ];
+const BUILD_PROTOCOL_KEYS: BuildProtocolKey[] = ['railFocus', 'novaBloom', 'missileCommand', 'fractureCore'];
 const BASE_WEAPON: PrototypeWeapon = {
   damage: 1,
   fireInterval: 0.1,
@@ -200,6 +237,41 @@ const BASE_WEAPON: PrototypeWeapon = {
   trailScale: 1,
   missileLevel: 0,
   shatterLevel: 0,
+};
+
+const BUILD_PROTOCOL_DEFINITIONS: Record<
+  BuildProtocolKey,
+  {
+    label: string;
+    color: string;
+    accent: string;
+    summary: string;
+  }
+> = {
+  railFocus: {
+    label: 'Rail Focus',
+    color: '#FF85E1',
+    accent: '#FFE4F7',
+    summary: 'Compresses barrels into faster, piercing precision rails.',
+  },
+  novaBloom: {
+    label: 'Nova Bloom',
+    color: '#FFB45D',
+    accent: '#FFF1D7',
+    summary: 'Overclocks the primary into wider, hotter flare volleys.',
+  },
+  missileCommand: {
+    label: 'Missile Command',
+    color: '#FF7B63',
+    accent: '#FFE1DA',
+    summary: 'Promotes missile salvos into a first-class weapon system.',
+  },
+  fractureCore: {
+    label: 'Fracture Core',
+    color: '#FFBD6E',
+    accent: '#FFF0D8',
+    summary: 'Turns shatter fire into dense fragment cascades.',
+  },
 };
 
 function getChaosOverdriveWeapon(weapon: PrototypeWeapon): PrototypeWeapon {
@@ -225,7 +297,8 @@ function getChaosOverdriveWeapon(weapon: PrototypeWeapon): PrototypeWeapon {
 }
 
 function getActiveWeapon(state: PrototypeGameState): PrototypeWeapon {
-  return state.chaosTimer > 0 ? getChaosOverdriveWeapon(state.weapon) : state.weapon;
+  const buildAdjustedWeapon = getBuildProtocolWeapon(state, state.weapon);
+  return state.chaosTimer > 0 ? getChaosOverdriveWeapon(buildAdjustedWeapon) : buildAdjustedWeapon;
 }
 
 function getMissingGuaranteedUpgradeTypes(state: PrototypeGameState): WeaponUpgradeType[] {
@@ -233,18 +306,19 @@ function getMissingGuaranteedUpgradeTypes(state: PrototypeGameState): WeaponUpgr
 }
 
 function getStandardUpgradeTypePool(state: PrototypeGameState, difficultyTier: number): WeaponUpgradeType[] {
+  const displayTier = difficultyTier + 1;
   const basePool =
-    difficultyTier >= CHAOS_AND_BOMBARD_UNLOCK_TIER
+    displayTier >= CHAOS_AND_BOMBARD_UNLOCK_DISPLAY_TIER
       ? [...STANDARD_UPGRADE_TYPES]
       : STANDARD_UPGRADE_TYPES.filter((type) => type !== 'chaos' && type !== 'bombard');
 
-  if (difficultyTier < CHAOS_AND_BOMBARD_UNLOCK_TIER) {
+  if (displayTier < CHAOS_AND_BOMBARD_UNLOCK_DISPLAY_TIER) {
     return basePool;
   }
 
   const activeEnemyCount = state.enemies.length;
-  const chaosBonusWeight = Math.min(6, Math.floor(activeEnemyCount / 4));
-  const bombardBonusWeight = Math.min(8, Math.floor((activeEnemyCount + 1) / 3));
+  const chaosBonusWeight = Math.min(10, Math.floor(activeEnemyCount / 3));
+  const bombardBonusWeight = Math.min(4, Math.floor(activeEnemyCount / 6));
 
   for (let index = 0; index < chaosBonusWeight; index += 1) {
     basePool.push('chaos');
@@ -255,6 +329,254 @@ function getStandardUpgradeTypePool(state: PrototypeGameState, difficultyTier: n
   }
 
   return basePool;
+}
+
+function createArmoryChoice(state: PrototypeGameState, sourceDisplayTier: number): PrototypeArmoryChoice {
+  const currentProtocol = state.buildProtocol;
+  const optionPool = currentProtocol
+    ? shuffleCopy(BUILD_PROTOCOL_KEYS.filter((protocol) => protocol !== currentProtocol)).slice(0, 2)
+    : shuffleCopy(BUILD_PROTOCOL_KEYS).slice(0, 3);
+  const options = currentProtocol ? shuffleCopy([currentProtocol, ...optionPool]) : optionPool;
+
+  return {
+    title: currentProtocol ? 'Armory Sync' : 'Doctrine Select',
+    prompt: currentProtocol
+      ? 'Maintain your doctrine to deepen it, or reroute the ship into a new combat profile.'
+      : 'Pick the doctrine that should define the run. Future boss clears let you maintain or reroute it.',
+    sourceDisplayTier,
+    options,
+  };
+}
+
+function getBuildProtocolLevelLabel(level: number) {
+  return `L${Math.max(1, level)}`;
+}
+
+function getBuildProtocolOptionDescription(protocol: BuildProtocolKey, nextLevel: number, isCurrentProtocol: boolean) {
+  const definition = BUILD_PROTOCOL_DEFINITIONS[protocol];
+  const prefix = isCurrentProtocol ? `Maintain to ${getBuildProtocolLevelLabel(nextLevel)}.` : 'Reroute the ship.';
+  return `${prefix} ${definition.summary}`;
+}
+
+function getBuildProtocolSupport(state: PrototypeGameState) {
+  const level = state.buildProtocolLevel;
+  switch (state.buildProtocol) {
+    case 'missileCommand':
+      return {
+        missileCountFloor: level >= 2 ? 4 : 2,
+        missileDamageBonus: 1 + level * 2,
+        missileCooldownMultiplier: 0.84 - level * 0.06,
+        missileTurnBonus: 0.08 * level,
+        shatterFragmentBonus: 0,
+        shatterDamageBonus: 0,
+        shatterCooldownMultiplier: 1,
+      };
+    case 'fractureCore':
+      return {
+        missileCountFloor: 0,
+        missileDamageBonus: 0,
+        missileCooldownMultiplier: 1,
+        missileTurnBonus: 0,
+        shatterFragmentBonus: 1 + level,
+        shatterDamageBonus: 1 + level,
+        shatterCooldownMultiplier: 0.9 - level * 0.07,
+      };
+    default:
+      return {
+        missileCountFloor: 0,
+        missileDamageBonus: 0,
+        missileCooldownMultiplier: 1,
+        missileTurnBonus: 0,
+        shatterFragmentBonus: 0,
+        shatterDamageBonus: 0,
+        shatterCooldownMultiplier: 1,
+      };
+  }
+}
+
+function getBuildProtocolWeapon(state: PrototypeGameState, weapon: PrototypeWeapon): PrototypeWeapon {
+  const level = state.buildProtocolLevel;
+  switch (state.buildProtocol) {
+    case 'railFocus': {
+      const suppressedShots = Math.max(0, weapon.shotCount - 2);
+      return {
+        ...weapon,
+        damage: Math.min(20, weapon.damage + 2 + level + suppressedShots),
+        fireInterval: Math.max(0.038, weapon.fireInterval * (0.96 - level * 0.04)),
+        shotCount: Math.min(2, Math.max(1, weapon.shotCount)),
+        pierce: Math.min(7, weapon.pierce + 1 + Math.floor(level / 2)),
+        bulletSize: Math.min(15, weapon.bulletSize + level * 0.28),
+        bulletSpeed: Math.min(1500, weapon.bulletSpeed + level * 80),
+        spread: Math.max(9, weapon.spread * 0.58),
+        aimAssist: Math.min(0.55, weapon.aimAssist + level * 0.08),
+        spreadJitter: weapon.spreadJitter * 0.45,
+        effectIntensity: Math.min(2.45, weapon.effectIntensity + level * 0.12),
+        bulletColor: '#FFE3F8',
+        glowColor: '#FF86E1',
+        muzzleColor: '#FFF0FA',
+        trailScale: Math.min(2.15, weapon.trailScale + level * 0.12),
+      };
+    }
+    case 'novaBloom':
+      return {
+        ...weapon,
+        damage: Math.min(18, weapon.damage + 1 + Math.floor(level / 2)),
+        fireInterval: Math.max(0.04, weapon.fireInterval * 0.9),
+        shotCount: Math.min(MAX_STRAIGHT_GUNS, weapon.shotCount + level),
+        bulletSize: Math.min(16, weapon.bulletSize + level * 0.8),
+        spread: Math.min(54, weapon.spread + 8 + level * 4),
+        aimAssist: Math.min(0.28, weapon.aimAssist + level * 0.03),
+        spreadJitter: Math.min(24, weapon.spreadJitter + 5 + level * 2.4),
+        effectIntensity: Math.min(2.7, weapon.effectIntensity + level * 0.24),
+        bulletColor: '#FFF2C3',
+        glowColor: '#FFAA52',
+        muzzleColor: '#FFF3BA',
+        trailScale: Math.min(2.3, weapon.trailScale + level * 0.16),
+        pierce: Math.min(5, weapon.pierce + (level >= 3 ? 1 : 0)),
+      };
+    case 'missileCommand':
+      return {
+        ...weapon,
+        fireInterval: Math.max(0.042, weapon.fireInterval * (0.99 - level * 0.02)),
+        aimAssist: Math.min(0.44, weapon.aimAssist + level * 0.04),
+        effectIntensity: Math.min(2.5, weapon.effectIntensity + level * 0.12),
+        trailScale: Math.min(2.1, weapon.trailScale + level * 0.08),
+        missileLevel: Math.max(1, weapon.missileLevel),
+        bulletColor: '#FFECE6',
+        glowColor: '#FF7B63',
+        muzzleColor: '#FFE6D7',
+      };
+    case 'fractureCore':
+      return {
+        ...weapon,
+        damage: Math.min(18, weapon.damage + 1 + level),
+        bulletSize: Math.min(15, weapon.bulletSize + level * 0.42),
+        effectIntensity: Math.min(2.55, weapon.effectIntensity + level * 0.18),
+        trailScale: Math.min(2.1, weapon.trailScale + level * 0.1),
+        shatterLevel: Math.max(1, weapon.shatterLevel),
+        bulletColor: '#FFF0D9',
+        glowColor: '#FFB36B',
+        muzzleColor: '#FFE5BE',
+      };
+    default:
+      return weapon;
+  }
+}
+
+function getBuildProtocolDisplay(state: PrototypeGameState) {
+  if (!state.buildProtocol) {
+    return null;
+  }
+
+  return {
+    ...BUILD_PROTOCOL_DEFINITIONS[state.buildProtocol],
+    levelLabel: getBuildProtocolLevelLabel(state.buildProtocolLevel),
+  };
+}
+
+function hexToRgba(hexColor: string, alpha: number) {
+  const normalizedHex = hexColor.replace('#', '');
+  if (normalizedHex.length !== 6) {
+    return hexColor;
+  }
+
+  const red = Number.parseInt(normalizedHex.slice(0, 2), 16);
+  const green = Number.parseInt(normalizedHex.slice(2, 4), 16);
+  const blue = Number.parseInt(normalizedHex.slice(4, 6), 16);
+  return `rgba(${red}, ${green}, ${blue}, ${alpha})`;
+}
+
+function getBoardAtmosphere(
+  difficultyTier: number,
+  encounter: PrototypeEncounter | null,
+  activeBoss: PrototypeEnemy | null,
+  buildColor: string | null,
+  ultimateReady: boolean,
+  breachPressure: number
+) {
+  const tierHeat = clamp((difficultyTier - 1) / 24, 0, 1);
+  const primaryColor = activeBoss?.color ?? encounter?.accentColor ?? buildColor ?? '#6DEBFF';
+  const secondaryColor = buildColor ?? (activeBoss ? '#FF9DBA' : '#FF7BA4');
+  const warningColor = activeBoss ? primaryColor : '#FF6D73';
+
+  return {
+    borderColor: hexToRgba(primaryColor, 0.22 + tierHeat * 0.12 + breachPressure * 0.1),
+    hazeColor: hexToRgba(primaryColor, 0.03 + tierHeat * 0.05 + (activeBoss ? 0.04 : 0)),
+    orbAColor: hexToRgba(primaryColor, 0.1 + tierHeat * 0.06),
+    orbBColor: hexToRgba(secondaryColor, 0.08 + tierHeat * 0.05),
+    gridColor: hexToRgba(primaryColor, 0.12 + tierHeat * 0.04),
+    bottomGlowColor: hexToRgba(ultimateReady ? '#BBF16A' : primaryColor, 0.08 + breachPressure * 0.16),
+    breachLineColor: hexToRgba(warningColor, 0.18 + breachPressure * 0.54),
+    bossTelegraphColor: hexToRgba(primaryColor, 0.16 + breachPressure * 0.14),
+  };
+}
+
+function getUltimateDefinition(state: PrototypeGameState) {
+  switch (state.buildProtocol) {
+    case 'railFocus':
+      return {
+        label: 'Sky Lance',
+        color: '#FF86E1',
+        summary: 'Piercing rail strikes spear the highest-threat targets.',
+      };
+    case 'novaBloom':
+      return {
+        label: 'Solar Bloom',
+        color: '#FFB45D',
+        summary: 'An expanding flare wave scorches the whole screen.',
+      };
+    case 'missileCommand':
+      return {
+        label: 'Missile Storm',
+        color: '#FF7B63',
+        summary: 'A coordinated missile strike hunts the densest threats.',
+      };
+    case 'fractureCore':
+      return {
+        label: 'Cascade Break',
+        color: '#FFBD6E',
+        summary: 'A shatter cascade cracks every enemy and bursts priority targets.',
+      };
+    default:
+      return {
+        label: 'Pulse Crash',
+        color: '#7EDCFF',
+        summary: 'A fallback pulse clears space and resets pressure.',
+      };
+  }
+}
+
+function addUltimateCharge(state: PrototypeGameState, amount: number) {
+  if (amount <= 0) {
+    return;
+  }
+  state.ultimateCharge = clamp(state.ultimateCharge + amount, 0, MAX_ULTIMATE_CHARGE);
+}
+
+function getUltimateHitCharge(enemy: PrototypeEnemy, dealtDamage: number) {
+  if (dealtDamage <= 0) {
+    return 0;
+  }
+
+  const damageFraction = dealtDamage / Math.max(20, enemy.maxHealth);
+  const base = enemy.archetype === 'boss' ? 18 : enemy.archetype === 'tank' ? 11 : enemy.archetype === 'splitter' ? 9 : 7;
+  const cap = enemy.archetype === 'boss' ? 2.6 : enemy.archetype === 'tank' ? 1.15 : 0.9;
+  return Math.min(cap, damageFraction * base);
+}
+
+function getUltimateKillCharge(enemy: PrototypeEnemy) {
+  switch (enemy.archetype) {
+    case 'swarm':
+      return 1.2;
+    case 'tank':
+      return 3.4;
+    case 'splitter':
+      return 2.7;
+    case 'boss':
+      return 34;
+    default:
+      return 1.8;
+  }
 }
 
 const UPGRADE_DEFINITIONS: Record<
@@ -376,12 +698,76 @@ const ENEMY_PALETTE = [
   '#F4CC66',
 ] as const;
 
+const ENEMY_ARCHETYPE_SETTINGS: Record<
+  EnemyArchetype,
+  {
+    defaultShape: EnemyShape | null;
+    defaultColor: string | null;
+    sizeMultiplier: number;
+    healthMultiplier: number;
+    speedMultiplier: number;
+    rewardMultiplier: number;
+  }
+> = {
+  standard: {
+    defaultShape: null,
+    defaultColor: null,
+    sizeMultiplier: 1,
+    healthMultiplier: 1,
+    speedMultiplier: 1,
+    rewardMultiplier: 1,
+  },
+  swarm: {
+    defaultShape: 'circle',
+    defaultColor: '#79EBFF',
+    sizeMultiplier: 0.78,
+    healthMultiplier: 0.58,
+    speedMultiplier: 1.22,
+    rewardMultiplier: 0.62,
+  },
+  tank: {
+    defaultShape: 'square',
+    defaultColor: '#FFBB74',
+    sizeMultiplier: 1.16,
+    healthMultiplier: 1.48,
+    speedMultiplier: 0.72,
+    rewardMultiplier: 1.24,
+  },
+  splitter: {
+    defaultShape: 'diamond',
+    defaultColor: '#FF82B5',
+    sizeMultiplier: 1.04,
+    healthMultiplier: 0.92,
+    speedMultiplier: 0.88,
+    rewardMultiplier: 0.76,
+  },
+  boss: {
+    defaultShape: 'diamond',
+    defaultColor: '#FFD36B',
+    sizeMultiplier: 1.52,
+    healthMultiplier: 4.6,
+    speedMultiplier: 0.34,
+    rewardMultiplier: 4.8,
+  },
+};
+
 function clamp(value: number, min: number, max: number) {
   return Math.max(min, Math.min(max, value));
 }
 
 function randomChoice<T>(items: readonly T[]): T {
   return items[Math.floor(Math.random() * items.length)];
+}
+
+function shuffleCopy<T>(items: readonly T[]) {
+  const nextItems = [...items];
+  for (let index = nextItems.length - 1; index > 0; index -= 1) {
+    const swapIndex = Math.floor(Math.random() * (index + 1));
+    const previousValue = nextItems[index];
+    nextItems[index] = nextItems[swapIndex];
+    nextItems[swapIndex] = previousValue;
+  }
+  return nextItems;
 }
 
 function lerp(start: number, end: number, progress: number) {
@@ -401,6 +787,27 @@ function normalizeAngle(angle: number) {
 
 function getDifficultyTier(elapsedSeconds: number) {
   return Math.floor(elapsedSeconds / DIFFICULTY_TIER_DURATION_SECONDS);
+}
+
+function getDisplayTier(elapsedSeconds: number) {
+  return getDifficultyTier(elapsedSeconds) + 1;
+}
+
+function formatCompactHealth(value: number) {
+  const roundedValue = Math.max(0, Math.round(value));
+  if (roundedValue < 1000) {
+    return `${roundedValue}`;
+  }
+  if (roundedValue < 10000) {
+    return `${(roundedValue / 1000).toFixed(1).replace(/\.0$/, '')}K`;
+  }
+  if (roundedValue < 1000000) {
+    return `${Math.round(roundedValue / 1000)}K`;
+  }
+  if (roundedValue < 10000000) {
+    return `${(roundedValue / 1000000).toFixed(1).replace(/\.0$/, '')}M`;
+  }
+  return `${Math.round(roundedValue / 1000000)}M`;
 }
 
 function getUpgradePressureMultiplier(collectedUpgradeCount: number) {
@@ -440,6 +847,159 @@ function getHealthSpeedPenalty(maxHealth: number) {
   return Math.max(0.04, 0.07 - (maxHealth - 900) * 0.00005);
 }
 
+function getEnemyReward(enemy: PrototypeEnemy) {
+  return Math.max(10, Math.round(enemy.maxHealth * 10 * enemy.rewardMultiplier));
+}
+
+function getBossPhaseForHealth(enemy: PrototypeEnemy) {
+  const healthRatio = enemy.health / Math.max(1, enemy.maxHealth);
+  if (healthRatio > 0.66) {
+    return 1;
+  }
+  if (healthRatio > 0.33) {
+    return 2;
+  }
+  return 3;
+}
+
+function getBossLabel(variant: BossVariant) {
+  return variant === 'bulwark' ? 'Bulwark Array' : 'Prism Core';
+}
+
+function getActiveBossEnemy(enemies: PrototypeEnemy[]) {
+  return enemies.find((enemy) => enemy.archetype === 'boss' && enemy.health > 0) ?? null;
+}
+
+function shouldStartTierEvent(displayTier: number) {
+  return displayTier >= TIER_EVENT_START_DISPLAY_TIER && displayTier % 2 === 0 && displayTier % BOSS_TIER_INTERVAL !== 0;
+}
+
+function createEncounter(type: PrototypeEncounterType, displayTier: number, elapsed: number): PrototypeEncounter {
+  switch (type) {
+    case 'swarmRush':
+      return {
+        type,
+        label: 'Swarm Rush',
+        accentColor: '#7DEEFF',
+        endsAt: elapsed + 8.4,
+        displayTier,
+      };
+    case 'fortressLine':
+      return {
+        type,
+        label: 'Fortress Line',
+        accentColor: '#FFC479',
+        endsAt: elapsed + 9.2,
+        displayTier,
+      };
+    case 'splitterStorm':
+      return {
+        type,
+        label: 'Splitter Storm',
+        accentColor: '#FF8DBB',
+        endsAt: elapsed + 8.8,
+        displayTier,
+      };
+    case 'salvageDrift':
+      return {
+        type,
+        label: 'Salvage Drift',
+        accentColor: '#8FC9FF',
+        endsAt: elapsed + 7.6,
+        displayTier,
+      };
+    case 'boss':
+      return {
+        type,
+        label: 'Boss Intercept',
+        accentColor: '#FFE08B',
+        endsAt: null,
+        displayTier,
+      };
+  }
+}
+
+function getTierEncounterType(displayTier: number): PrototypeEncounterType {
+  const rotation: PrototypeEncounterType[] = ['swarmRush', 'fortressLine', 'splitterStorm', 'salvageDrift'];
+  return rotation[Math.floor(displayTier / 2) % rotation.length];
+}
+
+function createSplitterChildren(
+  state: PrototypeGameState,
+  enemy: PrototypeEnemy,
+  boardWidth: number
+) {
+  if (enemy.archetype !== 'splitter' || enemy.splitGeneration > 0) {
+    return [] as PrototypeEnemy[];
+  }
+
+  const childCount = 2;
+  const childHealth = Math.max(5, Math.round(enemy.maxHealth * 0.26));
+  const childSize = clamp(enemy.size * 0.64, 26, MAX_ENEMY_RENDER_SIZE * 0.76);
+  const childSpeed = Math.max(34, enemy.speed * 1.28);
+  const children: PrototypeEnemy[] = [];
+
+  for (let index = 0; index < childCount; index += 1) {
+    const direction = index === 0 ? -1 : 1;
+    children.push({
+      id: `E${state.nextEnemyId}`,
+      x: clamp(enemy.x + direction * enemy.size * 0.26, childSize / 2 + 8, boardWidth - childSize / 2 - 8),
+      y: enemy.y + (Math.random() - 0.5) * 6,
+      size: childSize,
+      speed: childSpeed,
+      health: childHealth,
+      maxHealth: childHealth,
+      shape: 'circle',
+      archetype: 'swarm',
+      bossVariant: null,
+      bossPhase: 0,
+      rewardMultiplier: 0.26,
+      splitGeneration: enemy.splitGeneration + 1,
+      color: '#87EEFF',
+      flash: 0.45,
+    });
+    state.nextEnemyId += 1;
+  }
+
+  return children;
+}
+
+function createEnemyDefeatEffect(nextState: PrototypeGameState, enemy: PrototypeEnemy, colorOverride?: string) {
+  const effectColor = colorOverride ?? enemy.color;
+  const queuedEffects: PrototypeEffect[] = [
+    createPrototypeEffect(
+      'burst',
+      enemy.x,
+      enemy.y,
+      enemy.archetype === 'tank' ? enemy.size * 1.38 : enemy.size * 1.2,
+      effectColor,
+      nextState.nextEffectId
+    ),
+  ];
+  nextState.nextEffectId += 1;
+
+  if (enemy.archetype === 'tank') {
+    queuedEffects.push(createPrototypeEffect('pickup', enemy.x, enemy.y, enemy.size * 1.18, '#FFE4B8', nextState.nextEffectId));
+    nextState.nextEffectId += 1;
+  } else if (enemy.archetype === 'splitter') {
+    queuedEffects.push(
+      createPrototypeEffect('burst', enemy.x - enemy.size * 0.16, enemy.y, enemy.size * 0.78, '#FFD6EA', nextState.nextEffectId)
+    );
+    nextState.nextEffectId += 1;
+    queuedEffects.push(
+      createPrototypeEffect('burst', enemy.x + enemy.size * 0.16, enemy.y, enemy.size * 0.78, '#FFD6EA', nextState.nextEffectId)
+    );
+    nextState.nextEffectId += 1;
+  } else if (enemy.archetype === 'boss') {
+    queuedEffects.push(createPrototypeEffect('pickup', enemy.x, enemy.y, enemy.size * 1.34, '#FFF1C2', nextState.nextEffectId));
+    nextState.nextEffectId += 1;
+    queuedEffects.push(createPrototypeEffect('ultimate', enemy.x, enemy.y, enemy.size * 1.9, effectColor, nextState.nextEffectId));
+    nextState.nextEffectId += 1;
+  }
+
+  nextState.effects = trimEffects([...nextState.effects, ...queuedEffects]);
+}
+
 function getPlayerShipTop(boardHeight: number) {
   return Math.max(0, boardHeight - PLAYER_HEIGHT - PLAYER_FLOOR_OFFSET);
 }
@@ -469,6 +1029,13 @@ function createInitialState(boardWidth: number, boardHeight: number): PrototypeG
     pickupTimer: 3.5,
     collectedUpgradeCount: 0,
     revealedUpgradeTypes: [],
+    activeEncounter: null,
+    lastProcessedDisplayTier: 1,
+    bossEscortCooldown: 2.8,
+    buildProtocol: null,
+    buildProtocolLevel: 0,
+    pendingArmoryChoice: null,
+    ultimateCharge: 0,
   };
 }
 
@@ -539,7 +1106,8 @@ function createPrototypeEffect(
   color: string,
   nextEffectId: number
 ): PrototypeEffect {
-  const duration = kind === 'muzzle' ? 0.12 : kind === 'pickup' ? 0.42 : kind === 'bombard' ? 0.52 : 0.28;
+  const duration =
+    kind === 'muzzle' ? 0.12 : kind === 'pickup' ? 0.42 : kind === 'bombard' ? 0.52 : kind === 'ultimate' ? 0.64 : 0.28;
   return {
     id: `FX${nextEffectId}`,
     kind,
@@ -561,7 +1129,8 @@ function getBombardDamage(state: PrototypeGameState, enemy: PrototypeEnemy) {
 }
 
 function triggerBombardment(state: PrototypeGameState, boardWidth: number, boardHeight: number) {
-  const queuedEffects = [...state.effects];
+  const queuedEffects: PrototypeEffect[] = [];
+  const spawnedEnemies: PrototypeEnemy[] = [];
   const strikeCount = Math.min(6, Math.max(4, Math.round(boardWidth / 96)));
 
   for (let index = 0; index < strikeCount; index += 1) {
@@ -594,14 +1163,15 @@ function triggerBombardment(state: PrototypeGameState, boardWidth: number, board
       continue;
     }
 
+    const previousEnemyHealth = enemy.health;
     const damage = getBombardDamage(state, enemy);
     enemy.health = Math.max(0, Math.round(enemy.health - damage));
     enemy.flash = 1;
 
+    updateBossPhaseAfterDamage(state, enemy, previousEnemyHealth);
+
     if (enemy.health <= 0) {
-      state.score += enemy.maxHealth * 10;
-      queuedEffects.push(createPrototypeEffect('burst', enemy.x, enemy.y, enemy.size * 1.32, '#FFD39B', state.nextEffectId));
-      state.nextEffectId += 1;
+      spawnedEnemies.push(...resolveEnemyDefeat(state, enemy, boardWidth, false));
       continue;
     }
 
@@ -612,16 +1182,21 @@ function triggerBombardment(state: PrototypeGameState, boardWidth: number, board
     activeIndex += 1;
   }
 
-  state.enemies = state.enemies.filter((enemy) => enemy.health > 0);
-  state.effects = trimEffects(queuedEffects);
+  state.enemies = [
+    ...state.enemies.filter((enemy) => enemy.health > 0),
+    ...spawnedEnemies,
+  ];
+  state.effects = trimEffects([...state.effects, ...queuedEffects]);
 }
 
-function getMissileVolleyCooldown(weapon: PrototypeWeapon) {
-  return Math.max(0.78, 2.35 - weapon.missileLevel * 0.42 - weapon.effectIntensity * 0.1);
+function getMissileVolleyCooldown(weapon: PrototypeWeapon, state: PrototypeGameState) {
+  const support = getBuildProtocolSupport(state);
+  return Math.max(0.72, (2.35 - weapon.missileLevel * 0.42 - weapon.effectIntensity * 0.1) * support.missileCooldownMultiplier);
 }
 
-function getShatterVolleyCooldown(weapon: PrototypeWeapon) {
-  return Math.max(1.05, 2.75 - weapon.shatterLevel * 0.38 - weapon.effectIntensity * 0.1);
+function getShatterVolleyCooldown(weapon: PrototypeWeapon, state: PrototypeGameState) {
+  const support = getBuildProtocolSupport(state);
+  return Math.max(0.92, (2.75 - weapon.shatterLevel * 0.38 - weapon.effectIntensity * 0.1) * support.shatterCooldownMultiplier);
 }
 
 function createMissileVolley(
@@ -631,13 +1206,15 @@ function createMissileVolley(
   launchPoints: { x: number; y: number; color: string; size: number }[];
 } {
   const weapon = getActiveWeapon(state);
+  const support = getBuildProtocolSupport(state);
   const bullets = [...state.bullets];
   let nextBulletId = state.nextBulletId;
   const muzzleY = boardHeight - PLAYER_HEIGHT - 14;
-  const slots = weapon.missileLevel >= 2 ? [-1.5, -0.5, 0.5, 1.5] : [-1, 1];
+  const shouldUseFourMissiles = weapon.missileLevel >= 2 || support.missileCountFloor >= 4;
+  const slots = shouldUseFourMissiles ? [-1.5, -0.5, 0.5, 1.5] : [-1, 1];
   const launchPoints: { x: number; y: number; color: string; size: number }[] = [];
   const missileSpeed = Math.min(980, weapon.bulletSpeed * 0.82 + 120 + weapon.missileLevel * 42);
-  const missileDamage = weapon.damage + 2 + weapon.missileLevel * 2;
+  const missileDamage = weapon.damage + 2 + weapon.missileLevel * 2 + support.missileDamageBonus;
   const missileSize = weapon.bulletSize + 3.2;
   const slotSpacing = slots.length === 4 ? 13 : 18;
 
@@ -666,7 +1243,7 @@ function createMissileVolley(
       trailScale: Math.max(1.45, weapon.trailScale + 0.38),
       curveDirection,
       launchDuration: 0.38 + curveStrength * 0.08 + Math.random() * 0.04,
-      turnRate: 0.42 + weapon.missileLevel * 0.12 + curveStrength * 0.04,
+      turnRate: 0.42 + weapon.missileLevel * 0.12 + curveStrength * 0.04 + support.missileTurnBonus,
       maxAge: null,
       burstAge: null,
       fragmentCount: 0,
@@ -683,7 +1260,7 @@ function createMissileVolley(
   return {
     bullets,
     nextBulletId,
-    missileCooldown: getMissileVolleyCooldown(weapon),
+    missileCooldown: getMissileVolleyCooldown(weapon, state),
     launchPoints,
   };
 }
@@ -695,6 +1272,7 @@ function createShatterVolley(
   launchPoint: { x: number; y: number; color: string; size: number };
 } {
   const weapon = getActiveWeapon(state);
+  const support = getBuildProtocolSupport(state);
   const bullets = [...state.bullets];
   let nextBulletId = state.nextBulletId;
   const muzzleY = boardHeight - PLAYER_HEIGHT - 20;
@@ -718,7 +1296,7 @@ function createShatterVolley(
     speed: shellSpeed,
     vx: Math.sin(angle) * shellSpeed * 0.42,
     vy: -Math.cos(angle) * shellSpeed,
-    damage: weapon.damage + 2 + weapon.shatterLevel,
+    damage: weapon.damage + 2 + weapon.shatterLevel + support.shatterDamageBonus,
     size: shellSize,
     pierce: 0,
     age: 0,
@@ -732,14 +1310,14 @@ function createShatterVolley(
     turnRate: 0,
     maxAge: 0.72 + weapon.shatterLevel * 0.05,
     burstAge: 0.34 - weapon.shatterLevel * 0.02,
-    fragmentCount: 4 + weapon.shatterLevel,
+    fragmentCount: 4 + weapon.shatterLevel + support.shatterFragmentBonus,
   });
   nextBulletId += 1;
 
   return {
     bullets,
     nextBulletId,
-    shatterCooldown: getShatterVolleyCooldown(weapon),
+    shatterCooldown: getShatterVolleyCooldown(weapon, state),
     launchPoint: {
       x: state.playerX,
       y: muzzleY,
@@ -886,7 +1464,246 @@ function getSpawnLanes(boardWidth: number) {
   return Array.from({ length: laneCount }, (_, index) => ((index + 0.5) * boardWidth) / laneCount);
 }
 
-function buildEnemySpawnDrafts(state: PrototypeGameState, boardWidth: number) {
+function createBossEnemy(
+  state: PrototypeGameState,
+  boardWidth: number,
+  displayTier: number
+): Pick<PrototypeGameState, 'enemies' | 'nextEnemyId'> {
+  const difficultyTier = Math.max(0, displayTier - 1);
+  const variant: BossVariant = displayTier % 10 === 0 ? 'bulwark' : 'prism';
+  const timePressureMultiplier = getTimePressureMultiplier(difficultyTier);
+  const upgradePressureMultiplier = 1 + Math.min(1.7, state.collectedUpgradeCount * 0.085);
+  const maxHealth = Math.max(
+    260,
+    Math.round((84 + difficultyTier * 18) * timePressureMultiplier * upgradePressureMultiplier * 2.65)
+  );
+  const size = clamp(76 + difficultyTier * 2.1 + Math.sqrt(maxHealth) * 0.52, 94, 148);
+  const healthSpeedPenalty = getHealthSpeedPenalty(maxHealth);
+  const speed = Math.max(
+    7,
+    (24 + difficultyTier * 1.8) * getUpgradeSpeedPenalty(state.collectedUpgradeCount) * healthSpeedPenalty * 0.92
+  );
+  const shape: EnemyShape = variant === 'bulwark' ? 'square' : 'diamond';
+  const color = variant === 'bulwark' ? '#FFD36B' : '#FF80C6';
+  const boss: PrototypeEnemy = {
+    id: `E${state.nextEnemyId}`,
+    x: boardWidth / 2,
+    y: -size * 0.92,
+    size,
+    speed,
+    health: maxHealth,
+    maxHealth,
+    shape,
+    archetype: 'boss',
+    bossVariant: variant,
+    bossPhase: 1,
+    rewardMultiplier: 5.8,
+    splitGeneration: 0,
+    color,
+    flash: 0,
+  };
+
+  return {
+    enemies: [...state.enemies, boss],
+    nextEnemyId: state.nextEnemyId + 1,
+  };
+}
+
+function buildEncounterSpawnDrafts(
+  state: PrototypeGameState,
+  boardWidth: number,
+  encounter: PrototypeEncounter
+): { cooldown: number; drafts: EnemySpawnDraft[] } {
+  const lanes = getSpawnLanes(boardWidth);
+  const centerLane = Math.floor(Math.random() * lanes.length);
+  const activeEnemyCount = state.enemies.length;
+
+  if (activeEnemyCount >= 12) {
+    return {
+      cooldown: 1.3 + Math.min(0.6, (activeEnemyCount - 12) * 0.08),
+      drafts: [] as EnemySpawnDraft[],
+    };
+  }
+
+  switch (encounter.type) {
+    case 'swarmRush': {
+      const drafts: EnemySpawnDraft[] = [
+        {
+          x: lanes[centerLane],
+          archetype: 'swarm',
+          sizeMultiplier: 0.84,
+          healthMultiplier: 0.74,
+          speedMultiplier: 1.18,
+        },
+      ];
+      if (activeEnemyCount <= 8) {
+        const leftLane = Math.max(0, centerLane - 1);
+        const rightLane = Math.min(lanes.length - 1, centerLane + 1);
+        if (leftLane !== centerLane) {
+          drafts.push({
+            x: lanes[leftLane],
+            archetype: 'swarm',
+            sizeMultiplier: 0.8,
+            healthMultiplier: 0.7,
+            speedMultiplier: 1.22,
+          });
+        }
+        if (rightLane !== centerLane && activeEnemyCount <= 6) {
+          drafts.push({
+            x: lanes[rightLane],
+            archetype: 'swarm',
+            sizeMultiplier: 0.8,
+            healthMultiplier: 0.7,
+            speedMultiplier: 1.22,
+          });
+        }
+      }
+      return {
+        cooldown: 3.25 + activeEnemyCount * 0.08,
+        drafts,
+      };
+    }
+    case 'fortressLine': {
+      const drafts: EnemySpawnDraft[] = [
+        {
+          x: lanes[centerLane],
+          archetype: 'tank',
+          shape: 'square',
+          color: '#FFBE73',
+          sizeMultiplier: 1.08,
+          healthMultiplier: 1.16,
+          speedMultiplier: 0.88,
+        },
+      ];
+      if (activeEnemyCount <= 7) {
+        const flankLane = centerLane <= 2 ? centerLane + 2 : centerLane - 2;
+        drafts.push({
+          x: lanes[clamp(flankLane, 0, lanes.length - 1)],
+          shape: 'diamond',
+          color: '#FF89B8',
+          sizeMultiplier: 0.96,
+          healthMultiplier: 0.92,
+          speedMultiplier: 0.94,
+        });
+      }
+      return {
+        cooldown: 4.8 + activeEnemyCount * 0.08,
+        drafts,
+      };
+    }
+    case 'splitterStorm': {
+      const drafts: EnemySpawnDraft[] = [
+        {
+          x: lanes[centerLane],
+          archetype: 'splitter',
+          shape: 'diamond',
+          color: '#FF8CBC',
+          sizeMultiplier: 1.04,
+          healthMultiplier: 0.96,
+          speedMultiplier: 0.9,
+        },
+      ];
+      if (activeEnemyCount <= 8) {
+        const sideLane = centerLane <= 1 ? centerLane + 1 : centerLane >= lanes.length - 2 ? centerLane - 1 : centerLane + (Math.random() < 0.5 ? -1 : 1);
+        drafts.push({
+          x: lanes[sideLane],
+          archetype: 'swarm',
+          sizeMultiplier: 0.82,
+          healthMultiplier: 0.76,
+          speedMultiplier: 1.16,
+        });
+      }
+      return {
+        cooldown: 4.15 + activeEnemyCount * 0.06,
+        drafts,
+      };
+    }
+    case 'salvageDrift':
+      return {
+        cooldown: 5 + activeEnemyCount * 0.08,
+        drafts: [
+          {
+            x: lanes[centerLane],
+            shape: 'circle',
+            color: '#8FD5FF',
+            sizeMultiplier: 0.94,
+            healthMultiplier: 0.88,
+            speedMultiplier: 0.86,
+          },
+        ],
+      };
+    case 'boss':
+      return {
+        cooldown: 2.4,
+        drafts: [],
+      };
+  }
+}
+
+function buildBossEscortDrafts(
+  state: PrototypeGameState,
+  boardWidth: number,
+  boss: PrototypeEnemy
+): { cooldown: number; drafts: EnemySpawnDraft[] } {
+  const activeEnemyCount = state.enemies.filter((enemy) => enemy.health > 0 && enemy.id !== boss.id).length;
+  if (activeEnemyCount >= 6) {
+    return {
+      cooldown: 1.6 + Math.min(0.7, (activeEnemyCount - 6) * 0.12),
+      drafts: [] as EnemySpawnDraft[],
+    };
+  }
+
+  const lanes = getSpawnLanes(boardWidth);
+  const phase = Math.max(1, boss.bossPhase || getBossPhaseForHealth(boss));
+  const leftLane = lanes[1];
+  const rightLane = lanes[lanes.length - 2];
+  const preferRight = boss.x <= boardWidth / 2;
+  const primaryLane = preferRight ? rightLane : leftLane;
+  const secondaryLane = preferRight ? leftLane : rightLane;
+  const drafts: EnemySpawnDraft[] = [
+    {
+      x: primaryLane,
+      archetype: 'swarm',
+      sizeMultiplier: 0.82,
+      healthMultiplier: 0.74,
+      speedMultiplier: 1.18,
+    },
+  ];
+
+  if (phase >= 2 && activeEnemyCount <= 4) {
+    drafts.push({
+      x: secondaryLane,
+      archetype: phase >= 3 ? 'splitter' : 'standard',
+      shape: phase >= 3 ? 'diamond' : 'circle',
+      color: phase >= 3 ? '#FF8CBD' : '#7BEAFF',
+      sizeMultiplier: phase >= 3 ? 0.92 : 0.84,
+      healthMultiplier: phase >= 3 ? 0.88 : 0.72,
+      speedMultiplier: phase >= 3 ? 0.96 : 1.16,
+    });
+  }
+
+  return {
+    cooldown: 3.45 - phase * 0.28 + activeEnemyCount * 0.1,
+    drafts,
+  };
+}
+
+function buildEnemySpawnDrafts(
+  state: PrototypeGameState,
+  boardWidth: number
+): { cooldown: number; drafts: EnemySpawnDraft[] } {
+  const activeBoss = getActiveBossEnemy(state.enemies);
+  if (activeBoss) {
+    return {
+      cooldown: 1.4,
+      drafts: [] as EnemySpawnDraft[],
+    };
+  }
+
+  if (state.activeEncounter && state.activeEncounter.type !== 'boss') {
+    return buildEncounterSpawnDrafts(state, boardWidth, state.activeEncounter);
+  }
+
   const difficultyTier = getDifficultyTier(state.elapsed);
   const isCrowdClampTier = difficultyTier >= 13;
   const isLateCrowdClampTier = difficultyTier >= 16;
@@ -912,11 +1729,15 @@ function buildEnemySpawnDrafts(state: PrototypeGameState, boardWidth: number) {
     : isCrowdClampTier
       ? Math.min(0.05, 0.01 + (difficultyTier - 13) * 0.004)
       : Math.min(0.08, 0.01 + difficultyTier * 0.008);
+  const tankSpawnChance = difficultyTier >= 6 ? (isLateCrowdClampTier ? 0.18 : isCrowdClampTier ? 0.24 : 0.28) : 0;
+  const splitterSpawnChance =
+    difficultyTier >= 9 && activeEnemyCount <= 12 ? (isCrowdClampTier ? 0.08 : 0.12 + Math.min(0.05, (difficultyTier - 9) * 0.008)) : 0;
 
   if (difficultyTier >= 6 && Math.random() < sideSpawnChance) {
     const sideOffset = centerLane <= 1 ? 1 : centerLane >= lanes.length - 2 ? -1 : Math.random() < 0.5 ? -1 : 1;
     drafts.push({
       x: lanes[centerLane + sideOffset],
+      archetype: 'swarm',
       sizeMultiplier: 0.88,
       healthMultiplier: 0.8,
       speedMultiplier: 1.04,
@@ -928,6 +1749,7 @@ function buildEnemySpawnDrafts(state: PrototypeGameState, boardWidth: number) {
     const leftLane = Math.max(0, centerLane - 1);
     const rightLane = Math.min(lanes.length - 1, centerLane + 1);
     const flankDraft = {
+      archetype: 'swarm' as const,
       sizeMultiplier: 0.86,
       healthMultiplier: 0.78,
       speedMultiplier: 1.12,
@@ -957,6 +1779,32 @@ function buildEnemySpawnDrafts(state: PrototypeGameState, boardWidth: number) {
       }
     }
     cooldown += isCrowdClampTier ? 0.72 : 0.56;
+  }
+
+  if (drafts.length > 0) {
+    if (Math.random() < splitterSpawnChance) {
+      drafts[0] = {
+        ...drafts[0],
+        archetype: 'splitter',
+        shape: drafts[0].shape ?? 'diamond',
+        color: drafts[0].color ?? '#FF83B7',
+        sizeMultiplier: (drafts[0].sizeMultiplier ?? 1) * 1.02,
+        healthMultiplier: (drafts[0].healthMultiplier ?? 1) * 0.94,
+        speedMultiplier: (drafts[0].speedMultiplier ?? 1) * 0.92,
+      };
+      cooldown += 0.22;
+    } else if (Math.random() < tankSpawnChance) {
+      drafts[0] = {
+        ...drafts[0],
+        archetype: 'tank',
+        shape: drafts[0].shape ?? 'square',
+        color: drafts[0].color ?? '#FFBA74',
+        sizeMultiplier: (drafts[0].sizeMultiplier ?? 1) * 1.1,
+        healthMultiplier: (drafts[0].healthMultiplier ?? 1) * 1.14,
+        speedMultiplier: (drafts[0].speedMultiplier ?? 1) * 0.88,
+      };
+      cooldown += 0.16;
+    }
   }
 
   if (difficultyTier >= 8 && Math.random() < eliteSpawnChance) {
@@ -994,13 +1842,15 @@ function createEnemy(
   draft?: EnemySpawnDraft
 ): Pick<PrototypeGameState, 'enemies' | 'nextEnemyId'> {
   const difficultyTier = getDifficultyTier(state.elapsed);
-  const sizeMultiplier = draft?.sizeMultiplier ?? 1;
-  const healthMultiplier = draft?.healthMultiplier ?? 1;
-  const speedMultiplier = draft?.speedMultiplier ?? 1;
+  const archetype = draft?.archetype ?? 'standard';
+  const archetypeSettings = ENEMY_ARCHETYPE_SETTINGS[archetype];
+  const sizeMultiplier = (draft?.sizeMultiplier ?? 1) * archetypeSettings.sizeMultiplier;
+  const healthMultiplier = (draft?.healthMultiplier ?? 1) * archetypeSettings.healthMultiplier;
+  const speedMultiplier = (draft?.speedMultiplier ?? 1) * archetypeSettings.speedMultiplier;
   const baseSize = clamp((28 + difficultyTier * 1.2 + Math.random() * 12) * sizeMultiplier, 28, 74);
   const shapePool: EnemyShape[] =
     difficultyTier >= 7 ? ['circle', 'square', 'diamond'] : difficultyTier >= 4 ? ['circle', 'square'] : ['circle'];
-  const shape = draft?.shape ?? randomChoice(shapePool);
+  const shape = draft?.shape ?? archetypeSettings.defaultShape ?? randomChoice(shapePool);
   const timePressureMultiplier = getTimePressureMultiplier(difficultyTier);
   const upgradePressureMultiplier = getUpgradePressureMultiplier(state.collectedUpgradeCount);
   const upgradeSpeedPenalty = getUpgradeSpeedPenalty(state.collectedUpgradeCount);
@@ -1030,7 +1880,12 @@ function createEnemy(
     health: maxHealth,
     maxHealth,
     shape,
-    color: draft?.color ?? randomChoice(ENEMY_PALETTE),
+    archetype,
+    bossVariant: null,
+    bossPhase: 0,
+    rewardMultiplier: (draft?.rewardMultiplier ?? 1) * archetypeSettings.rewardMultiplier,
+    splitGeneration: draft?.splitGeneration ?? 0,
+    color: draft?.color ?? archetypeSettings.defaultColor ?? randomChoice(ENEMY_PALETTE),
     flash: 0,
   };
 
@@ -1121,6 +1976,219 @@ function hitTestUpgradePickup(playerX: number, boardHeight: number, upgrade: Pro
   return dx * dx + dy * dy <= pickupRadius * pickupRadius;
 }
 
+function applyEncounterTransition(state: PrototypeGameState, displayTier: number) {
+  if (getActiveBossEnemy(state.enemies)) {
+    return;
+  }
+
+  if (displayTier % BOSS_TIER_INTERVAL === 0) {
+    state.activeEncounter = createEncounter('boss', displayTier, state.elapsed);
+    state.enemyCooldown = Math.min(state.enemyCooldown, 0.18);
+    state.bossEscortCooldown = 2.4;
+    state.pickupMessage = `Boss contact incoming at T${displayTier}`;
+    state.pickupTimer = 2.3;
+    return;
+  }
+
+  if (shouldStartTierEvent(displayTier)) {
+    const encounter = createEncounter(getTierEncounterType(displayTier), displayTier, state.elapsed);
+    state.activeEncounter = encounter;
+    state.enemyCooldown = Math.min(state.enemyCooldown, 0.72);
+    state.pickupMessage = `${encounter.label} engaged`;
+    state.pickupTimer = 1.9;
+    if (encounter.type === 'salvageDrift') {
+      state.upgradeCooldown = Math.min(state.upgradeCooldown, 2.2);
+    }
+    return;
+  }
+}
+
+function resolveEnemyDefeat(
+  nextState: PrototypeGameState,
+  enemy: PrototypeEnemy,
+  boardWidth: number,
+  shouldGrantUltimateCharge = true
+) {
+  nextState.score += getEnemyReward(enemy);
+  if (shouldGrantUltimateCharge) {
+    addUltimateCharge(nextState, getUltimateKillCharge(enemy));
+  }
+  createEnemyDefeatEffect(
+    nextState,
+    enemy,
+    enemy.archetype === 'boss' ? (enemy.bossVariant === 'bulwark' ? '#FFE3A0' : '#FFC1E5') : undefined
+  );
+
+  const spawnedEnemies = createSplitterChildren(nextState, enemy, boardWidth);
+
+  if (enemy.archetype === 'boss' && enemy.bossVariant) {
+    const sourceDisplayTier = nextState.activeEncounter?.displayTier ?? getDisplayTier(nextState.elapsed);
+    const rewardEffectSize = enemy.size * 1.62;
+    nextState.effects = trimEffects([
+      ...nextState.effects,
+      createPrototypeEffect('pickup', enemy.x, enemy.y, rewardEffectSize, enemy.color, nextState.nextEffectId),
+    ]);
+    nextState.nextEffectId += 1;
+    nextState.activeEncounter = null;
+    nextState.bossEscortCooldown = 2.8;
+    nextState.pickupMessage = `${getBossLabel(enemy.bossVariant)} destroyed`;
+    nextState.pickupTimer = 2.8;
+    nextState.pendingArmoryChoice = createArmoryChoice(nextState, sourceDisplayTier);
+  }
+
+  return spawnedEnemies;
+}
+
+function updateBossPhaseAfterDamage(
+  state: PrototypeGameState,
+  enemy: PrototypeEnemy,
+  previousEnemyHealth: number
+) {
+  if (enemy.archetype !== 'boss' || enemy.health <= 0) {
+    return;
+  }
+
+  const previousBossPhase = enemy.bossPhase || getBossPhaseForHealth({ ...enemy, health: previousEnemyHealth });
+  const nextBossPhase = getBossPhaseForHealth(enemy);
+  enemy.bossPhase = nextBossPhase;
+  if (nextBossPhase > previousBossPhase) {
+    enemy.speed *= 1.06;
+    state.bossEscortCooldown = Math.min(state.bossEscortCooldown, 0.45);
+    state.pickupMessage = `${getBossLabel(enemy.bossVariant ?? 'prism')} phase ${nextBossPhase}`;
+    state.pickupTimer = 1.6;
+    state.effects = trimEffects([
+      ...state.effects,
+      createPrototypeEffect('pickup', enemy.x, enemy.y, enemy.size * 1.15, enemy.color, state.nextEffectId),
+    ]);
+    state.nextEffectId += 1;
+  }
+}
+
+function triggerUltimate(state: PrototypeGameState, boardWidth: number, boardHeight: number) {
+  if (state.ultimateCharge < MAX_ULTIMATE_CHARGE) {
+    return;
+  }
+
+  const activeEnemies = state.enemies.filter((enemy) => enemy.health > 0);
+  if (activeEnemies.length === 0) {
+    return;
+  }
+
+  const definition = getUltimateDefinition(state);
+  const weapon = getActiveWeapon(state);
+  const protocolLevel = Math.max(1, state.buildProtocolLevel || 1);
+  const shipEffectY = getPlayerShipTop(boardHeight) + PLAYER_HEIGHT * 0.28;
+  const threatTargets = [...activeEnemies].sort((left, right) => {
+    const threatDelta = right.y - left.y;
+    if (Math.abs(threatDelta) > 6) {
+      return threatDelta;
+    }
+    return right.maxHealth - left.maxHealth;
+  });
+  const spawnedEnemies: PrototypeEnemy[] = [];
+
+  state.ultimateCharge = 0;
+  state.pickupMessage = `${definition.label} engaged`;
+  state.pickupTimer = 2.2;
+  state.effects = trimEffects([
+    ...state.effects,
+    createPrototypeEffect('ultimate', state.playerX, shipEffectY, Math.max(boardWidth, boardHeight) * 0.78, definition.color, state.nextEffectId),
+  ]);
+  state.nextEffectId += 1;
+
+  const applyUltimateDamage = (enemy: PrototypeEnemy, damage: number, effectColor: string) => {
+    const previousEnemyHealth = enemy.health;
+    enemy.health = Math.max(0, Math.round(enemy.health - damage));
+    enemy.flash = 1;
+    updateBossPhaseAfterDamage(state, enemy, previousEnemyHealth);
+
+    if (enemy.health <= 0) {
+      spawnedEnemies.push(...resolveEnemyDefeat(state, enemy, boardWidth, false));
+      return;
+    }
+
+    state.effects = trimEffects([
+      ...state.effects,
+      createPrototypeEffect('burst', enemy.x, enemy.y, enemy.size * 1.02, effectColor, state.nextEffectId),
+    ]);
+    state.nextEffectId += 1;
+  };
+
+  switch (state.buildProtocol) {
+    case 'railFocus': {
+      const targetCount = Math.min(6, 4 + protocolLevel);
+      for (const enemy of threatTargets.slice(0, targetCount)) {
+        state.effects = trimEffects([
+          ...state.effects,
+          createPrototypeEffect('bombard', enemy.x, boardHeight * 0.48, boardHeight * 0.92, definition.color, state.nextEffectId),
+        ]);
+        state.nextEffectId += 1;
+        applyUltimateDamage(
+          enemy,
+          Math.max(96 + weapon.damage * 16 + protocolLevel * 24, enemy.maxHealth * (0.26 + protocolLevel * 0.06)),
+          '#FFD4F7'
+        );
+      }
+      break;
+    }
+    case 'novaBloom': {
+      for (const enemy of activeEnemies) {
+        const proximityToBottom = clamp(enemy.y / Math.max(1, boardHeight), 0.12, 1);
+        const intensity = 0.74 + proximityToBottom * 0.5;
+        applyUltimateDamage(
+          enemy,
+          Math.max(40 + weapon.damage * 12 + protocolLevel * 12, enemy.maxHealth * (0.16 + protocolLevel * 0.035)) * intensity,
+          '#FFD79A'
+        );
+      }
+      break;
+    }
+    case 'missileCommand': {
+      const targetCount = Math.min(8, 5 + protocolLevel);
+      for (const enemy of threatTargets.slice(0, targetCount)) {
+        state.effects = trimEffects([
+          ...state.effects,
+          createPrototypeEffect('bombard', enemy.x, boardHeight * 0.48, boardHeight * 0.96, definition.color, state.nextEffectId),
+        ]);
+        state.nextEffectId += 1;
+        applyUltimateDamage(
+          enemy,
+          Math.max(74 + weapon.damage * 13 + protocolLevel * 18, enemy.maxHealth * (0.22 + protocolLevel * 0.05)),
+          '#FFC7BF'
+        );
+      }
+      break;
+    }
+    case 'fractureCore': {
+      const focusedTargets = threatTargets.slice(0, Math.min(4, 2 + protocolLevel));
+      for (const enemy of activeEnemies) {
+        const isFocused = focusedTargets.includes(enemy);
+        const baseDamage = Math.max(34 + weapon.damage * 10 + protocolLevel * 10, enemy.maxHealth * (0.14 + protocolLevel * 0.03));
+        const bonusDamage = isFocused
+          ? Math.max(22 + protocolLevel * 10, enemy.maxHealth * (0.11 + protocolLevel * 0.025))
+          : 0;
+        applyUltimateDamage(enemy, baseDamage + bonusDamage, '#FFE0B6');
+      }
+      break;
+    }
+    default: {
+      for (const enemy of activeEnemies) {
+        applyUltimateDamage(
+          enemy,
+          Math.max(32 + weapon.damage * 9 + protocolLevel * 8, enemy.maxHealth * 0.14),
+          '#C5F3FF'
+        );
+      }
+      break;
+    }
+  }
+
+  state.enemies = [
+    ...state.enemies.filter((enemy) => enemy.health > 0),
+    ...spawnedEnemies,
+  ];
+}
+
 function tickPrototypeState(
   previousState: PrototypeGameState,
   deltaSeconds: number,
@@ -1155,6 +2223,7 @@ function tickPrototypeState(
     shatterCooldown: previousState.shatterCooldown - deltaSeconds,
     chaosTimer: Math.max(0, previousState.chaosTimer - deltaSeconds),
     enemyCooldown: previousState.enemyCooldown - deltaSeconds,
+    bossEscortCooldown: previousState.bossEscortCooldown - deltaSeconds,
     upgradeCooldown:
       shouldForceUpgradeRevealFromPreviousState || previousState.upgrades.length < 2
         ? previousState.upgradeCooldown - deltaSeconds
@@ -1164,6 +2233,23 @@ function tickPrototypeState(
 
   if (nextState.pickupTimer <= 0) {
     nextState.pickupMessage = null;
+  }
+
+  if (
+    nextState.activeEncounter &&
+    nextState.activeEncounter.type !== 'boss' &&
+    nextState.activeEncounter.endsAt !== null &&
+    nextState.elapsed >= nextState.activeEncounter.endsAt
+  ) {
+    nextState.activeEncounter = null;
+  }
+
+  const currentDisplayTier = getDisplayTier(nextState.elapsed);
+  if (currentDisplayTier > previousState.lastProcessedDisplayTier) {
+    for (let displayTier = previousState.lastProcessedDisplayTier + 1; displayTier <= currentDisplayTier; displayTier += 1) {
+      applyEncounterTransition(nextState, displayTier);
+    }
+    nextState.lastProcessedDisplayTier = currentDisplayTier;
   }
 
   while (nextState.fireCooldown <= 0) {
@@ -1248,6 +2334,39 @@ function tickPrototypeState(
     }
   }
 
+  if (nextState.activeEncounter?.type === 'boss' && !getActiveBossEnemy(nextState.enemies)) {
+    const bossSpawn = createBossEnemy(nextState, boardWidth, nextState.activeEncounter.displayTier);
+    nextState.enemies = bossSpawn.enemies;
+    nextState.nextEnemyId = bossSpawn.nextEnemyId;
+    nextState.enemyCooldown = Math.max(nextState.enemyCooldown, 2.4);
+    nextState.bossEscortCooldown = Math.max(nextState.bossEscortCooldown, 2.8);
+    nextState.effects = trimEffects([
+      ...nextState.effects,
+      createPrototypeEffect(
+        'pickup',
+        boardWidth / 2,
+        boardHeight * 0.18,
+        118,
+        nextState.activeEncounter.accentColor,
+        nextState.nextEffectId
+      ),
+    ]);
+    nextState.nextEffectId += 1;
+  }
+
+  const activeBoss = getActiveBossEnemy(nextState.enemies);
+  if (activeBoss) {
+    while (nextState.bossEscortCooldown <= 0) {
+      const escortGroup = buildBossEscortDrafts(nextState, boardWidth, activeBoss);
+      for (const draft of escortGroup.drafts) {
+        const spawn = createEnemy(nextState, boardWidth, draft);
+        nextState.enemies = spawn.enemies;
+        nextState.nextEnemyId = spawn.nextEnemyId;
+      }
+      nextState.bossEscortCooldown += escortGroup.cooldown;
+    }
+  }
+
   while (nextState.enemyCooldown <= 0) {
     const spawnGroup = buildEnemySpawnDrafts(nextState, boardWidth);
     for (const draft of spawnGroup.drafts) {
@@ -1281,6 +2400,7 @@ function tickPrototypeState(
 
   const survivingBullets: PrototypeBullet[] = [];
   const survivingEnemies = [...nextState.enemies];
+  const spawnedEnemies: PrototypeEnemy[] = [];
 
   for (const bullet of nextState.bullets) {
     let activeBullet: PrototypeBullet | null = bullet;
@@ -1312,16 +2432,16 @@ function tickPrototypeState(
         continue;
       }
 
+      const previousEnemyHealth = enemy.health;
       enemy.health = Math.max(0, enemy.health - activeBullet.damage);
+      const dealtDamage = previousEnemyHealth - enemy.health;
       enemy.flash = 1;
+      addUltimateCharge(nextState, getUltimateHitCharge(enemy, dealtDamage));
+
+      updateBossPhaseAfterDamage(nextState, enemy, previousEnemyHealth);
 
       if (enemy.health <= 0) {
-        nextState.score += enemy.maxHealth * 10;
-        nextState.effects = trimEffects([
-          ...nextState.effects,
-          createPrototypeEffect('burst', enemy.x, enemy.y, enemy.size * 1.2, enemy.color, nextState.nextEffectId),
-        ]);
-        nextState.nextEffectId += 1;
+        spawnedEnemies.push(...resolveEnemyDefeat(nextState, enemy, boardWidth));
       }
 
       if (activeBullet.kind === 'shatterShell') {
@@ -1346,7 +2466,12 @@ function tickPrototypeState(
   }
 
   nextState.bullets = survivingBullets;
-  nextState.enemies = survivingEnemies.filter((enemy) => enemy.health > 0 && enemy.y - enemy.size / 2 < boardHeight + 30);
+  nextState.enemies = [
+    ...survivingEnemies.filter(
+      (enemy) => enemy.health > 0 && enemy.y - enemy.size / 2 < boardHeight + 30
+    ),
+    ...spawnedEnemies,
+  ];
   const remainingUpgrades: PrototypeUpgrade[] = [];
   for (const upgrade of nextState.upgrades) {
     if (upgrade.y - upgrade.size / 2 >= boardHeight + 12) {
@@ -1410,8 +2535,12 @@ function tickPrototypeState(
 function EnemyNode({ enemy }: { enemy: PrototypeEnemy }) {
   const isCircle = enemy.shape === 'circle';
   const isDiamond = enemy.shape === 'diamond';
+  const isBoss = enemy.archetype === 'boss';
+  const showAura = isBoss || enemy.archetype === 'tank' || enemy.archetype === 'splitter';
   const size = enemy.size;
   const flashScale = enemy.flash > 0 ? 1.06 : 1;
+  const healthLabel = formatCompactHealth(enemy.health);
+  const isCompactHealth = enemy.maxHealth >= 1000 || isBoss;
 
   return (
     <View
@@ -1426,18 +2555,68 @@ function EnemyNode({ enemy }: { enemy: PrototypeEnemy }) {
           backgroundColor: enemy.color,
           borderRadius: isCircle ? size / 2 : 12,
           transform: [{ scale: flashScale }, ...(isDiamond ? [{ rotate: '45deg' as const }] : [])],
-          borderColor: enemy.flash > 0 ? '#F9FDFF' : '#101827',
+          borderColor: enemy.flash > 0 ? '#F9FDFF' : isBoss ? '#FFF1C3' : '#101827',
+          borderWidth: isBoss ? 2.4 : 1.5,
         },
       ]}>
-      <Text
+      {showAura ? (
+        <View
+          style={[
+            shooterStyles.enemyAura,
+            isBoss ? shooterStyles.enemyAuraBoss : enemy.archetype === 'tank' ? shooterStyles.enemyAuraTank : shooterStyles.enemyAuraSplitter,
+            {
+              borderRadius: isCircle ? size : 16,
+            },
+          ]}
+        />
+      ) : null}
+      <View
         style={[
-          shooterStyles.enemyHealthText,
+          shooterStyles.enemyContent,
           isDiamond && {
             transform: [{ rotate: '-45deg' }],
           },
         ]}>
-        {enemy.health}
+        {enemy.archetype === 'tank' ? (
+          <View style={shooterStyles.enemyTankMarker}>
+            <View style={shooterStyles.enemyTankCore} />
+          </View>
+        ) : null}
+        {enemy.archetype === 'swarm' ? (
+          <View style={shooterStyles.enemySwarmMarker}>
+            <View style={shooterStyles.enemySwarmDot} />
+            <View style={shooterStyles.enemySwarmDot} />
+            <View style={shooterStyles.enemySwarmDot} />
+          </View>
+        ) : null}
+        {enemy.archetype === 'splitter' ? (
+          <View style={shooterStyles.enemySplitterMarker}>
+            <View style={[shooterStyles.enemySplitterLine, shooterStyles.enemySplitterLineLeft]} />
+            <View style={[shooterStyles.enemySplitterLine, shooterStyles.enemySplitterLineRight]} />
+          </View>
+        ) : null}
+        {isBoss ? (
+          <View style={shooterStyles.enemyBossMarker}>
+            {Array.from({ length: 3 }, (_, index) => (
+              <View
+                key={`boss-phase-${index}`}
+                style={[
+                  shooterStyles.enemyBossPip,
+                  index < enemy.bossPhase && shooterStyles.enemyBossPipActive,
+                ]}
+              />
+            ))}
+          </View>
+        ) : null}
+      <Text
+        style={[
+          shooterStyles.enemyHealthText,
+          isCompactHealth && shooterStyles.enemyHealthTextCompact,
+          isBoss && shooterStyles.enemyHealthTextBoss,
+        ]}>
+        {healthLabel}
       </Text>
+      </View>
     </View>
   );
 }
@@ -1706,6 +2885,61 @@ function EffectNode({ effect }: { effect: PrototypeEffect }) {
     );
   }
 
+  if (effect.kind === 'ultimate') {
+    const size = effect.size * (0.36 + progress * 0.9);
+    const innerSize = size * (0.36 + (1 - progress) * 0.18);
+    return (
+      <>
+        <View
+          pointerEvents="none"
+          style={[
+            shooterStyles.effectNode,
+            shooterStyles.effectUltimateGlow,
+            {
+              left: effect.x - size / 2,
+              top: effect.y - size / 2,
+              width: size,
+              height: size,
+              opacity: opacity * 0.22,
+              backgroundColor: effect.color,
+              transform: [{ scale: 0.92 + progress * 0.18 }],
+            },
+          ]}
+        />
+        <View
+          pointerEvents="none"
+          style={[
+            shooterStyles.effectNode,
+            shooterStyles.effectRing,
+            {
+              left: effect.x - size / 2,
+              top: effect.y - size / 2,
+              width: size,
+              height: size,
+              opacity: opacity * 0.92,
+              borderColor: effect.color,
+            },
+          ]}
+        />
+        <View
+          pointerEvents="none"
+          style={[
+            shooterStyles.effectNode,
+            shooterStyles.effectCore,
+            {
+              left: effect.x - innerSize / 2,
+              top: effect.y - innerSize / 2,
+              width: innerSize,
+              height: innerSize,
+              opacity: opacity * 0.18,
+              backgroundColor: effect.color,
+            },
+          ]}
+        />
+      </>
+    );
+  }
+
   if (effect.kind === 'bombard') {
     const height = effect.size * (1.06 - progress * 0.12);
     const glowWidth = Math.max(26, effect.size * 0.18);
@@ -1805,7 +3039,15 @@ function EffectNode({ effect }: { effect: PrototypeEffect }) {
   );
 }
 
-function BackgroundGrid({ width, height }: { width: number; height: number }) {
+function BackgroundGrid({
+  width,
+  height,
+  atmosphere,
+}: {
+  width: number;
+  height: number;
+  atmosphere: ReturnType<typeof getBoardAtmosphere>;
+}) {
   const verticalLines = useMemo(
     () => Array.from({ length: Math.max(6, Math.floor(width / 64)) }, (_, index) => ((index + 1) * width) / 14),
     [width]
@@ -1817,20 +3059,21 @@ function BackgroundGrid({ width, height }: { width: number; height: number }) {
 
   return (
     <>
-      <View style={[shooterStyles.bgOrb, shooterStyles.bgOrbA]} />
-      <View style={[shooterStyles.bgOrb, shooterStyles.bgOrbB]} />
+      <View style={[shooterStyles.bgHaze, { backgroundColor: atmosphere.hazeColor }]} />
+      <View style={[shooterStyles.bgOrb, shooterStyles.bgOrbA, { backgroundColor: atmosphere.orbAColor }]} />
+      <View style={[shooterStyles.bgOrb, shooterStyles.bgOrbB, { backgroundColor: atmosphere.orbBColor }]} />
       {verticalLines.map((x, index) => (
         <View
           key={`shooter-grid-v-${index}`}
           pointerEvents="none"
-          style={[shooterStyles.gridLine, { left: x, top: 0, bottom: 0, width: 1 }]}
+          style={[shooterStyles.gridLine, { left: x, top: 0, bottom: 0, width: 1, backgroundColor: atmosphere.gridColor }]}
         />
       ))}
       {horizontalLines.map((y, index) => (
         <View
           key={`shooter-grid-h-${index}`}
           pointerEvents="none"
-          style={[shooterStyles.gridLine, { top: y, left: 0, right: 0, height: 1 }]}
+          style={[shooterStyles.gridLine, { top: y, left: 0, right: 0, height: 1, backgroundColor: atmosphere.gridColor }]}
         />
       ))}
     </>
@@ -1845,6 +3088,7 @@ export function PrototypeShooterScreen({ onSwitchGame }: PrototypeShooterScreenP
   const [isPaused, setIsPaused] = useState(true);
   const [isMenuOpen, setIsMenuOpen] = useState(false);
   const isPortraitViewport = windowHeight >= windowWidth;
+  const isArmoryOpen = gameState.pendingArmoryChoice !== null;
 
   useEffect(() => {
     if (boardSize.width <= 0 || boardSize.height <= 0) {
@@ -1875,7 +3119,7 @@ export function PrototypeShooterScreen({ onSwitchGame }: PrototypeShooterScreenP
       const elapsedSeconds = Math.min((timeMs - lastFrameTimeMs) / 1000, MAX_FRAME_DELTA_SECONDS);
       lastFrameTimeMs = timeMs;
 
-      if (hasStarted && !isPaused) {
+      if (hasStarted && !isPaused && !isArmoryOpen) {
         accumulatedSimulationSeconds += elapsedSeconds;
         const steps = Math.min(MAX_CATCH_UP_STEPS, Math.floor(accumulatedSimulationSeconds / FIXED_STEP_SECONDS));
         if (steps > 0) {
@@ -1905,7 +3149,7 @@ export function PrototypeShooterScreen({ onSwitchGame }: PrototypeShooterScreenP
     return () => {
       cancelAnimationFrame(animationFrameId);
     };
-  }, [boardSize.height, boardSize.width, hasStarted, isPaused]);
+  }, [boardSize.height, boardSize.width, hasStarted, isArmoryOpen, isPaused]);
 
   useEffect(() => {
     if (gameState.status === 'lost') {
@@ -1913,15 +3157,56 @@ export function PrototypeShooterScreen({ onSwitchGame }: PrototypeShooterScreenP
     }
   }, [gameState.status]);
 
+  useEffect(() => {
+    if (gameState.pendingArmoryChoice && hasStarted && gameState.status === 'running') {
+      setIsPaused(true);
+      setIsMenuOpen(false);
+    }
+  }, [gameState.pendingArmoryChoice, gameState.status, hasStarted]);
+
   const difficultyTier = getDifficultyTier(gameState.elapsed) + 1;
+  const activeBoss = getActiveBossEnemy(gameState.enemies);
+  const buildProtocolDisplay = getBuildProtocolDisplay(gameState);
+  const ultimateDefinition = getUltimateDefinition(gameState);
+  const ultimateReady = gameState.ultimateCharge >= MAX_ULTIMATE_CHARGE;
+  const lowestEnemyBottom = boardSize.height
+    ? gameState.enemies.reduce(
+        (lowest, enemy) => Math.max(lowest, enemy.y + enemy.size / 2),
+        0
+      )
+    : 0;
+  const breachPressure = boardSize.height
+    ? clamp((lowestEnemyBottom - boardSize.height * 0.32) / (boardSize.height * 0.56), 0, 1)
+    : 0;
+  const atmosphere = getBoardAtmosphere(
+    difficultyTier,
+    gameState.activeEncounter,
+    activeBoss,
+    buildProtocolDisplay?.color ?? null,
+    ultimateReady,
+    breachPressure
+  );
+  const encounterTimeRemaining =
+    gameState.activeEncounter && gameState.activeEncounter.endsAt !== null
+      ? Math.max(0, gameState.activeEncounter.endsAt - gameState.elapsed)
+      : null;
   const displayMessage =
     !hasStarted
       ? 'Press Start to deploy the ship.'
       : gameState.status === 'lost'
         ? 'Game over. Restart to run again.'
+        : isArmoryOpen
+          ? 'Armory sync ready.'
         : isPaused
           ? 'Prototype paused.'
           : gameState.pickupMessage ??
+            (activeBoss
+              ? `${getBossLabel(activeBoss.bossVariant ?? 'prism')} phase ${activeBoss.bossPhase}`
+              : gameState.activeEncounter
+                ? encounterTimeRemaining !== null
+                  ? `${gameState.activeEncounter.label} ${encounterTimeRemaining.toFixed(1)}s`
+                  : gameState.activeEncounter.label
+                : null) ??
             (gameState.chaosTimer > 0
               ? `Chaos overdrive ${gameState.chaosTimer.toFixed(1)}s`
               : 'Catch falling upgrades to modify the weapon.');
@@ -1931,6 +3216,7 @@ export function PrototypeShooterScreen({ onSwitchGame }: PrototypeShooterScreenP
       boardSize.width <= 0 ||
       boardSize.height <= 0 ||
       isMenuOpen ||
+      isArmoryOpen ||
       !hasStarted ||
       isPaused ||
       gameState.status !== 'running'
@@ -1971,6 +3257,86 @@ export function PrototypeShooterScreen({ onSwitchGame }: PrototypeShooterScreenP
     setIsMenuOpen(false);
   };
 
+  const handleSelectBuildProtocol = (protocol: BuildProtocolKey) => {
+    if (boardSize.height <= 0) {
+      return;
+    }
+
+    const definition = BUILD_PROTOCOL_DEFINITIONS[protocol];
+    setGameState((previousState) => {
+      if (!previousState.pendingArmoryChoice) {
+        return previousState;
+      }
+
+      const isMaintainingProtocol = previousState.buildProtocol === protocol;
+      const nextLevel = isMaintainingProtocol ? Math.min(3, previousState.buildProtocolLevel + 1) : 1;
+      const nextMessage =
+        isMaintainingProtocol && previousState.buildProtocolLevel >= 3
+          ? `${definition.label} stabilized`
+          : `${definition.label} synced ${getBuildProtocolLevelLabel(nextLevel)}`;
+
+      return {
+        ...previousState,
+        buildProtocol: protocol,
+        buildProtocolLevel: nextLevel,
+        pendingArmoryChoice: null,
+        pickupMessage: nextMessage,
+        pickupTimer: 2.4,
+        missileCooldown:
+          protocol === 'missileCommand' ? Math.min(previousState.missileCooldown, 0.22) : previousState.missileCooldown,
+        shatterCooldown:
+          protocol === 'fractureCore' ? Math.min(previousState.shatterCooldown, 0.26) : previousState.shatterCooldown,
+        effects: trimEffects([
+          ...previousState.effects,
+          createPrototypeEffect(
+            'pickup',
+            previousState.playerX,
+            getPlayerShipTop(boardSize.height) + PLAYER_HEIGHT * 0.28,
+            88,
+            definition.color,
+            previousState.nextEffectId
+          ),
+        ]),
+        nextEffectId: previousState.nextEffectId + 1,
+      };
+    });
+
+    if (hasStarted && gameState.status === 'running') {
+      setIsPaused(false);
+    }
+  };
+
+  const handleTriggerUltimate = () => {
+    if (
+      boardSize.width <= 0 ||
+      boardSize.height <= 0 ||
+      !hasStarted ||
+      isPaused ||
+      isArmoryOpen ||
+      isMenuOpen ||
+      gameState.status !== 'running' ||
+      !ultimateReady
+    ) {
+      return;
+    }
+
+    setGameState((previousState) => {
+      if (previousState.status !== 'running' || previousState.ultimateCharge < MAX_ULTIMATE_CHARGE) {
+        return previousState;
+      }
+
+      const nextState: PrototypeGameState = {
+        ...previousState,
+        bullets: [...previousState.bullets],
+        enemies: [...previousState.enemies],
+        upgrades: [...previousState.upgrades],
+        effects: [...previousState.effects],
+      };
+      triggerUltimate(nextState, boardSize.width, boardSize.height);
+      return nextState;
+    });
+  };
+
   const playerStyle = {
     left: gameState.playerX - PLAYER_RENDER_HALF_WIDTH,
     top: getPlayerShipTop(boardSize.height),
@@ -1981,6 +3347,9 @@ export function PrototypeShooterScreen({ onSwitchGame }: PrototypeShooterScreenP
       <View style={shooterStyles.topBar}>
         <Pressable
           onPress={() => {
+            if (isArmoryOpen) {
+              return;
+            }
             if (!hasStarted) {
               setHasStarted(true);
               setIsPaused(false);
@@ -2007,7 +3376,12 @@ export function PrototypeShooterScreen({ onSwitchGame }: PrototypeShooterScreenP
         </View>
 
         <Pressable
-          onPress={() => setIsMenuOpen((previousValue) => !previousValue)}
+          onPress={() => {
+            if (isArmoryOpen) {
+              return;
+            }
+            setIsMenuOpen((previousValue) => !previousValue);
+          }}
           style={[shooterStyles.quickButton, isMenuOpen && shooterStyles.quickButtonActive]}>
           <Text style={shooterStyles.quickButtonText}>Menu</Text>
         </Pressable>
@@ -2022,7 +3396,83 @@ export function PrototypeShooterScreen({ onSwitchGame }: PrototypeShooterScreenP
           <Text style={shooterStyles.hudLabel}>Pressure</Text>
           <Text style={shooterStyles.hudValue}>T{difficultyTier}</Text>
         </View>
+        <Pressable
+          onPress={handleTriggerUltimate}
+          disabled={!ultimateReady || isPaused || !hasStarted || isArmoryOpen}
+          style={[
+            shooterStyles.hudChip,
+            shooterStyles.hudChipAction,
+            isPortraitViewport && shooterStyles.hudChipPortrait,
+            ultimateReady && shooterStyles.hudChipActionReady,
+          ]}>
+          <Text style={shooterStyles.hudLabel}>Ultimate</Text>
+          <Text style={[shooterStyles.hudValue, ultimateReady && { color: ultimateDefinition.color }]}>
+            {ultimateReady ? `${ultimateDefinition.label} READY` : `${ultimateDefinition.label} ${Math.round(gameState.ultimateCharge)}%`}
+          </Text>
+        </Pressable>
+        {buildProtocolDisplay ? (
+          <View style={[shooterStyles.hudChip, isPortraitViewport && shooterStyles.hudChipPortrait]}>
+            <Text style={shooterStyles.hudLabel}>Build</Text>
+            <Text style={[shooterStyles.hudValue, { color: buildProtocolDisplay.color }]}>
+              {buildProtocolDisplay.label} {buildProtocolDisplay.levelLabel}
+            </Text>
+          </View>
+        ) : null}
+        {gameState.activeEncounter ? (
+          <View style={[shooterStyles.hudChip, isPortraitViewport && shooterStyles.hudChipPortrait]}>
+            <Text style={shooterStyles.hudLabel}>Encounter</Text>
+            <Text style={[shooterStyles.hudValue, { color: gameState.activeEncounter.accentColor }]}>
+              {gameState.activeEncounter.label}
+            </Text>
+          </View>
+        ) : null}
+        {activeBoss ? (
+          <View style={[shooterStyles.hudChip, isPortraitViewport && shooterStyles.hudChipPortrait]}>
+            <Text style={shooterStyles.hudLabel}>Boss</Text>
+            <Text style={shooterStyles.hudValue}>
+              {formatCompactHealth(activeBoss.health)}
+            </Text>
+          </View>
+        ) : null}
       </View>
+
+      {gameState.pendingArmoryChoice ? (
+        <View style={shooterStyles.armoryOverlay}>
+          <View style={shooterStyles.armoryPanel}>
+            <Text style={shooterStyles.armoryTitle}>{gameState.pendingArmoryChoice.title}</Text>
+            <Text style={shooterStyles.armorySubtitle}>
+              Boss clear at T{gameState.pendingArmoryChoice.sourceDisplayTier}
+            </Text>
+            <Text style={shooterStyles.armoryPrompt}>{gameState.pendingArmoryChoice.prompt}</Text>
+
+            <View style={shooterStyles.armoryOptions}>
+              {gameState.pendingArmoryChoice.options.map((protocol) => {
+                const definition = BUILD_PROTOCOL_DEFINITIONS[protocol];
+                const isCurrentProtocol = gameState.buildProtocol === protocol;
+                const nextLevel = isCurrentProtocol ? Math.min(3, gameState.buildProtocolLevel + 1) : 1;
+                return (
+                  <Pressable
+                    key={protocol}
+                    onPress={() => handleSelectBuildProtocol(protocol)}
+                    style={[
+                      shooterStyles.armoryCard,
+                      { borderColor: definition.color, backgroundColor: definition.accent },
+                      isCurrentProtocol && shooterStyles.armoryCardCurrent,
+                    ]}>
+                    <Text style={[shooterStyles.armoryCardLabel, { color: '#132132' }]}>{definition.label}</Text>
+                    <Text style={[shooterStyles.armoryCardLevel, { color: definition.color }]}>
+                      {isCurrentProtocol ? `Maintain ${getBuildProtocolLevelLabel(nextLevel)}` : 'Reroute'}
+                    </Text>
+                    <Text style={shooterStyles.armoryCardText}>
+                      {getBuildProtocolOptionDescription(protocol, nextLevel, isCurrentProtocol)}
+                    </Text>
+                  </Pressable>
+                );
+              })}
+            </View>
+          </View>
+        </View>
+      ) : null}
 
       <View style={shooterStyles.boardFrame}>
         <View
@@ -2031,8 +3481,35 @@ export function PrototypeShooterScreen({ onSwitchGame }: PrototypeShooterScreenP
           onMoveShouldSetResponder={() => true}
           onResponderGrant={handleBoardTouch}
           onResponderMove={handleBoardTouch}
-          style={shooterStyles.board}>
-          <BackgroundGrid width={boardSize.width} height={boardSize.height} />
+          style={[shooterStyles.board, { borderColor: atmosphere.borderColor }]}>
+          <BackgroundGrid width={boardSize.width} height={boardSize.height} atmosphere={atmosphere} />
+
+          {activeBoss ? (
+            <View
+              pointerEvents="none"
+              style={[
+                shooterStyles.bossTelegraph,
+                {
+                  left: activeBoss.x - Math.max(14, activeBoss.size * 0.14),
+                  top: activeBoss.y + activeBoss.size * 0.34,
+                  width: Math.max(28, activeBoss.size * 0.28),
+                  bottom: 34,
+                  backgroundColor: atmosphere.bossTelegraphColor,
+                },
+              ]}
+            />
+          ) : null}
+
+          <View
+            pointerEvents="none"
+            style={[
+              shooterStyles.breachLine,
+              {
+                backgroundColor: atmosphere.breachLineColor,
+                opacity: 0.22 + breachPressure * 0.78,
+              },
+            ]}
+          />
 
           {gameState.effects.map((effect) => (
             <EffectNode key={effect.id} effect={effect} />
@@ -2061,7 +3538,10 @@ export function PrototypeShooterScreen({ onSwitchGame }: PrototypeShooterScreenP
             <View style={shooterStyles.playerThrusterRight} />
           </View>
 
-          <View style={shooterStyles.bottomGlow} pointerEvents="none" />
+          <View
+            style={[shooterStyles.bottomGlow, { backgroundColor: atmosphere.bottomGlowColor }]}
+            pointerEvents="none"
+          />
         </View>
 
         {isMenuOpen ? (
@@ -2213,6 +3693,13 @@ const shooterStyles = StyleSheet.create({
     flexBasis: '48%',
     minWidth: '48%',
   },
+  hudChipAction: {
+    justifyContent: 'center',
+  },
+  hudChipActionReady: {
+    borderColor: '#596F33',
+    backgroundColor: '#1B2B17',
+  },
   hudLabel: {
     color: '#7D93B5',
     fontSize: 10,
@@ -2254,6 +3741,68 @@ const shooterStyles = StyleSheet.create({
     marginTop: 6,
     position: 'relative',
   },
+  armoryOverlay: {
+    ...StyleSheet.absoluteFillObject,
+    zIndex: 26,
+    justifyContent: 'center',
+    paddingHorizontal: 14,
+    backgroundColor: 'rgba(5, 10, 18, 0.58)',
+  },
+  armoryPanel: {
+    borderRadius: 16,
+    borderWidth: 1,
+    borderColor: '#3A5575',
+    backgroundColor: '#0F1928',
+    padding: 14,
+    gap: 8,
+  },
+  armoryTitle: {
+    color: '#F4F8FF',
+    fontSize: 18,
+    fontWeight: '900',
+  },
+  armorySubtitle: {
+    color: '#9FB4D1',
+    fontSize: 11,
+    fontWeight: '700',
+    textTransform: 'uppercase',
+  },
+  armoryPrompt: {
+    color: '#C1D3EA',
+    fontSize: 13,
+    lineHeight: 18,
+  },
+  armoryOptions: {
+    marginTop: 4,
+    gap: 10,
+  },
+  armoryCard: {
+    borderRadius: 14,
+    borderWidth: 1.5,
+    padding: 12,
+    gap: 6,
+  },
+  armoryCardCurrent: {
+    shadowColor: '#FFF2D4',
+    shadowOpacity: 0.14,
+    shadowRadius: 8,
+    shadowOffset: { width: 0, height: 3 },
+  },
+  armoryCardLabel: {
+    fontSize: 15,
+    fontWeight: '900',
+  },
+  armoryCardLevel: {
+    fontSize: 11,
+    fontWeight: '800',
+    textTransform: 'uppercase',
+  },
+  armoryCardText: {
+    color: '#223247',
+    fontSize: 12,
+    lineHeight: 17,
+    fontWeight: '700',
+  },
   board: {
     flex: 1,
     borderRadius: 18,
@@ -2273,6 +3822,9 @@ const shooterStyles = StyleSheet.create({
   effectBombardGlow: {
     borderRadius: 999,
   },
+  effectUltimateGlow: {
+    borderRadius: 999,
+  },
   effectBombardColumn: {
     borderRadius: 999,
     borderWidth: 1,
@@ -2287,6 +3839,9 @@ const shooterStyles = StyleSheet.create({
   },
   effectCore: {
     borderRadius: 999,
+  },
+  bgHaze: {
+    ...StyleSheet.absoluteFillObject,
   },
   bgOrb: {
     position: 'absolute',
@@ -2314,10 +3869,114 @@ const shooterStyles = StyleSheet.create({
     alignItems: 'center',
     justifyContent: 'center',
   },
+  enemyAura: {
+    position: 'absolute',
+    top: -6,
+    right: -6,
+    bottom: -6,
+    left: -6,
+    borderWidth: 1,
+  },
+  enemyAuraTank: {
+    borderColor: 'rgba(255, 235, 196, 0.56)',
+    backgroundColor: 'rgba(255, 218, 145, 0.08)',
+  },
+  enemyAuraSplitter: {
+    borderColor: 'rgba(255, 198, 226, 0.54)',
+    backgroundColor: 'rgba(255, 162, 206, 0.07)',
+  },
+  enemyAuraBoss: {
+    top: -10,
+    right: -10,
+    bottom: -10,
+    left: -10,
+    borderColor: 'rgba(255, 240, 195, 0.76)',
+    backgroundColor: 'rgba(255, 224, 143, 0.08)',
+  },
+  enemyContent: {
+    width: '100%',
+    height: '100%',
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  enemyTankMarker: {
+    position: 'absolute',
+    top: '18%',
+    width: 18,
+    height: 9,
+    borderRadius: 5,
+    borderWidth: 1,
+    borderColor: 'rgba(255, 245, 226, 0.85)',
+    backgroundColor: 'rgba(19, 25, 35, 0.24)',
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  enemyTankCore: {
+    width: 7,
+    height: 3,
+    borderRadius: 999,
+    backgroundColor: '#FFF4E2',
+  },
+  enemySwarmMarker: {
+    position: 'absolute',
+    top: '18%',
+    flexDirection: 'row',
+    gap: 3,
+  },
+  enemySwarmDot: {
+    width: 4,
+    height: 4,
+    borderRadius: 999,
+    backgroundColor: '#EAFBFF',
+  },
+  enemySplitterMarker: {
+    position: 'absolute',
+    top: '17%',
+    width: 16,
+    height: 10,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  enemySplitterLine: {
+    position: 'absolute',
+    width: 2,
+    height: 10,
+    borderRadius: 999,
+    backgroundColor: '#FFF2F8',
+  },
+  enemySplitterLineLeft: {
+    transform: [{ rotate: '-18deg' }, { translateX: -3 }],
+  },
+  enemySplitterLineRight: {
+    transform: [{ rotate: '18deg' }, { translateX: 3 }],
+  },
+  enemyBossMarker: {
+    position: 'absolute',
+    top: '14%',
+    flexDirection: 'row',
+    gap: 4,
+  },
+  enemyBossPip: {
+    width: 7,
+    height: 7,
+    borderRadius: 999,
+    borderWidth: 1,
+    borderColor: 'rgba(255, 244, 208, 0.8)',
+    backgroundColor: 'rgba(18, 26, 37, 0.35)',
+  },
+  enemyBossPipActive: {
+    backgroundColor: '#FFF0BF',
+  },
   enemyHealthText: {
     color: '#F7FBFF',
     fontSize: 13,
     fontWeight: '900',
+  },
+  enemyHealthTextCompact: {
+    fontSize: 12,
+  },
+  enemyHealthTextBoss: {
+    fontSize: 11,
   },
   bulletShell: {
     position: 'absolute',
@@ -2501,8 +4160,19 @@ const shooterStyles = StyleSheet.create({
     right: 0,
     bottom: -40,
     height: 120,
-    backgroundColor: 'rgba(80, 163, 255, 0.12)',
     borderRadius: 120,
+  },
+  breachLine: {
+    position: 'absolute',
+    left: 14,
+    right: 14,
+    bottom: 22,
+    height: 5,
+    borderRadius: 999,
+  },
+  bossTelegraph: {
+    position: 'absolute',
+    borderRadius: 999,
   },
   menuPanel: {
     position: 'absolute',
