@@ -373,16 +373,15 @@ function getStandardUpgradeTypePool(state: PrototypeGameState, difficultyTier: n
 
 function createArmoryChoice(state: PrototypeGameState, sourceDisplayTier: number): PrototypeArmoryChoice {
   const currentProtocol = state.buildProtocol;
-  const optionPool = currentProtocol
-    ? shuffleCopy(BUILD_PROTOCOL_KEYS.filter((protocol) => protocol !== currentProtocol)).slice(0, 2)
-    : shuffleCopy(BUILD_PROTOCOL_KEYS).slice(0, 3);
-  const options = currentProtocol ? shuffleCopy([currentProtocol, ...optionPool]) : optionPool;
+  const options = currentProtocol
+    ? [currentProtocol, ...BUILD_PROTOCOL_KEYS.filter((protocol) => protocol !== currentProtocol)]
+    : [...BUILD_PROTOCOL_KEYS];
 
   return {
-    title: currentProtocol ? 'Armory Sync' : 'Doctrine Select',
+    title: currentProtocol ? 'Build Sync' : 'Build Select',
     prompt: currentProtocol
-      ? 'Maintain your doctrine to deepen it, or reroute the ship into a new combat profile.'
-      : 'Pick the doctrine that should define the run. Future boss clears let you maintain or reroute it.',
+      ? 'Maintain your build to deepen it, or switch into a new combat profile.'
+      : 'Pick the build that should define the run. Future boss clears let you maintain it or switch builds.',
     sourceDisplayTier,
     options,
   };
@@ -394,8 +393,7 @@ function getBuildProtocolLevelLabel(level: number) {
 
 function getBuildProtocolOptionDescription(protocol: BuildProtocolKey, nextLevel: number, isCurrentProtocol: boolean) {
   const definition = BUILD_PROTOCOL_DEFINITIONS[protocol];
-  const prefix = isCurrentProtocol ? `Maintain to ${getBuildProtocolLevelLabel(nextLevel)}.` : 'Reroute the ship.';
-  return `${prefix} ${definition.summary}`;
+  return isCurrentProtocol ? `Maintain to ${getBuildProtocolLevelLabel(nextLevel)}. ${definition.summary}` : definition.summary;
 }
 
 function getProtocolRamp(level: number) {
@@ -415,8 +413,8 @@ function getBuildProtocolSupport(state: PrototypeGameState) {
     case 'missileCommand':
       return {
         missileCountFloor: level >= 2 ? 4 : 2,
-        missileDamageBonus: 1 + Math.round(ramp.linear * 1.4 + ramp.curved * 1.8),
-        missileCooldownMultiplier: Math.max(0.56, 0.84 - ramp.linear * 0.035),
+        missileDamageBonus: 3 + Math.round(ramp.linear * 2.1 + ramp.curved * 2.4),
+        missileCooldownMultiplier: Math.max(0.52, 0.82 - ramp.linear * 0.038),
         missileTurnBonus: Math.min(0.34, 0.08 + ramp.linear * 0.026),
         shatterFragmentBonus: 0,
         shatterDamageBonus: 0,
@@ -428,9 +426,9 @@ function getBuildProtocolSupport(state: PrototypeGameState) {
         missileDamageBonus: 0,
         missileCooldownMultiplier: 1,
         missileTurnBonus: 0,
-        shatterFragmentBonus: Math.min(5, 1 + Math.floor(ramp.linear / 2)),
-        shatterDamageBonus: 1 + Math.round(ramp.linear * 1.2 + ramp.curved * 1.4),
-        shatterCooldownMultiplier: Math.max(0.58, 0.9 - ramp.linear * 0.05),
+        shatterFragmentBonus: Math.min(6, 2 + Math.floor(ramp.linear / 2)),
+        shatterDamageBonus: 3 + Math.round(ramp.linear * 1.8 + ramp.curved * 2),
+        shatterCooldownMultiplier: Math.max(0.54, 0.88 - ramp.linear * 0.052),
       };
     default:
       return {
@@ -811,17 +809,6 @@ function clamp(value: number, min: number, max: number) {
 
 function randomChoice<T>(items: readonly T[]): T {
   return items[Math.floor(Math.random() * items.length)];
-}
-
-function shuffleCopy<T>(items: readonly T[]) {
-  const nextItems = [...items];
-  for (let index = nextItems.length - 1; index > 0; index -= 1) {
-    const swapIndex = Math.floor(Math.random() * (index + 1));
-    const previousValue = nextItems[index];
-    nextItems[index] = nextItems[swapIndex];
-    nextItems[swapIndex] = previousValue;
-  }
-  return nextItems;
 }
 
 function lerp(start: number, end: number, progress: number) {
@@ -1280,9 +1267,9 @@ function createMissileVolley(
   const shouldUseFourMissiles = weapon.missileLevel >= 2 || support.missileCountFloor >= 4;
   const slots = shouldUseFourMissiles ? [-1.5, -0.5, 0.5, 1.5] : [-1, 1];
   const launchPoints: { x: number; y: number; color: string; size: number }[] = [];
-  const missileSpeed = Math.min(980, weapon.bulletSpeed * 0.82 + 120 + weapon.missileLevel * 42);
-  const missileDamage = weapon.damage + 2 + weapon.missileLevel * 2 + support.missileDamageBonus;
-  const missileSize = weapon.bulletSize + 3.2;
+  const missileSpeed = Math.min(1040, weapon.bulletSpeed * 0.86 + 140 + weapon.missileLevel * 48);
+  const missileDamage = weapon.damage + 5 + weapon.missileLevel * 4 + support.missileDamageBonus;
+  const missileSize = weapon.bulletSize + 3.8;
   const slotSpacing = slots.length === 4 ? 13 : 18;
 
   for (const slot of slots) {
@@ -1343,40 +1330,42 @@ function createShatterVolley(
   const bullets = [...state.bullets];
   let nextBulletId = state.nextBulletId;
   const muzzleY = boardHeight - PLAYER_HEIGHT - 20;
+  const launchSide = nextBulletId % 2 === 0 ? -1 : 1;
   const aimTarget = findAimAssistTarget(state.enemies, state.playerX, muzzleY);
-  const defaultAngle = (Math.random() - 0.5) * 0.12;
+  const shellOriginX = state.playerX + launchSide * (10 + weapon.shatterLevel * 2);
+  const defaultAngle = launchSide * 0.16 + (Math.random() - 0.5) * 0.08;
   let angle = defaultAngle;
   if (aimTarget) {
-    const desiredAngle = Math.atan2(aimTarget.x - state.playerX, muzzleY - aimTarget.y);
-    const angleDelta = clamp(normalizeAngle(desiredAngle - defaultAngle), -0.22, 0.22);
-    angle += angleDelta * Math.min(0.18, weapon.aimAssist + 0.08);
+    const desiredAngle = Math.atan2(aimTarget.x - shellOriginX, muzzleY - aimTarget.y);
+    const angleDelta = clamp(normalizeAngle(desiredAngle - defaultAngle), -0.34, 0.34);
+    angle += angleDelta * Math.min(0.28, weapon.aimAssist + 0.12);
   }
 
-  const shellSpeed = Math.min(860, weapon.bulletSpeed * 0.74 + 70 + weapon.shatterLevel * 18);
-  const shellSize = weapon.bulletSize + 4 + weapon.shatterLevel * 0.45;
+  const shellSpeed = Math.min(920, weapon.bulletSpeed * 0.7 + 55 + weapon.shatterLevel * 20);
+  const shellSize = weapon.bulletSize + 5.6 + weapon.shatterLevel * 0.75;
   bullets.push({
     id: `B${nextBulletId}`,
     kind: 'shatterShell',
-    x: state.playerX,
+    x: shellOriginX,
     y: muzzleY,
     angle,
     speed: shellSpeed,
     vx: Math.sin(angle) * shellSpeed * 0.42,
     vy: -Math.cos(angle) * shellSpeed,
-    damage: weapon.damage + 2 + weapon.shatterLevel + support.shatterDamageBonus,
+    damage: weapon.damage + 5 + weapon.shatterLevel * 2 + support.shatterDamageBonus,
     size: shellSize,
     pierce: 0,
     age: 0,
     phase: Math.random() * Math.PI * 2,
-    aimAssist: Math.min(0.18, weapon.aimAssist * 0.6 + 0.06),
+    aimAssist: Math.min(0.24, weapon.aimAssist * 0.7 + 0.08),
     color: '#FFE7C8',
     glowColor: '#FFB36B',
-    trailScale: Math.max(1.25, weapon.trailScale + 0.22),
+    trailScale: Math.max(1.38, weapon.trailScale + 0.28),
     curveDirection: 0,
     launchDuration: 0,
     turnRate: 0,
-    maxAge: 0.72 + weapon.shatterLevel * 0.05,
-    burstAge: 0.34 - weapon.shatterLevel * 0.02,
+    maxAge: 0.82 + weapon.shatterLevel * 0.06,
+    burstAge: 0.42 - weapon.shatterLevel * 0.02,
     fragmentCount: 4 + weapon.shatterLevel + support.shatterFragmentBonus,
   });
   nextBulletId += 1;
@@ -1386,10 +1375,10 @@ function createShatterVolley(
     nextBulletId,
     shatterCooldown: getShatterVolleyCooldown(weapon, state),
     launchPoint: {
-      x: state.playerX,
+      x: shellOriginX,
       y: muzzleY,
       color: '#FFD8A8',
-      size: 18 + weapon.effectIntensity * 5,
+      size: 22 + weapon.effectIntensity * 6,
     },
   };
 }
@@ -1404,7 +1393,7 @@ function burstShatterShell(shell: PrototypeBullet, nextState: PrototypeGameState
   const fragmentCount = Math.max(4, shell.fragmentCount);
   const centerAngle = clamp(shell.angle * 0.65, -0.45, 0.45);
   const shardSpeed = Math.max(420, shell.speed * 0.82);
-  const shardDamage = Math.max(1, Math.round(shell.damage * 0.58));
+  const shardDamage = Math.max(1, Math.round(shell.damage * 0.76));
 
   for (let index = 0; index < fragmentCount; index += 1) {
     const lane = index - (fragmentCount - 1) / 2;
@@ -3367,7 +3356,7 @@ export function PrototypeShooterScreen({ onSwitchGame }: PrototypeShooterScreenP
     isArmoryTransitionActive && BOSS_CLEAR_TRANSITION_SECONDS > 0
       ? 1 - gameState.armoryTransitionTimer / BOSS_CLEAR_TRANSITION_SECONDS
       : 0;
-  const buildHudValue = buildProtocolDisplay ? `${buildProtocolDisplay.label} ${buildProtocolDisplay.levelLabel}` : 'No doctrine';
+  const buildHudValue = buildProtocolDisplay ? `${buildProtocolDisplay.label} ${buildProtocolDisplay.levelLabel}` : 'No build';
   const encounterHudValue = gameState.activeEncounter
     ? gameState.activeEncounter.label
     : isArmoryTransitionActive
