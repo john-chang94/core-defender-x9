@@ -20,7 +20,16 @@ type WeaponUpgradeType =
   | 'missile'
   | 'shatter'
   | 'bombard';
-type PrototypeEffectKind = 'muzzle' | 'burst' | 'pickup' | 'bombard' | 'ultimate';
+type PrototypeEffectKind =
+  | 'muzzle'
+  | 'burst'
+  | 'pickup'
+  | 'bombard'
+  | 'ultimate'
+  | 'railLance'
+  | 'novaSweep'
+  | 'missileStorm'
+  | 'shatterStorm';
 type PrototypeProjectileKind = 'standard' | 'missile' | 'shatterShell' | 'shatterShard';
 
 type PrototypeBullet = {
@@ -185,7 +194,7 @@ const PLAYER_FLOOR_OFFSET = 14;
 const MAX_FRAME_DELTA_SECONDS = 0.1;
 const FIXED_STEP_SECONDS = 1 / 60;
 const MAX_CATCH_UP_STEPS = 5;
-const MAX_ACTIVE_EFFECTS = 28;
+const MAX_ACTIVE_EFFECTS = 40;
 const MAX_ENEMY_RENDER_SIZE = 92;
 const MAX_ULTIMATE_CHARGE = 100;
 const ULTIMATE_CHARGE_GAIN_MULTIPLIER = 1.3;
@@ -569,25 +578,25 @@ function getUltimateDefinition(state: PrototypeGameState) {
       return {
         label: 'Sky Lance',
         color: '#FF86E1',
-        summary: 'Piercing rail strikes spear the highest-threat targets.',
+        summary: 'Focused rail lances spear the highest-threat targets.',
       };
     case 'novaBloom':
       return {
         label: 'Solar Bloom',
         color: '#FFB45D',
-        summary: 'An expanding flare wave scorches the whole screen.',
+        summary: 'A board-wide bloom beam overloads the primary battery.',
       };
     case 'missileCommand':
       return {
         label: 'Missile Storm',
         color: '#FF7B63',
-        summary: 'A coordinated missile strike hunts the densest threats.',
+        summary: 'Missile racks fan out and launch a full-board barrage.',
       };
     case 'fractureCore':
       return {
         label: 'Cascade Break',
         color: '#FFBD6E',
-        summary: 'A shatter cascade cracks every enemy and bursts priority targets.',
+        summary: 'Fracture detonations crack the whole screen into shard bursts.',
       };
     default:
       return {
@@ -1149,7 +1158,23 @@ function createPrototypeEffect(
   nextEffectId: number
 ): PrototypeEffect {
   const duration =
-    kind === 'muzzle' ? 0.12 : kind === 'pickup' ? 0.42 : kind === 'bombard' ? 0.52 : kind === 'ultimate' ? 0.64 : 0.28;
+    kind === 'muzzle'
+      ? 0.12
+      : kind === 'pickup'
+        ? 0.42
+        : kind === 'bombard'
+          ? 0.52
+          : kind === 'ultimate'
+            ? 0.64
+            : kind === 'railLance'
+              ? 0.56
+              : kind === 'novaSweep'
+                ? 0.78
+                : kind === 'missileStorm'
+                  ? 0.92
+                  : kind === 'shatterStorm'
+                    ? 0.74
+                    : 0.28;
   return {
     id: `FX${nextEffectId}`,
     kind,
@@ -2164,7 +2189,7 @@ function triggerUltimate(state: PrototypeGameState, boardWidth: number, boardHei
   state.ultimateCharge = 0;
   state.pickupMessage = `${definition.label} engaged`;
   state.pickupTimer = 2.2;
-  queueEffect(state, 'ultimate', state.playerX, shipEffectY, Math.max(boardWidth, boardHeight) * 0.84, definition.color);
+  queueEffect(state, 'ultimate', state.playerX, shipEffectY, Math.max(boardWidth, boardHeight) * 0.3, definition.color);
   queueEffect(state, 'pickup', state.playerX, shipEffectY, 88 + protocolLevel * 10, definition.color);
 
   const applyUltimateDamage = (enemy: PrototypeEnemy, damage: number, effectColor: string) => {
@@ -2185,7 +2210,8 @@ function triggerUltimate(state: PrototypeGameState, boardWidth: number, boardHei
     case 'railFocus': {
       const targetCount = Math.min(6, 4 + protocolLevel);
       for (const enemy of threatTargets.slice(0, targetCount)) {
-        queueEffect(state, 'bombard', enemy.x, boardHeight * 0.48, boardHeight * 0.92, definition.color);
+        queueEffect(state, 'railLance', enemy.x, boardHeight * 0.48, boardHeight * 0.96, definition.color);
+        queueEffect(state, 'bombard', enemy.x, boardHeight * 0.48, boardHeight * 0.9, '#FFD7F7');
         queueEffect(state, 'ultimate', enemy.x, enemy.y, enemy.size * 1.26, '#FFD4F7');
         applyUltimateDamage(
           enemy,
@@ -2196,24 +2222,21 @@ function triggerUltimate(state: PrototypeGameState, boardWidth: number, boardHei
       break;
     }
     case 'novaBloom': {
-      const bloomBursts = 5 + protocolLevel * 2;
+      queueEffect(state, 'novaSweep', boardWidth / 2, shipEffectY + 8, boardWidth * 1.06, definition.color);
+      queueEffect(state, 'novaSweep', boardWidth / 2, shipEffectY + 8, boardWidth * 0.84, '#FFF0AA');
+      const bloomBursts = 4 + protocolLevel;
       for (let index = 0; index < bloomBursts; index += 1) {
         const progress = (index + 0.5) / bloomBursts;
-        const angle = progress * Math.PI * 2;
-        const radius = lerp(boardWidth * 0.12, boardWidth * 0.42, (index % 3) / 2);
-        const bloomX = clamp(state.playerX + Math.cos(angle) * radius, 42, boardWidth - 42);
-        const bloomY = clamp(boardHeight * 0.46 + Math.sin(angle) * boardHeight * 0.2, 58, boardHeight - 84);
-        queueEffect(state, 'ultimate', bloomX, bloomY, Math.max(boardWidth, boardHeight) * (0.18 + (index % 2) * 0.05), '#FFD789');
-        if (index % 2 === 0) {
-          queueEffect(state, 'pickup', bloomX, bloomY, 44 + protocolLevel * 6, '#FFF0B2');
-        }
+        const bloomX = lerp(42, boardWidth - 42, progress);
+        const bloomY = lerp(boardHeight * 0.18, boardHeight * 0.72, (index % 3) / 2);
+        queueEffect(state, 'ultimate', bloomX, bloomY, Math.max(boardWidth, boardHeight) * (0.12 + (index % 2) * 0.035), '#FFD789');
       }
       for (const enemy of activeEnemies) {
         const proximityToBottom = clamp(enemy.y / Math.max(1, boardHeight), 0.12, 1);
         const intensity = 0.74 + proximityToBottom * 0.5;
         applyUltimateDamage(
           enemy,
-          Math.max(40 + weapon.damage * 12 + protocolLevel * 12, enemy.maxHealth * (0.16 + protocolLevel * 0.035)) * intensity,
+          Math.max(52 + weapon.damage * 14 + protocolLevel * 14, enemy.maxHealth * (0.18 + protocolLevel * 0.04)) * intensity,
           '#FFD79A'
         );
       }
@@ -2221,14 +2244,15 @@ function triggerUltimate(state: PrototypeGameState, boardWidth: number, boardHei
     }
     case 'missileCommand': {
       const targetCount = Math.min(8, 5 + protocolLevel);
-      const salvoCount = Math.min(4, 2 + protocolLevel);
-      for (let index = 0; index < salvoCount; index += 1) {
-        const strikeX = ((index + 0.5) / salvoCount) * boardWidth;
-        queueEffect(state, 'bombard', strikeX, boardHeight * 0.5, boardHeight * 0.98, definition.color);
+      const barrageCount = Math.min(12, 6 + protocolLevel * 2);
+      for (let index = 0; index < barrageCount; index += 1) {
+        const laneProgress = (index + 0.5) / barrageCount;
+        const launchX = lerp(40, boardWidth - 40, laneProgress);
+        queueEffect(state, 'missileStorm', launchX, shipEffectY + 8 + (index % 2) * 8, boardHeight * 0.82, definition.color);
       }
       for (const enemy of threatTargets.slice(0, targetCount)) {
         queueEffect(state, 'bombard', enemy.x, boardHeight * 0.48, boardHeight * 0.96, definition.color);
-        queueEffect(state, 'pickup', enemy.x, enemy.y, enemy.size * 0.8, '#FFE4D8');
+        queueEffect(state, 'ultimate', enemy.x, enemy.y, enemy.size * 0.9, '#FFE4D8');
         applyUltimateDamage(
           enemy,
           Math.max(74 + weapon.damage * 13 + protocolLevel * 18, enemy.maxHealth * (0.22 + protocolLevel * 0.05)),
@@ -2239,8 +2263,24 @@ function triggerUltimate(state: PrototypeGameState, boardWidth: number, boardHei
     }
     case 'fractureCore': {
       const focusedTargets = threatTargets.slice(0, Math.min(4, 2 + protocolLevel));
+      const shatterBursts = Math.min(14, 7 + protocolLevel * 2);
+      for (let index = 0; index < shatterBursts; index += 1) {
+        const target = threatTargets[index % threatTargets.length];
+        const burstX =
+          target?.x ?? lerp(48, boardWidth - 48, ((index % 5) + 0.5) / 5);
+        const burstY =
+          target?.y ?? lerp(boardHeight * 0.18, boardHeight * 0.72, ((index + 2) % 4) / 3);
+        queueEffect(
+          state,
+          'shatterStorm',
+          burstX,
+          burstY,
+          84 + ((index + protocolLevel) % 3) * 18 + protocolLevel * 6,
+          index % 2 === 0 ? '#FFD9A7' : definition.color
+        );
+      }
       for (const enemy of focusedTargets) {
-        queueEffect(state, 'ultimate', enemy.x, enemy.y, enemy.size * 1.38, '#FFE4BE');
+        queueEffect(state, 'shatterStorm', enemy.x, enemy.y, enemy.size * 1.5, '#FFE4BE');
       }
       for (const enemy of activeEnemies) {
         const isFocused = focusedTargets.includes(enemy);
@@ -3069,6 +3109,316 @@ function EffectNode({ effect }: { effect: PrototypeEffect }) {
               width: innerSize,
               height: innerSize,
               opacity: opacity * 0.18,
+              backgroundColor: effect.color,
+            },
+          ]}
+        />
+      </>
+    );
+  }
+
+  if (effect.kind === 'railLance') {
+    const height = effect.size * (1.02 - progress * 0.08);
+    const glowWidth = Math.max(22, effect.size * 0.05);
+    const coreWidth = Math.max(7, effect.size * 0.013);
+    return (
+      <>
+        <View
+          pointerEvents="none"
+          style={[
+            shooterStyles.effectNode,
+            shooterStyles.effectBombardGlow,
+            {
+              left: effect.x - glowWidth / 2,
+              top: effect.y - height / 2,
+              width: glowWidth,
+              height,
+              opacity: opacity * 0.24,
+              backgroundColor: effect.color,
+            },
+          ]}
+        />
+        {[-1, 1].map((direction) => (
+          <View
+            key={`rail-lance-side-${effect.id}-${direction}`}
+            pointerEvents="none"
+            style={[
+              shooterStyles.effectNode,
+              shooterStyles.effectRailSide,
+              {
+                left: effect.x + direction * glowWidth * 0.28 - 1,
+                top: effect.y - height / 2 + 10,
+                height: height - 20,
+                opacity: opacity * 0.42,
+                backgroundColor: effect.color,
+              },
+            ]}
+          />
+        ))}
+        <View
+          pointerEvents="none"
+          style={[
+            shooterStyles.effectNode,
+            shooterStyles.effectBombardColumn,
+            {
+              left: effect.x - coreWidth,
+              top: effect.y - height / 2,
+              width: coreWidth * 2,
+              height,
+              opacity: 0.3 + opacity * 0.58,
+              backgroundColor: effect.color,
+              borderColor: '#FFF0FA',
+            },
+          ]}
+        />
+        <View
+          pointerEvents="none"
+          style={[
+            shooterStyles.effectNode,
+            shooterStyles.effectBombardCore,
+            {
+              left: effect.x - 1,
+              top: effect.y - height / 2 + 12,
+              width: 2,
+              height: height - 24,
+              opacity: opacity * 0.96,
+            },
+          ]}
+        />
+      </>
+    );
+  }
+
+  if (effect.kind === 'novaSweep') {
+    const width = effect.size * (0.98 - progress * 0.08);
+    const height = effect.size * 1.56;
+    const top = effect.y - height;
+    const emitterWidth = Math.max(68, width * 0.42);
+    const bands = [-0.34, -0.17, 0, 0.17, 0.34];
+    return (
+      <>
+        <View
+          pointerEvents="none"
+          style={[
+            shooterStyles.effectNode,
+            shooterStyles.effectUltimateGlow,
+            {
+              left: effect.x - width / 2,
+              top,
+              width,
+              height,
+              opacity: opacity * 0.18,
+              backgroundColor: effect.color,
+              transform: [{ scaleY: 0.92 + progress * 0.12 }],
+            },
+          ]}
+        />
+        {bands.map((offset, index) => {
+          const bandWidth = width * (index === 2 ? 0.18 : 0.11);
+          return (
+            <View
+              key={`nova-band-${effect.id}-${offset}`}
+              pointerEvents="none"
+              style={[
+                shooterStyles.effectNode,
+                shooterStyles.effectNovaBand,
+                {
+                  left: effect.x + offset * width - bandWidth / 2,
+                  top,
+                  width: bandWidth,
+                  height,
+                  opacity: opacity * (index === 2 ? 0.54 : 0.28),
+                  backgroundColor: index === 2 ? '#FFF6CF' : effect.color,
+                  borderColor: index === 2 ? '#FFFDF1' : '#FFE9C1',
+                },
+              ]}
+            />
+          );
+        })}
+        <View
+          pointerEvents="none"
+          style={[
+            shooterStyles.effectNode,
+            shooterStyles.effectNovaEmitter,
+            {
+              left: effect.x - emitterWidth / 2,
+              top: effect.y - 18,
+              width: emitterWidth,
+              opacity: opacity * 0.88,
+              backgroundColor: effect.color,
+              borderColor: '#FFF1D4',
+            },
+          ]}
+        />
+      </>
+    );
+  }
+
+  if (effect.kind === 'missileStorm') {
+    const missileSize = clamp(effect.size * 0.035, 14, 21);
+    const bodyHeight = missileSize * 2.1;
+    const trailHeight = bodyHeight * 2.65;
+    const travelHeight = effect.size * 0.9;
+    const wobble = Math.sin(progress * Math.PI * 1.2 + effect.x * 0.035) * (3 + missileSize * 0.1);
+    const currentY = effect.y - travelHeight * (0.06 + progress * 0.9);
+    const shellWidth = missileSize * 1.8;
+    const angleDegrees = wobble * 1.25;
+    return (
+      <View
+        pointerEvents="none"
+        style={[
+          shooterStyles.bulletShell,
+          {
+            left: effect.x + wobble - shellWidth / 2,
+            top: currentY - trailHeight + missileSize * 0.55,
+            width: shellWidth,
+            height: trailHeight,
+            transform: [{ rotate: `${angleDegrees}deg` }],
+            opacity: 0.22 + opacity * 0.86,
+          },
+        ]}>
+        <View
+          style={[
+            shooterStyles.bulletGlow,
+            {
+              backgroundColor: effect.color,
+              opacity: 0.22 + opacity * 0.12,
+              transform: [{ scaleX: 1.22 }, { scaleY: 1.16 + (1 - progress) * 0.1 }],
+            },
+          ]}
+        />
+        <View
+          style={[
+            shooterStyles.missileExhaust,
+            {
+              width: missileSize * 0.74,
+              height: trailHeight - bodyHeight * 0.72,
+              backgroundColor: effect.color,
+              opacity: 0.26 + opacity * 0.18,
+            },
+          ]}
+        />
+        <View
+          style={[
+            shooterStyles.missileBody,
+            {
+              width: missileSize * 0.88,
+              height: bodyHeight,
+              backgroundColor: '#FFF0E8',
+              borderColor: effect.color,
+            },
+          ]}>
+          <View
+            style={[
+              shooterStyles.missileNose,
+              {
+                marginLeft: -(missileSize * 0.43),
+                borderLeftWidth: missileSize * 0.43,
+                borderRightWidth: missileSize * 0.43,
+                borderBottomWidth: missileSize * 0.84,
+                borderBottomColor: '#FFF0E8',
+              },
+            ]}
+          />
+          <View
+            style={[
+              shooterStyles.missileFinLeft,
+              {
+                borderTopWidth: missileSize * 0.42,
+                borderRightWidth: missileSize * 0.34,
+                borderTopColor: effect.color,
+              },
+            ]}
+          />
+          <View
+            style={[
+              shooterStyles.missileFinRight,
+              {
+                borderTopWidth: missileSize * 0.42,
+                borderLeftWidth: missileSize * 0.34,
+                borderTopColor: effect.color,
+              },
+            ]}
+          />
+        </View>
+      </View>
+    );
+  }
+
+  if (effect.kind === 'shatterStorm') {
+    const ringSize = effect.size * (0.52 + progress * 0.84);
+    const coreSize = effect.size * (0.16 + progress * 0.18);
+    const shardLength = Math.max(16, effect.size * 0.22);
+    const shardThickness = Math.max(4, effect.size * 0.06);
+    const shardDistance = effect.size * (0.12 + progress * 0.46);
+    const shardAngles = [0, 28, 62, 108, 152, 205, 248, 302];
+    return (
+      <>
+        <View
+          pointerEvents="none"
+          style={[
+            shooterStyles.effectNode,
+            shooterStyles.effectUltimateGlow,
+            {
+              left: effect.x - ringSize / 2,
+              top: effect.y - ringSize / 2,
+              width: ringSize,
+              height: ringSize,
+              opacity: opacity * 0.2,
+              backgroundColor: effect.color,
+            },
+          ]}
+        />
+        <View
+          pointerEvents="none"
+          style={[
+            shooterStyles.effectNode,
+            shooterStyles.effectRing,
+            {
+              left: effect.x - ringSize / 2,
+              top: effect.y - ringSize / 2,
+              width: ringSize,
+              height: ringSize,
+              opacity: opacity * 0.76,
+              borderColor: effect.color,
+            },
+          ]}
+        />
+        {shardAngles.map((angle, index) => {
+          const radians = (angle * Math.PI) / 180;
+          const shardX = effect.x + Math.cos(radians) * shardDistance;
+          const shardY = effect.y + Math.sin(radians) * shardDistance;
+          return (
+            <View
+              key={`shatter-storm-${effect.id}-${angle}`}
+              pointerEvents="none"
+              style={[
+                shooterStyles.effectNode,
+                shooterStyles.effectShatterFragment,
+                {
+                  left: shardX - shardLength / 2,
+                  top: shardY - shardThickness / 2,
+                  width: shardLength,
+                  height: shardThickness,
+                  opacity: opacity * (index % 2 === 0 ? 0.88 : 0.6),
+                  backgroundColor: index % 2 === 0 ? '#FFF2D7' : effect.color,
+                  transform: [{ rotate: `${angle + progress * 26}deg` }, { scaleX: 0.82 + progress * 0.36 }],
+                },
+              ]}
+            />
+          );
+        })}
+        <View
+          pointerEvents="none"
+          style={[
+            shooterStyles.effectNode,
+            shooterStyles.effectCore,
+            {
+              left: effect.x - coreSize / 2,
+              top: effect.y - coreSize / 2,
+              width: coreSize,
+              height: coreSize,
+              opacity: opacity * 0.28,
               backgroundColor: effect.color,
             },
           ]}
@@ -4083,6 +4433,10 @@ const shooterStyles = StyleSheet.create({
   effectUltimatePetal: {
     borderRadius: 999,
   },
+  effectRailSide: {
+    width: 2,
+    borderRadius: 999,
+  },
   effectBombardColumn: {
     borderRadius: 999,
     borderWidth: 1,
@@ -4096,6 +4450,18 @@ const shooterStyles = StyleSheet.create({
     borderWidth: 2,
   },
   effectCore: {
+    borderRadius: 999,
+  },
+  effectNovaBand: {
+    borderRadius: 999,
+    borderWidth: 1,
+  },
+  effectNovaEmitter: {
+    height: 28,
+    borderRadius: 999,
+    borderWidth: 1.5,
+  },
+  effectShatterFragment: {
     borderRadius: 999,
   },
   bgHaze: {
