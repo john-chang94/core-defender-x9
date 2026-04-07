@@ -1818,18 +1818,19 @@ function buildEnemySpawnDrafts(
   const difficultyTier = getDifficultyTier(state.elapsed);
   const isCrowdClampTier = difficultyTier >= 13;
   const isLateCrowdClampTier = difficultyTier >= 16;
+  const isSwarmPhaseTier = difficultyTier >= 9;
   const activeEnemyCount = state.enemies.length;
   const lanes = getSpawnLanes(boardWidth);
   const centerLane = Math.floor(Math.random() * lanes.length);
   const drafts: EnemySpawnDraft[] = [{ x: lanes[centerLane] }];
   let cooldown = Math.max(1.45, 4.15 - difficultyTier * 0.06 - Math.random() * 0.24);
   const primarySwarmChance =
-    difficultyTier >= 5
+    isSwarmPhaseTier
       ? isLateCrowdClampTier
-        ? Math.min(0.78, 0.48 + (difficultyTier - 16) * 0.025)
+        ? Math.min(0.8, 0.56 + (difficultyTier - 16) * 0.02)
         : isCrowdClampTier
-          ? Math.min(0.68, 0.38 + (difficultyTier - 13) * 0.03)
-          : Math.min(0.58, 0.12 + difficultyTier * 0.038)
+          ? Math.min(0.7, 0.48 + (difficultyTier - 13) * 0.028)
+          : Math.min(0.62, 0.34 + (difficultyTier - 9) * 0.04)
       : 0;
   const sideSpawnChance = isLateCrowdClampTier
     ? activeEnemyCount >= 14
@@ -1839,7 +1840,9 @@ function buildEnemySpawnDrafts(
       ? activeEnemyCount >= 13
         ? 0.02
         : Math.min(0.12, 0.055 + (difficultyTier - 13) * 0.012)
-      : Math.min(0.18, 0.04 + difficultyTier * 0.015);
+      : isSwarmPhaseTier
+        ? Math.min(0.2, 0.1 + (difficultyTier - 9) * 0.016)
+        : Math.min(0.1, 0.02 + difficultyTier * 0.01);
   const flankBurstChance = isLateCrowdClampTier
     ? activeEnemyCount >= 13
       ? 0
@@ -1848,7 +1851,9 @@ function buildEnemySpawnDrafts(
       ? activeEnemyCount >= 12
         ? 0.01
         : Math.min(0.055, 0.018 + (difficultyTier - 13) * 0.008)
-      : Math.min(0.11, 0.012 + difficultyTier * 0.008);
+      : difficultyTier >= 10
+        ? Math.min(0.12, 0.05 + (difficultyTier - 10) * 0.01)
+        : Math.min(0.04, 0.008 + difficultyTier * 0.004);
   const eliteSpawnChance = isLateCrowdClampTier
     ? Math.min(0.018, 0.004 + (difficultyTier - 16) * 0.002)
     : isCrowdClampTier
@@ -1876,7 +1881,7 @@ function buildEnemySpawnDrafts(
     };
   }
 
-  if (difficultyTier >= 6 && activeEnemyCount <= (isLateCrowdClampTier ? 13 : 11) && Math.random() < sideSpawnChance) {
+  if (isSwarmPhaseTier && activeEnemyCount <= (isLateCrowdClampTier ? 13 : 11) && Math.random() < sideSpawnChance) {
     const sideOffset = centerLane <= 1 ? 1 : centerLane >= lanes.length - 2 ? -1 : Math.random() < 0.5 ? -1 : 1;
     drafts.push({
       x: lanes[centerLane + sideOffset],
@@ -1965,13 +1970,14 @@ function buildEnemySpawnDrafts(
 
   const leadDraft = drafts[0];
   if (
-    difficultyTier >= 11 &&
+    difficultyTier >= 10 &&
     activeEnemyCount <= (isLateCrowdClampTier ? 12 : 10) &&
     leadDraft &&
     leadDraft.archetype !== 'swarm' &&
     Math.random() < (isLateCrowdClampTier ? 0.34 : 0.28)
   ) {
-    const escortOffsets = Math.random() < 0.5 ? [-1] : [1];
+    const escortOffsets =
+      !isLateCrowdClampTier && difficultyTier <= 20 ? [-1, 1] : Math.random() < 0.5 ? [-1] : [1];
     for (const offset of escortOffsets) {
       const escortLane = clamp(centerLane + offset, 0, lanes.length - 1);
       if (escortLane === centerLane) {
@@ -2873,7 +2879,6 @@ function EnemyNode({ enemy }: { enemy: PrototypeEnemy }) {
 
 function BulletNode({ bullet }: { bullet: PrototypeBullet }) {
   const trailHeight = bullet.size * (2.5 + bullet.trailScale * (0.38 + Math.sin(bullet.age * 18 + bullet.phase) * 0.1));
-  const glowScale = 1 + Math.sin(bullet.age * 20 + bullet.phase) * 0.08;
   const angleDegrees = (bullet.angle * 180) / Math.PI;
   const isMissile = bullet.kind === 'missile';
   const isShatterShell = bullet.kind === 'shatterShell';
@@ -2897,27 +2902,6 @@ function BulletNode({ bullet }: { bullet: PrototypeBullet }) {
             transform: [{ rotate: `${angleDegrees}deg` }],
           },
         ]}>
-        <View
-          style={[
-            shooterStyles.bulletGlow,
-            {
-              backgroundColor: bullet.glowColor,
-              opacity: 0.28 + bullet.trailScale * 0.05,
-              transform: [{ scaleX: 1.18 + bullet.trailScale * 0.09 }, { scaleY: 1.08 + glowScale * 0.12 }],
-            },
-          ]}
-        />
-        <View
-          style={[
-            shooterStyles.missileExhaust,
-            {
-              width: bullet.size * 0.72,
-              height: missileTrailHeight - bodyHeight * 0.7,
-              backgroundColor: bullet.glowColor,
-              opacity: 0.3 + Math.sin(bullet.age * 26 + bullet.phase) * 0.06,
-            },
-          ]}
-        />
         <View
           style={[
             shooterStyles.missileBody,
@@ -2982,16 +2966,6 @@ function BulletNode({ bullet }: { bullet: PrototypeBullet }) {
         ]}>
         <View
           style={[
-            shooterStyles.bulletGlow,
-            {
-              backgroundColor: bullet.glowColor,
-              opacity: 0.26,
-              transform: [{ scaleX: 1.14 }, { scaleY: 1.1 + glowScale * 0.1 }],
-            },
-          ]}
-        />
-        <View
-          style={[
             shooterStyles.shatterShellCore,
             {
               width: shellSize,
@@ -3023,16 +2997,6 @@ function BulletNode({ bullet }: { bullet: PrototypeBullet }) {
         ]}>
         <View
           style={[
-            shooterStyles.bulletGlow,
-            {
-              backgroundColor: bullet.glowColor,
-              opacity: 0.22,
-              transform: [{ scaleX: 1.06 }, { scaleY: 1 + glowScale * 0.08 }],
-            },
-          ]}
-        />
-        <View
-          style={[
             shooterStyles.shatterShard,
             {
               borderBottomColor: bullet.color,
@@ -3058,17 +3022,7 @@ function BulletNode({ bullet }: { bullet: PrototypeBullet }) {
           height: trailHeight,
           transform: [{ rotate: `${angleDegrees}deg` }],
         },
-      ]}>
-      <View
-        style={[
-          shooterStyles.bulletGlow,
-          {
-            backgroundColor: bullet.glowColor,
-            opacity: 0.22 + bullet.trailScale * 0.05,
-            transform: [{ scaleX: 1.05 + bullet.trailScale * 0.08 }, { scaleY: glowScale }],
-          },
-        ]}
-      />
+        ]}>
       <View
         style={[
           shooterStyles.bullet,
@@ -3387,27 +3341,6 @@ function EffectNode({ effect }: { effect: PrototypeEffect }) {
             opacity: 0.22 + opacity * 0.86,
           },
         ]}>
-        <View
-          style={[
-            shooterStyles.bulletGlow,
-            {
-              backgroundColor: effect.color,
-              opacity: 0.22 + opacity * 0.12,
-              transform: [{ scaleX: 1.22 }, { scaleY: 1.16 + (1 - progress) * 0.1 }],
-            },
-          ]}
-        />
-        <View
-          style={[
-            shooterStyles.missileExhaust,
-            {
-              width: missileSize * 0.74,
-              height: trailHeight - bodyHeight * 0.72,
-              backgroundColor: effect.color,
-              opacity: 0.26 + opacity * 0.18,
-            },
-          ]}
-        />
         <View
           style={[
             shooterStyles.missileBody,
