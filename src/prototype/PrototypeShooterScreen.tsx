@@ -871,6 +871,36 @@ function getTimePressureMultiplier(difficultyTier: number) {
   return Math.pow(1.24, 8) * Math.pow(1.14, 5) * Math.pow(1.07, difficultyTier - 13);
 }
 
+function getArchetypeTimePressureMultiplier(
+  archetype: EnemyArchetype,
+  difficultyTier: number,
+  baseMultiplier: number
+) {
+  switch (archetype) {
+    case 'swarm':
+      return 1 + Math.min(2.4, difficultyTier * 0.085);
+    case 'splitter':
+      return 1 + Math.min(4.8, difficultyTier * 0.16);
+    default:
+      return baseMultiplier;
+  }
+}
+
+function getArchetypeUpgradePressureMultiplier(
+  archetype: EnemyArchetype,
+  collectedUpgradeCount: number,
+  baseMultiplier: number
+) {
+  switch (archetype) {
+    case 'swarm':
+      return 1 + Math.min(0.95, collectedUpgradeCount * 0.035);
+    case 'splitter':
+      return 1 + Math.min(1.45, collectedUpgradeCount * 0.055);
+    default:
+      return baseMultiplier;
+  }
+}
+
 function getUpgradeSpeedPenalty(collectedUpgradeCount: number) {
   return 1 - Math.min(0.18, collectedUpgradeCount * 0.014);
 }
@@ -1727,9 +1757,9 @@ function buildBossEscortDrafts(
   boss: PrototypeEnemy
 ): { cooldown: number; drafts: EnemySpawnDraft[] } {
   const activeEnemyCount = state.enemies.filter((enemy) => enemy.health > 0 && enemy.id !== boss.id).length;
-  if (activeEnemyCount >= 6) {
+  if (activeEnemyCount >= 4) {
     return {
-      cooldown: 1.6 + Math.min(0.7, (activeEnemyCount - 6) * 0.12),
+      cooldown: 2.1 + Math.min(0.8, (activeEnemyCount - 4) * 0.18),
       drafts: [] as EnemySpawnDraft[],
     };
   }
@@ -1746,25 +1776,25 @@ function buildBossEscortDrafts(
       x: primaryLane,
       archetype: 'swarm',
       sizeMultiplier: 0.82,
-      healthMultiplier: 0.74,
-      speedMultiplier: 0.9,
+      healthMultiplier: 0.42,
+      speedMultiplier: 0.96,
     },
   ];
 
-  if (phase >= 2 && activeEnemyCount <= 4) {
+  if (phase >= 2 && activeEnemyCount <= 2) {
     drafts.push({
       x: secondaryLane,
-      archetype: phase >= 3 ? 'splitter' : 'standard',
+      archetype: phase >= 3 ? 'splitter' : 'swarm',
       shape: phase >= 3 ? 'diamond' : 'circle',
       color: phase >= 3 ? '#FF8CBD' : '#7BEAFF',
-      sizeMultiplier: phase >= 3 ? 0.92 : 0.84,
-      healthMultiplier: phase >= 3 ? 0.88 : 0.72,
-      speedMultiplier: phase >= 3 ? 0.72 : 0.84,
+      sizeMultiplier: phase >= 3 ? 0.9 : 0.8,
+      healthMultiplier: phase >= 3 ? 0.72 : 0.44,
+      speedMultiplier: phase >= 3 ? 0.8 : 1.04,
     });
   }
 
   return {
-    cooldown: 3.45 - phase * 0.28 + activeEnemyCount * 0.1,
+    cooldown: 4.2 - phase * 0.22 + activeEnemyCount * 0.18,
     drafts,
   };
 }
@@ -1991,8 +2021,16 @@ function createEnemy(
   const shapePool: EnemyShape[] =
     difficultyTier >= 7 ? ['circle', 'square', 'diamond'] : difficultyTier >= 4 ? ['circle', 'square'] : ['circle'];
   const shape = draft?.shape ?? archetypeSettings.defaultShape ?? randomChoice(shapePool);
-  const timePressureMultiplier = getTimePressureMultiplier(difficultyTier);
-  const upgradePressureMultiplier = getUpgradePressureMultiplier(state.collectedUpgradeCount);
+  const timePressureMultiplier = getArchetypeTimePressureMultiplier(
+    archetype,
+    difficultyTier,
+    getTimePressureMultiplier(difficultyTier)
+  );
+  const upgradePressureMultiplier = getArchetypeUpgradePressureMultiplier(
+    archetype,
+    state.collectedUpgradeCount,
+    getUpgradePressureMultiplier(state.collectedUpgradeCount)
+  );
   const upgradeSpeedPenalty = getUpgradeSpeedPenalty(state.collectedUpgradeCount);
   const maxHealth = Math.max(
     2,
