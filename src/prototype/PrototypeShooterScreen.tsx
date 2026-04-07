@@ -1793,46 +1793,78 @@ function buildEnemySpawnDrafts(
   const centerLane = Math.floor(Math.random() * lanes.length);
   const drafts: EnemySpawnDraft[] = [{ x: lanes[centerLane] }];
   let cooldown = Math.max(1.45, 4.15 - difficultyTier * 0.06 - Math.random() * 0.24);
+  const primarySwarmChance =
+    difficultyTier >= 5
+      ? isLateCrowdClampTier
+        ? Math.min(0.78, 0.48 + (difficultyTier - 16) * 0.025)
+        : isCrowdClampTier
+          ? Math.min(0.68, 0.38 + (difficultyTier - 13) * 0.03)
+          : Math.min(0.58, 0.12 + difficultyTier * 0.038)
+      : 0;
   const sideSpawnChance = isLateCrowdClampTier
-    ? Math.min(0.028, 0.008 + (difficultyTier - 16) * 0.003)
-    : isCrowdClampTier
-      ? Math.min(0.055, 0.014 + (difficultyTier - 13) * 0.004)
-      : Math.min(0.14, 0.02 + difficultyTier * 0.012);
-  const flankBurstChance = isLateCrowdClampTier
     ? activeEnemyCount >= 14
       ? 0
-      : Math.min(0.008, 0.002 + (difficultyTier - 16) * 0.0025)
+      : Math.min(0.085, 0.04 + (difficultyTier - 16) * 0.008)
     : isCrowdClampTier
-      ? Math.min(0.025, 0.006 + (difficultyTier - 13) * 0.004)
-      : Math.min(0.08, 0.01 + difficultyTier * 0.006);
+      ? activeEnemyCount >= 13
+        ? 0.02
+        : Math.min(0.12, 0.055 + (difficultyTier - 13) * 0.012)
+      : Math.min(0.18, 0.04 + difficultyTier * 0.015);
+  const flankBurstChance = isLateCrowdClampTier
+    ? activeEnemyCount >= 13
+      ? 0
+      : Math.min(0.04, 0.014 + (difficultyTier - 16) * 0.005)
+    : isCrowdClampTier
+      ? activeEnemyCount >= 12
+        ? 0.01
+        : Math.min(0.055, 0.018 + (difficultyTier - 13) * 0.008)
+      : Math.min(0.11, 0.012 + difficultyTier * 0.008);
   const eliteSpawnChance = isLateCrowdClampTier
-    ? Math.min(0.028, 0.008 + (difficultyTier - 16) * 0.003)
+    ? Math.min(0.018, 0.004 + (difficultyTier - 16) * 0.002)
     : isCrowdClampTier
-      ? Math.min(0.05, 0.01 + (difficultyTier - 13) * 0.004)
-      : Math.min(0.08, 0.01 + difficultyTier * 0.008);
-  const tankSpawnChance = difficultyTier >= 6 ? (isLateCrowdClampTier ? 0.18 : isCrowdClampTier ? 0.24 : 0.28) : 0;
+      ? Math.min(0.03, 0.008 + (difficultyTier - 13) * 0.004)
+      : Math.min(0.05, 0.008 + difficultyTier * 0.005);
+  const tankSpawnChance = difficultyTier >= 6 ? (isLateCrowdClampTier ? 0.08 : isCrowdClampTier ? 0.12 : 0.17) : 0;
   const splitterSpawnChance =
-    difficultyTier >= 9 && activeEnemyCount <= 12 ? (isCrowdClampTier ? 0.08 : 0.12 + Math.min(0.05, (difficultyTier - 9) * 0.008)) : 0;
+    difficultyTier >= 9 && activeEnemyCount <= 13
+      ? isLateCrowdClampTier
+        ? 0.04
+        : isCrowdClampTier
+          ? 0.06
+          : 0.075 + Math.min(0.03, (difficultyTier - 9) * 0.005)
+      : 0;
 
-  if (difficultyTier >= 6 && Math.random() < sideSpawnChance) {
+  if (Math.random() < primarySwarmChance) {
+    drafts[0] = {
+      ...drafts[0],
+      archetype: 'swarm',
+      shape: 'circle',
+      color: '#79EBFF',
+      sizeMultiplier: 0.9,
+      healthMultiplier: 0.76,
+      speedMultiplier: 1.02,
+    };
+  }
+
+  if (difficultyTier >= 6 && activeEnemyCount <= (isLateCrowdClampTier ? 13 : 11) && Math.random() < sideSpawnChance) {
     const sideOffset = centerLane <= 1 ? 1 : centerLane >= lanes.length - 2 ? -1 : Math.random() < 0.5 ? -1 : 1;
     drafts.push({
       x: lanes[centerLane + sideOffset],
       archetype: 'swarm',
       sizeMultiplier: 0.88,
-      healthMultiplier: 0.8,
-      speedMultiplier: 1.04,
+      healthMultiplier: 0.74,
+      speedMultiplier: 1.06,
     });
     cooldown += 0.42;
   }
 
-  if (difficultyTier >= 10 && Math.random() < flankBurstChance) {
+  if (difficultyTier >= 10 && activeEnemyCount <= (isLateCrowdClampTier ? 12 : 10) && Math.random() < flankBurstChance) {
     const leftLane = Math.max(0, centerLane - 1);
     const rightLane = Math.min(lanes.length - 1, centerLane + 1);
     const flankDraft = {
       archetype: 'swarm' as const,
       sizeMultiplier: 0.86,
-      healthMultiplier: 0.78,
+      healthMultiplier: 0.72,
       speedMultiplier: 1.12,
       shape: 'circle' as const,
     };
@@ -1901,6 +1933,33 @@ function buildEnemySpawnDrafts(
     cooldown += 0.24;
   }
 
+  const leadDraft = drafts[0];
+  if (
+    difficultyTier >= 11 &&
+    activeEnemyCount <= (isLateCrowdClampTier ? 12 : 10) &&
+    leadDraft &&
+    leadDraft.archetype !== 'swarm' &&
+    Math.random() < (isLateCrowdClampTier ? 0.34 : 0.28)
+  ) {
+    const escortOffsets = Math.random() < 0.5 ? [-1] : [1];
+    for (const offset of escortOffsets) {
+      const escortLane = clamp(centerLane + offset, 0, lanes.length - 1);
+      if (escortLane === centerLane) {
+        continue;
+      }
+      drafts.push({
+        x: lanes[escortLane],
+        archetype: 'swarm',
+        shape: 'circle',
+        color: '#7DEEFF',
+        sizeMultiplier: 0.82,
+        healthMultiplier: 0.7,
+        speedMultiplier: 1.08,
+      });
+    }
+    cooldown += 0.22;
+  }
+
   if (difficultyTier >= 8) {
     cooldown += 0.2 + Math.min(0.18, (difficultyTier - 8) * 0.05);
   }
@@ -1949,12 +2008,25 @@ function createEnemy(
   const isEarlyMidTankPressureTier = difficultyTier >= 9 && difficultyTier <= 24;
   const tankierEnemySpeedBoost =
     archetype !== 'boss' && isEarlyMidTankPressureTier && maxHealth >= 180 && maxHealth <= 650 ? 1.12 : 1;
+  const heavierArchetypeSpeedBoost =
+    archetype === 'tank'
+      ? difficultyTier >= 8
+        ? 1.1
+        : 1.05
+      : archetype === 'splitter'
+        ? difficultyTier >= 10
+          ? 1.08
+          : 1.04
+        : archetype === 'standard' && maxHealth >= 260
+          ? 1.05
+          : 1;
   const speed =
     (54 + difficultyTier * 4.8 + Math.random() * 16) *
     speedMultiplier *
     upgradeSpeedPenalty *
     healthSpeedPenalty *
-    tankierEnemySpeedBoost;
+    tankierEnemySpeedBoost *
+    heavierArchetypeSpeedBoost;
   const spawnPadding = size / 2 + 12;
   const enemy: PrototypeEnemy = {
     id: `E${state.nextEnemyId}`,
