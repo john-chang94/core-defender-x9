@@ -12,8 +12,16 @@ import {
   ARENA_PLAYER_MARGIN,
   ARENA_PLAYER_RENDER_HALF_WIDTH,
 } from './config';
-import { createInitialArenaState, getArenaActiveEnemyCap, getArenaDisplayTier, tickArenaState } from './engine';
-import type { ArenaEffect, ArenaEnemy, ArenaProjectile } from './types';
+import {
+  applyArenaArmoryUpgrade,
+  createInitialArenaState,
+  getArenaActiveEnemyCap,
+  getArenaActiveWeapon,
+  getArenaDisplayTier,
+  tickArenaState,
+} from './engine';
+import { ARENA_ARMORY_UPGRADES } from './upgrades';
+import type { ArenaDrop, ArenaEffect, ArenaEnemy, ArenaProjectile } from './types';
 
 type AppGameId = 'defender' | 'prototype' | 'prototypeV2';
 
@@ -81,8 +89,8 @@ function EnemyNode({ enemy }: { enemy: ArenaEnemy }) {
         {
           width: enemy.size,
           height: enemy.size,
-          left: enemy.x - enemy.size / 2,
-          top: enemy.y - enemy.size / 2,
+          left: Math.round(enemy.x - enemy.size / 2),
+          top: Math.round(enemy.y - enemy.size / 2),
           backgroundColor: enemy.color,
           borderRadius: isCircle ? enemy.size / 2 : 12,
           transform: [{ scale: enemy.flash > 0 ? 1.05 : 1 }, ...(isDiamond ? [{ rotate: '45deg' as const }] : [])],
@@ -123,8 +131,8 @@ function ProjectileNode({ projectile }: { projectile: ArenaProjectile }) {
           {
             width: projectile.size,
             height: projectile.size,
-            left: projectile.x - projectile.size / 2,
-            top: projectile.y - projectile.size / 2,
+            left: Math.round(projectile.x - projectile.size / 2),
+            top: Math.round(projectile.y - projectile.size / 2),
             backgroundColor: projectile.color,
           },
         ]}
@@ -136,15 +144,15 @@ function ProjectileNode({ projectile }: { projectile: ArenaProjectile }) {
   return (
     <View
       pointerEvents="none"
-      style={[
-        arenaStyles.playerProjectileShell,
-        {
-          left: projectile.x - projectile.size / 2,
-          top: projectile.y - trailHeight,
-          width: projectile.size,
-          height: trailHeight,
-        },
-      ]}>
+        style={[
+          arenaStyles.playerProjectileShell,
+          {
+            left: Math.round(projectile.x - projectile.size / 2),
+            top: Math.round(projectile.y - trailHeight),
+            width: projectile.size,
+            height: trailHeight,
+          },
+        ]}>
       <View
         style={[
           arenaStyles.playerProjectile,
@@ -156,6 +164,27 @@ function ProjectileNode({ projectile }: { projectile: ArenaProjectile }) {
           },
         ]}
       />
+    </View>
+  );
+}
+
+function DropNode({ drop }: { drop: ArenaDrop }) {
+  const pulse = 1 + Math.sin(drop.age * 8) * 0.05;
+  return (
+    <View
+      pointerEvents="none"
+      style={[
+        arenaStyles.dropToken,
+        {
+          width: drop.size,
+          height: drop.size,
+          left: Math.round(drop.x - drop.size / 2),
+          top: Math.round(drop.y - drop.size / 2),
+          backgroundColor: drop.color,
+          transform: [{ scale: pulse }, { rotate: `${Math.sin(drop.age * 2.2) * 7}deg` }],
+        },
+      ]}>
+      <Text style={arenaStyles.dropLabel}>{drop.label}</Text>
     </View>
   );
 }
@@ -187,18 +216,18 @@ function EffectNode({ effect }: { effect: ArenaEffect }) {
   return (
     <View
       pointerEvents="none"
-      style={[
-        effect.kind === 'warning' ? arenaStyles.effectWarning : effect.kind === 'shield' ? arenaStyles.effectShield : arenaStyles.effectBurst,
-        {
-          width: size,
-          height: size,
-          left: effect.x - size / 2,
-          top: effect.y - size / 2,
-          opacity,
-          borderColor: effect.color,
-          backgroundColor: effect.kind === 'warning' ? 'transparent' : hexToRgba(effect.color, effect.kind === 'shield' ? 0.14 : 0.08),
-        },
-      ]}
+        style={[
+          effect.kind === 'warning' ? arenaStyles.effectWarning : effect.kind === 'shield' ? arenaStyles.effectShield : arenaStyles.effectBurst,
+          {
+            width: size,
+            height: size,
+            left: Math.round(effect.x - size / 2),
+            top: Math.round(effect.y - size / 2),
+            opacity,
+            borderColor: effect.color,
+            backgroundColor: effect.kind === 'warning' ? 'transparent' : hexToRgba(effect.color, effect.kind === 'shield' ? 0.14 : 0.08),
+          },
+        ]}
     />
   );
 }
@@ -212,6 +241,7 @@ export function ArenaPrototypeScreen({ onSwitchGame }: ArenaPrototypeScreenProps
   const [isPaused, setIsPaused] = useState(true);
   const [isMenuOpen, setIsMenuOpen] = useState(false);
   const hasInitializedBoardRef = useRef(false);
+  const isArmoryOpen = gameState.pendingArmoryChoice !== null;
 
   useEffect(() => {
     if (boardSize.width <= 0 || boardSize.height <= 0) {
@@ -255,7 +285,7 @@ export function ArenaPrototypeScreen({ onSwitchGame }: ArenaPrototypeScreenProps
       const elapsedSeconds = Math.min((timeMs - lastFrameTimeMs) / 1000, ARENA_MAX_FRAME_DELTA_SECONDS);
       lastFrameTimeMs = timeMs;
 
-      if (hasStarted && !isPaused) {
+      if (hasStarted && !isPaused && !isArmoryOpen) {
         accumulatedSimulationSeconds += elapsedSeconds;
         const steps = Math.min(ARENA_MAX_CATCH_UP_STEPS, Math.floor(accumulatedSimulationSeconds / ARENA_FIXED_STEP_SECONDS));
         if (steps > 0) {
@@ -285,7 +315,7 @@ export function ArenaPrototypeScreen({ onSwitchGame }: ArenaPrototypeScreenProps
     return () => {
       cancelAnimationFrame(animationFrameId);
     };
-  }, [boardSize.height, boardSize.width, hasStarted, isPaused]);
+  }, [boardSize.height, boardSize.width, hasStarted, isArmoryOpen, isPaused]);
 
   useEffect(() => {
     if (gameState.status === 'lost') {
@@ -293,19 +323,32 @@ export function ArenaPrototypeScreen({ onSwitchGame }: ArenaPrototypeScreenProps
     }
   }, [gameState.status]);
 
+  useEffect(() => {
+    if (isArmoryOpen && hasStarted && gameState.status === 'running') {
+      setIsPaused(true);
+      setIsMenuOpen(false);
+    }
+  }, [gameState.pendingArmoryChoice, gameState.status, hasStarted, isArmoryOpen]);
+
   const displayTier = getArenaDisplayTier(gameState.elapsed);
   const activeEnemyCap = getArenaActiveEnemyCap(displayTier);
+  const activeWeapon = getArenaActiveWeapon(gameState);
   const statusText =
     !hasStarted
       ? 'Press Start to deploy the arena test.'
+      : isArmoryOpen
+        ? 'Armory draft ready.'
       : gameState.status === 'lost'
         ? 'Hull collapse. Restart to run again.'
         : isPaused
           ? 'Arena Prototype paused.'
-          : `Enemies hold the upper half. Keep the hull intact.`;
+          : gameState.pickupMessage ??
+            (gameState.overclockTimer > 0
+              ? `Overclock ${gameState.overclockTimer.toFixed(1)}s. Threat ${gameState.enemies.length}/${activeEnemyCap}`
+              : `Enemies hold the upper half. Threat ${gameState.enemies.length}/${activeEnemyCap}`);
 
   const handleBoardTouch = (event: GestureResponderEvent) => {
-    if (boardSize.width <= 0 || boardSize.height <= 0 || isMenuOpen || !hasStarted || isPaused || gameState.status !== 'running') {
+    if (boardSize.width <= 0 || boardSize.height <= 0 || isMenuOpen || isArmoryOpen || !hasStarted || isPaused || gameState.status !== 'running') {
       return;
     }
 
@@ -334,10 +377,23 @@ export function ArenaPrototypeScreen({ onSwitchGame }: ArenaPrototypeScreenProps
     setIsMenuOpen(false);
   };
 
+  const handleSelectArmoryUpgrade = (key: keyof typeof ARENA_ARMORY_UPGRADES) => {
+    setGameState((previousState) => {
+      if (!previousState.pendingArmoryChoice) {
+        return previousState;
+      }
+      return applyArenaArmoryUpgrade(previousState, key);
+    });
+
+    if (hasStarted && gameState.status === 'running') {
+      setIsPaused(false);
+    }
+  };
+
   const playerTop = getPlayerShipTop(boardSize.height);
   const playerStyle = {
-    left: gameState.playerX - ARENA_PLAYER_RENDER_HALF_WIDTH,
-    top: playerTop,
+    left: Math.round(gameState.playerX - ARENA_PLAYER_RENDER_HALF_WIDTH),
+    top: Math.round(playerTop),
   };
   const hullRatio = gameState.hull / gameState.maxHull;
 
@@ -346,6 +402,9 @@ export function ArenaPrototypeScreen({ onSwitchGame }: ArenaPrototypeScreenProps
       <View style={arenaStyles.topBar}>
         <Pressable
           onPress={() => {
+            if (isArmoryOpen) {
+              return;
+            }
             if (!hasStarted) {
               setHasStarted(true);
               setIsPaused(false);
@@ -373,7 +432,14 @@ export function ArenaPrototypeScreen({ onSwitchGame }: ArenaPrototypeScreenProps
           </Text>
         </View>
 
-        <Pressable onPress={() => setIsMenuOpen((value) => !value)} style={[arenaStyles.quickButton, isMenuOpen && arenaStyles.quickButtonActive]}>
+        <Pressable
+          onPress={() => {
+            if (isArmoryOpen) {
+              return;
+            }
+            setIsMenuOpen((value) => !value);
+          }}
+          style={[arenaStyles.quickButton, isMenuOpen && arenaStyles.quickButtonActive]}>
           <Text style={arenaStyles.quickButtonText}>Menu</Text>
         </Pressable>
       </View>
@@ -400,17 +466,15 @@ export function ArenaPrototypeScreen({ onSwitchGame }: ArenaPrototypeScreenProps
       <View style={arenaStyles.subHudRow}>
         <View style={arenaStyles.statCard}>
           <Text style={arenaStyles.statLabel}>Damage</Text>
-          <Text style={arenaStyles.statValue}>{gameState.weapon.damage}</Text>
+          <Text style={arenaStyles.statValue}>{activeWeapon.damage}</Text>
         </View>
         <View style={arenaStyles.statCard}>
           <Text style={arenaStyles.statLabel}>RoF</Text>
-          <Text style={arenaStyles.statValue}>{(1 / gameState.weapon.fireInterval).toFixed(1)}/s</Text>
+          <Text style={arenaStyles.statValue}>{(1 / activeWeapon.fireInterval).toFixed(1)}/s</Text>
         </View>
         <View style={arenaStyles.statCard}>
-          <Text style={arenaStyles.statLabel}>Threat</Text>
-          <Text style={arenaStyles.statValue}>
-            {gameState.enemies.length}/{activeEnemyCap}
-          </Text>
+          <Text style={arenaStyles.statLabel}>Salvage</Text>
+          <Text style={arenaStyles.statValue}>{gameState.salvage}</Text>
         </View>
       </View>
 
@@ -426,6 +490,10 @@ export function ArenaPrototypeScreen({ onSwitchGame }: ArenaPrototypeScreenProps
 
           {gameState.effects.map((effect) => (
             <EffectNode key={effect.id} effect={effect} />
+          ))}
+
+          {gameState.drops.map((drop) => (
+            <DropNode key={drop.id} drop={drop} />
           ))}
 
           {gameState.enemies.map((enemy) => (
@@ -457,6 +525,33 @@ export function ArenaPrototypeScreen({ onSwitchGame }: ArenaPrototypeScreenProps
           <View pointerEvents="none" style={arenaStyles.bottomGlow} />
         </View>
 
+        {isArmoryOpen ? (
+          <View style={arenaStyles.armoryOverlay}>
+            <View style={arenaStyles.armoryPanel}>
+              <Text style={arenaStyles.armoryTitle}>{gameState.pendingArmoryChoice?.title}</Text>
+              <Text style={arenaStyles.armorySubtitle}>
+                Salvage spent {gameState.pendingArmoryChoice?.cost}. Next draft {gameState.nextArmoryCost}.
+              </Text>
+              <Text style={arenaStyles.armoryPrompt}>{gameState.pendingArmoryChoice?.prompt}</Text>
+
+              <View style={arenaStyles.armoryOptions}>
+                {gameState.pendingArmoryChoice?.options.map((key) => {
+                  const definition = ARENA_ARMORY_UPGRADES[key];
+                  return (
+                    <Pressable
+                      key={key}
+                      onPress={() => handleSelectArmoryUpgrade(key)}
+                      style={arenaStyles.armoryCard}>
+                      <Text style={arenaStyles.armoryCardLabel}>{definition.label}</Text>
+                      <Text style={arenaStyles.armoryCardText}>{definition.summary}</Text>
+                    </Pressable>
+                  );
+                })}
+              </View>
+            </View>
+          </View>
+        ) : null}
+
         {isMenuOpen ? (
           <View style={arenaStyles.menuPanel}>
             <Text style={arenaStyles.menuTitle}>Arena Prototype Menu</Text>
@@ -476,7 +571,7 @@ export function ArenaPrototypeScreen({ onSwitchGame }: ArenaPrototypeScreenProps
 
             <Text style={arenaStyles.menuLabel}>Notes</Text>
             <Text style={arenaStyles.menuHint}>
-              Early combat sandbox. Enemies stay in the upper half, shoot back, and the run ends when hull reaches zero.
+              Enemies stay in the upper half, shoot back, and the run ends when hull reaches zero. Kills now generate salvage and can drop tactical pickups.
             </Text>
 
             <View style={arenaStyles.menuActions}>
@@ -731,6 +826,22 @@ const arenaStyles = StyleSheet.create({
     borderWidth: 1,
     borderColor: '#FFEFD9',
   },
+  dropToken: {
+    position: 'absolute',
+    borderRadius: 12,
+    borderWidth: 1.5,
+    borderColor: '#F8FCFF',
+    justifyContent: 'center',
+    alignItems: 'center',
+    paddingHorizontal: 4,
+  },
+  dropLabel: {
+    color: '#08131D',
+    fontSize: 9,
+    fontWeight: '900',
+    textTransform: 'uppercase',
+    textAlign: 'center',
+  },
   playerShell: {
     position: 'absolute',
     width: 56,
@@ -803,6 +914,62 @@ const arenaStyles = StyleSheet.create({
     height: 88,
     borderRadius: 999,
     backgroundColor: 'rgba(110, 234, 255, 0.08)',
+  },
+  armoryOverlay: {
+    ...StyleSheet.absoluteFillObject,
+    zIndex: 16,
+    backgroundColor: 'rgba(4, 10, 18, 0.7)',
+    justifyContent: 'center',
+    alignItems: 'center',
+    paddingHorizontal: 18,
+  },
+  armoryPanel: {
+    width: '100%',
+    maxWidth: 380,
+    borderRadius: 18,
+    borderWidth: 1,
+    borderColor: '#37536F',
+    backgroundColor: '#0E1826',
+    paddingHorizontal: 18,
+    paddingVertical: 18,
+    gap: 10,
+  },
+  armoryTitle: {
+    color: '#F5FAFF',
+    fontSize: 18,
+    fontWeight: '900',
+  },
+  armorySubtitle: {
+    color: '#8FB2D4',
+    fontSize: 12,
+    fontWeight: '700',
+  },
+  armoryPrompt: {
+    color: '#B9CCDF',
+    fontSize: 13,
+    lineHeight: 18,
+  },
+  armoryOptions: {
+    gap: 10,
+  },
+  armoryCard: {
+    borderRadius: 12,
+    borderWidth: 1,
+    borderColor: '#385470',
+    backgroundColor: '#132131',
+    paddingHorizontal: 14,
+    paddingVertical: 12,
+    gap: 4,
+  },
+  armoryCardLabel: {
+    color: '#F3F8FF',
+    fontSize: 15,
+    fontWeight: '800',
+  },
+  armoryCardText: {
+    color: '#B4C7DB',
+    fontSize: 12,
+    lineHeight: 17,
   },
   menuPanel: {
     position: 'absolute',

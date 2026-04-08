@@ -1033,7 +1033,7 @@ function DefenseScreen({ onSwitchGame }: { onSwitchGame: (game: AppGameId) => vo
 }
 
 export default function HomeScreen() {
-  const [activeGame, setActiveGame] = useState<AppGameId>('prototype');
+  const [activeGame, setActiveGame] = useState<AppGameId>('prototypeV2');
 
   useEffect(() => {
     let isActive = true;

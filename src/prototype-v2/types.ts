@@ -4,7 +4,18 @@ export type ArenaEnemyShape = 'circle' | 'square' | 'diamond';
 
 export type ArenaProjectileOwner = 'player' | 'enemy';
 
-export type ArenaEffectKind = 'muzzle' | 'burst' | 'warning' | 'shield';
+export type ArenaEffectKind = 'muzzle' | 'burst' | 'warning' | 'shield' | 'pickup';
+
+export type ArenaDropType = 'hullPatch' | 'shieldCell' | 'overclock' | 'salvageBurst';
+
+export type ArenaArmoryUpgradeKey =
+  | 'damageMatrix'
+  | 'rapidCycle'
+  | 'twinArray'
+  | 'phasePierce'
+  | 'shieldCapacitor'
+  | 'hullWeave'
+  | 'accelerator';
 
 export type ArenaWeapon = {
   damage: number;
@@ -61,10 +72,31 @@ export type ArenaEffect = {
   duration: number;
 };
 
+export type ArenaDrop = {
+  id: string;
+  type: ArenaDropType;
+  x: number;
+  y: number;
+  size: number;
+  speed: number;
+  label: string;
+  color: string;
+  age: number;
+};
+
+export type ArenaArmoryChoice = {
+  title: string;
+  prompt: string;
+  cost: number;
+  options: ArenaArmoryUpgradeKey[];
+};
+
 export type ArenaGameState = {
   status: 'running' | 'lost';
   elapsed: number;
   score: number;
+  salvage: number;
+  nextArmoryCost: number;
   playerX: number;
   hull: number;
   maxHull: number;
@@ -72,8 +104,10 @@ export type ArenaGameState = {
   maxShield: number;
   shieldRegenCooldown: number;
   playerFlash: number;
+  overclockTimer: number;
   weapon: ArenaWeapon;
   enemies: ArenaEnemy[];
+  drops: ArenaDrop[];
   playerBullets: ArenaProjectile[];
   enemyBullets: ArenaProjectile[];
   effects: ArenaEffect[];
@@ -81,5 +115,9 @@ export type ArenaGameState = {
   enemySpawnCooldown: number;
   nextBulletId: number;
   nextEnemyId: number;
+  nextDropId: number;
   nextEffectId: number;
+  pickupMessage: string | null;
+  pickupTimer: number;
+  pendingArmoryChoice: ArenaArmoryChoice | null;
 };
