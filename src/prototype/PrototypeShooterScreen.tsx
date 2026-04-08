@@ -174,12 +174,16 @@ type PrototypeGameState = {
   bossEscortCooldown: number;
   buildProtocol: BuildProtocolKey | null;
   buildProtocolLevel: number;
+  buildProtocolLevels: Record<BuildProtocolKey, number>;
   pendingArmoryChoice: PrototypeArmoryChoice | null;
   queuedArmoryChoice: PrototypeArmoryChoice | null;
   armoryTransitionTimer: number;
   armoryTransitionLabel: string | null;
   armoryTransitionColor: string | null;
   ultimateCharge: number;
+  encounterAnnouncement: string | null;
+  encounterAnnouncementTimer: number;
+  encounterAnnouncementColor: string | null;
 };
 
 type PrototypeShooterScreenProps = {
@@ -198,6 +202,7 @@ const MAX_ACTIVE_EFFECTS = 40;
 const MAX_ENEMY_RENDER_SIZE = 92;
 const MAX_ULTIMATE_CHARGE = 100;
 const ULTIMATE_CHARGE_GAIN_MULTIPLIER = 1.3;
+const ENCOUNTER_ANNOUNCEMENT_DURATION_SECONDS = 1.9;
 const DIFFICULTY_TIER_DURATION_SECONDS = 15;
 const BOSS_TIER_INTERVAL = 5;
 const BOSS_CLEAR_TRANSITION_SECONDS = 1.45;
@@ -237,6 +242,30 @@ const STANDARD_UPGRADE_TYPES: WeaponUpgradeType[] = [
   'bombard',
 ];
 const BUILD_PROTOCOL_KEYS: BuildProtocolKey[] = ['railFocus', 'novaBloom', 'missileCommand', 'fractureCore'];
+
+function createEmptyBuildProtocolLevels(): Record<BuildProtocolKey, number> {
+  return {
+    railFocus: 0,
+    novaBloom: 0,
+    missileCommand: 0,
+    fractureCore: 0,
+  };
+}
+
+function getStraightGunCap(state: PrototypeGameState) {
+  if (state.buildProtocol === 'fractureCore') {
+    return 2;
+  }
+  if (state.buildProtocol === 'novaBloom') {
+    return MAX_STRAIGHT_GUNS;
+  }
+  return 3;
+}
+
+function getMissileCountCap(state: PrototypeGameState) {
+  return state.buildProtocol === 'missileCommand' ? 6 : 2;
+}
+
 const BASE_WEAPON: PrototypeWeapon = {
   damage: 1,
   fireInterval: 0.1,
@@ -296,6 +325,7 @@ function applyDoctrineAdjustedUpgrade(
   type: WeaponUpgradeType
 ): { weapon: PrototypeWeapon; pickupMessage: string } {
   const definition = UPGRADE_DEFINITIONS[type];
+  const straightGunCap = getStraightGunCap(state);
 
   if (type === 'twin' && state.buildProtocol === 'railFocus') {
     if (state.weapon.shotCount < 2) {
@@ -314,6 +344,29 @@ function applyDoctrineAdjustedUpgrade(
         effectIntensity: Math.min(2.15, state.weapon.effectIntensity + 0.08),
       },
       pickupMessage: 'Twin compressed into rail payload',
+    };
+  }
+
+  if (type === 'twin') {
+    if (state.weapon.shotCount >= straightGunCap) {
+      return {
+        weapon: {
+          ...state.weapon,
+          damage: Math.min(14, state.weapon.damage + 1),
+          bulletSpeed: Math.min(1250, state.weapon.bulletSpeed + 30),
+          effectIntensity: Math.min(2.4, state.weapon.effectIntensity + 0.06),
+        },
+        pickupMessage: 'Twin compressed into payload',
+      };
+    }
+
+    return {
+      weapon: {
+        ...state.weapon,
+        shotCount: Math.min(straightGunCap, state.weapon.shotCount + 1),
+        spread: Math.min(28, state.weapon.spread + 2),
+      },
+      pickupMessage: `${definition.label} upgrade secured`,
     };
   }
 
@@ -345,9 +398,17 @@ function getChaosOverdriveWeapon(weapon: PrototypeWeapon): PrototypeWeapon {
   };
 }
 
+function applyWeaponBuildCaps(state: PrototypeGameState, weapon: PrototypeWeapon): PrototypeWeapon {
+  return {
+    ...weapon,
+    shotCount: Math.min(getStraightGunCap(state), weapon.shotCount),
+  };
+}
+
 function getActiveWeapon(state: PrototypeGameState): PrototypeWeapon {
   const buildAdjustedWeapon = getBuildProtocolWeapon(state, state.weapon);
-  return state.chaosTimer > 0 ? getChaosOverdriveWeapon(buildAdjustedWeapon) : buildAdjustedWeapon;
+  const overdriveWeapon = state.chaosTimer > 0 ? getChaosOverdriveWeapon(buildAdjustedWeapon) : buildAdjustedWeapon;
+  return applyWeaponBuildCaps(state, overdriveWeapon);
 }
 
 function getMissingGuaranteedUpgradeTypes(state: PrototypeGameState): WeaponUpgradeType[] {
@@ -400,9 +461,39 @@ function getBuildProtocolLevelLabel(level: number) {
   return `L${Math.max(1, level)}`;
 }
 
-function getBuildProtocolOptionDescription(protocol: BuildProtocolKey, nextLevel: number, isCurrentProtocol: boolean) {
+function getStoredBuildProtocolLevel(state: PrototypeGameState, protocol: BuildProtocolKey) {
+  return state.buildProtocolLevels[protocol] ?? 0;
+}
+
+function getBuildProtocolOptionLabel(
+  state: PrototypeGameState,
+  protocol: BuildProtocolKey,
+  isCurrentProtocol: boolean
+) {
+  const storedLevel = getStoredBuildProtocolLevel(state, protocol);
+  if (isCurrentProtocol) {
+    return `Maintain ${getBuildProtocolLevelLabel(state.buildProtocolLevel + 1)}`;
+  }
+  if (storedLevel > 0) {
+    return `Resume ${getBuildProtocolLevelLabel(storedLevel)}`;
+  }
+  return `Unlock ${getBuildProtocolLevelLabel(1)}`;
+}
+
+function getBuildProtocolOptionDescription(
+  state: PrototypeGameState,
+  protocol: BuildProtocolKey,
+  isCurrentProtocol: boolean
+) {
   const definition = BUILD_PROTOCOL_DEFINITIONS[protocol];
-  return isCurrentProtocol ? `Maintain to ${getBuildProtocolLevelLabel(nextLevel)}. ${definition.summary}` : definition.summary;
+  const storedLevel = getStoredBuildProtocolLevel(state, protocol);
+  if (isCurrentProtocol) {
+    return `Maintain to ${getBuildProtocolLevelLabel(state.buildProtocolLevel + 1)}. ${definition.summary}`;
+  }
+  if (storedLevel > 0) {
+    return `Resume ${getBuildProtocolLevelLabel(storedLevel)}. ${definition.summary}`;
+  }
+  return `Unlock ${getBuildProtocolLevelLabel(1)}. ${definition.summary}`;
 }
 
 function getProtocolRamp(level: number) {
@@ -421,10 +512,12 @@ function getBuildProtocolSupport(state: PrototypeGameState) {
   switch (state.buildProtocol) {
     case 'missileCommand':
       return {
-        missileCountFloor: level >= 2 ? 4 : 2,
-        missileDamageBonus: 3 + Math.round(ramp.linear * 2.1 + ramp.curved * 2.4),
-        missileCooldownMultiplier: Math.max(0.52, 0.82 - ramp.linear * 0.038),
+        missileCountFloor: level >= 5 ? 6 : level >= 2 ? 4 : 2,
+        missileDamageBonus: 6 + Math.round(ramp.linear * 2.8 + ramp.curved * 3.1),
+        missileCooldownMultiplier: Math.max(0.42, 0.78 - ramp.linear * 0.042),
         missileTurnBonus: Math.min(0.34, 0.08 + ramp.linear * 0.026),
+        shatterShellCount: 1,
+        shatterShellSizeBonus: 0,
         shatterFragmentBonus: 0,
         shatterDamageBonus: 0,
         shatterCooldownMultiplier: 1,
@@ -435,9 +528,11 @@ function getBuildProtocolSupport(state: PrototypeGameState) {
         missileDamageBonus: 0,
         missileCooldownMultiplier: 1,
         missileTurnBonus: 0,
-        shatterFragmentBonus: Math.min(6, 2 + Math.floor(ramp.linear / 2)),
-        shatterDamageBonus: 3 + Math.round(ramp.linear * 1.8 + ramp.curved * 2),
-        shatterCooldownMultiplier: Math.max(0.54, 0.88 - ramp.linear * 0.052),
+        shatterShellCount: 2,
+        shatterShellSizeBonus: 2.2 + ramp.linear * 0.28,
+        shatterFragmentBonus: Math.min(12, 5 + Math.floor(ramp.linear * 0.9)),
+        shatterDamageBonus: 7 + Math.round(ramp.linear * 2.4 + ramp.curved * 2.6),
+        shatterCooldownMultiplier: Math.max(0.4, 0.76 - ramp.linear * 0.058),
       };
     default:
       return {
@@ -445,6 +540,8 @@ function getBuildProtocolSupport(state: PrototypeGameState) {
         missileDamageBonus: 0,
         missileCooldownMultiplier: 1,
         missileTurnBonus: 0,
+        shatterShellCount: 1,
+        shatterShellSizeBonus: 0,
         shatterFragmentBonus: 0,
         shatterDamageBonus: 0,
         shatterCooldownMultiplier: 1,
@@ -460,7 +557,7 @@ function getBuildProtocolWeapon(state: PrototypeGameState, weapon: PrototypeWeap
       const suppressedShots = Math.max(0, weapon.shotCount - 2);
       return {
         ...weapon,
-        damage: weapon.damage + 2 + suppressedShots + Math.round(ramp.linear * 0.8 + ramp.curved * 1.2),
+        damage: weapon.damage + 3 + suppressedShots + Math.round(ramp.linear * 1 + ramp.curved * 1.45),
         fireInterval: Math.max(0.032, weapon.fireInterval * Math.pow(0.965, ramp.linear)),
         shotCount: Math.min(2, Math.max(1, weapon.shotCount)),
         pierce: Math.min(8, weapon.pierce + 1 + Math.floor((ramp.linear + 1) / 2)),
@@ -479,8 +576,8 @@ function getBuildProtocolWeapon(state: PrototypeGameState, weapon: PrototypeWeap
     case 'novaBloom':
       return {
         ...weapon,
-        damage: weapon.damage + 1 + Math.round(ramp.linear * 0.55 + ramp.curved * 0.8),
-        fireInterval: Math.max(0.034, weapon.fireInterval * Math.pow(0.97, ramp.linear)),
+        damage: weapon.damage + 2 + Math.round(ramp.linear * 0.9 + ramp.curved * 1.15),
+        fireInterval: Math.max(0.034, weapon.fireInterval * Math.pow(0.968, ramp.linear)),
         shotCount: Math.min(MAX_STRAIGHT_GUNS, weapon.shotCount + Math.min(ramp.linear + 1, MAX_STRAIGHT_GUNS)),
         bulletSize: Math.min(17.5, weapon.bulletSize + 0.8 + ramp.linear * 0.22),
         spread: Math.min(60, weapon.spread + 8 + ramp.linear * 3.2),
@@ -496,8 +593,8 @@ function getBuildProtocolWeapon(state: PrototypeGameState, weapon: PrototypeWeap
     case 'missileCommand':
       return {
         ...weapon,
-        damage: weapon.damage + Math.round(ramp.linear * 0.35 + ramp.curved * 0.45),
-        fireInterval: Math.max(0.038, weapon.fireInterval * Math.pow(0.985, ramp.linear)),
+        damage: weapon.damage + 2 + Math.round(ramp.linear * 0.7 + ramp.curved * 0.9),
+        fireInterval: Math.max(0.038, weapon.fireInterval * Math.pow(0.982, ramp.linear)),
         aimAssist: Math.min(0.5, weapon.aimAssist + 0.04 + ramp.linear * 0.02),
         effectIntensity: Math.min(2.8, weapon.effectIntensity + 0.12 + ramp.linear * 0.05),
         trailScale: Math.min(2.3, weapon.trailScale + 0.08 + ramp.linear * 0.04),
@@ -509,9 +606,10 @@ function getBuildProtocolWeapon(state: PrototypeGameState, weapon: PrototypeWeap
     case 'fractureCore':
       return {
         ...weapon,
-        damage: weapon.damage + 1 + Math.round(ramp.linear * 0.9 + ramp.curved * 1.1),
-        fireInterval: Math.max(0.04, weapon.fireInterval * Math.pow(0.982, ramp.linear)),
-        bulletSize: Math.min(15.8, weapon.bulletSize + 0.42 + ramp.linear * 0.12),
+        damage: weapon.damage + 2 + Math.round(ramp.linear * 1.1 + ramp.curved * 1.35),
+        fireInterval: Math.max(0.042, weapon.fireInterval * Math.pow(0.986, ramp.linear)),
+        shotCount: Math.min(2, Math.max(1, weapon.shotCount)),
+        bulletSize: Math.min(16.6, weapon.bulletSize + 0.5 + ramp.linear * 0.14),
         effectIntensity: Math.min(2.85, weapon.effectIntensity + 0.18 + ramp.linear * 0.06),
         trailScale: Math.min(2.25, weapon.trailScale + 0.1 + ramp.linear * 0.04),
         shatterLevel: Math.max(1, weapon.shatterLevel),
@@ -533,6 +631,17 @@ function getBuildProtocolDisplay(state: PrototypeGameState) {
     ...BUILD_PROTOCOL_DEFINITIONS[state.buildProtocol],
     levelLabel: getBuildProtocolLevelLabel(state.buildProtocolLevel),
   };
+}
+
+function queueEncounterAnnouncement(
+  state: PrototypeGameState,
+  message: string,
+  color: string,
+  duration = ENCOUNTER_ANNOUNCEMENT_DURATION_SECONDS
+) {
+  state.encounterAnnouncement = message;
+  state.encounterAnnouncementColor = color;
+  state.encounterAnnouncementTimer = duration;
 }
 
 function hexToRgba(hexColor: string, alpha: number) {
@@ -1111,12 +1220,16 @@ function createInitialState(boardWidth: number, boardHeight: number): PrototypeG
     bossEscortCooldown: 2.8,
     buildProtocol: null,
     buildProtocolLevel: 0,
+    buildProtocolLevels: createEmptyBuildProtocolLevels(),
     pendingArmoryChoice: null,
     queuedArmoryChoice: null,
     armoryTransitionTimer: 0,
     armoryTransitionLabel: null,
     armoryTransitionColor: null,
     ultimateCharge: 0,
+    encounterAnnouncement: null,
+    encounterAnnouncementTimer: 0,
+    encounterAnnouncementColor: null,
   };
 }
 
@@ -1319,19 +1432,26 @@ function createMissileVolley(
   const bullets = [...state.bullets];
   let nextBulletId = state.nextBulletId;
   const muzzleY = boardHeight - PLAYER_HEIGHT - 14;
-  const shouldUseFourMissiles = weapon.missileLevel >= 2 || support.missileCountFloor >= 4;
-  const slots = shouldUseFourMissiles ? [-1.5, -0.5, 0.5, 1.5] : [-1, 1];
+  const baseMissileCount = weapon.missileLevel >= 2 ? 2 : weapon.missileLevel >= 1 ? 2 : 0;
+  const desiredMissileCount = Math.max(baseMissileCount, support.missileCountFloor);
+  const missileCount = Math.min(getMissileCountCap(state), Math.max(2, desiredMissileCount));
+  const slots =
+    missileCount >= 6
+      ? [-2.5, -1.5, -0.5, 0.5, 1.5, 2.5]
+      : missileCount >= 4
+        ? [-1.5, -0.5, 0.5, 1.5]
+        : [-1, 1];
   const launchPoints: { x: number; y: number; color: string; size: number }[] = [];
-  const missileSpeed = Math.min(1040, weapon.bulletSpeed * 0.86 + 140 + weapon.missileLevel * 48);
-  const missileDamage = weapon.damage + 5 + weapon.missileLevel * 4 + support.missileDamageBonus;
+  const missileSpeed = Math.min(1120, weapon.bulletSpeed * 0.88 + 150 + weapon.missileLevel * 52);
+  const missileDamage = weapon.damage + 7 + weapon.missileLevel * 5 + support.missileDamageBonus;
   const missileSize = weapon.bulletSize + 3.8;
-  const slotSpacing = slots.length === 4 ? 13 : 18;
+  const slotSpacing = slots.length >= 6 ? 9.2 : slots.length === 4 ? 13 : 18;
 
   for (const slot of slots) {
     const curveDirection = Math.sign(slot);
     const curveStrength = slots.length === 4 ? Math.abs(slot) / 1.5 : 1;
     const originX = state.playerX + slot * slotSpacing;
-    const angle = curveDirection * (1.16 + curveStrength * 0.26);
+    const angle = curveDirection * (1.16 + curveStrength * (slots.length >= 6 ? 0.34 : 0.26));
     bullets.push({
       id: `B${nextBulletId}`,
       kind: 'missile',
@@ -1378,63 +1498,69 @@ function createShatterVolley(
   state: PrototypeGameState,
   boardHeight: number
 ): Pick<PrototypeGameState, 'bullets' | 'nextBulletId' | 'shatterCooldown'> & {
-  launchPoint: { x: number; y: number; color: string; size: number };
+  launchPoints: { x: number; y: number; color: string; size: number }[];
 } {
   const weapon = getActiveWeapon(state);
   const support = getBuildProtocolSupport(state);
   const bullets = [...state.bullets];
   let nextBulletId = state.nextBulletId;
   const muzzleY = boardHeight - PLAYER_HEIGHT - 20;
-  const launchSide = nextBulletId % 2 === 0 ? -1 : 1;
   const aimTarget = findAimAssistTarget(state.enemies, state.playerX, muzzleY);
-  const shellOriginX = state.playerX + launchSide * (10 + weapon.shatterLevel * 2);
-  const defaultAngle = launchSide * 0.16 + (Math.random() - 0.5) * 0.08;
-  let angle = defaultAngle;
-  if (aimTarget) {
-    const desiredAngle = Math.atan2(aimTarget.x - shellOriginX, muzzleY - aimTarget.y);
-    const angleDelta = clamp(normalizeAngle(desiredAngle - defaultAngle), -0.34, 0.34);
-    angle += angleDelta * Math.min(0.28, weapon.aimAssist + 0.12);
-  }
+  const shellCount = Math.max(1, support.shatterShellCount);
+  const launchSides = shellCount >= 2 ? [-1, 1] : [nextBulletId % 2 === 0 ? -1 : 1];
+  const launchPoints: { x: number; y: number; color: string; size: number }[] = [];
+  const shellSpeed = Math.min(980, weapon.bulletSpeed * 0.74 + 75 + weapon.shatterLevel * 24);
+  const shellSize = weapon.bulletSize + 6.8 + weapon.shatterLevel * 1.1 + support.shatterShellSizeBonus;
 
-  const shellSpeed = Math.min(920, weapon.bulletSpeed * 0.7 + 55 + weapon.shatterLevel * 20);
-  const shellSize = weapon.bulletSize + 5.6 + weapon.shatterLevel * 0.75;
-  bullets.push({
-    id: `B${nextBulletId}`,
-    kind: 'shatterShell',
-    x: shellOriginX,
-    y: muzzleY,
-    angle,
-    speed: shellSpeed,
-    vx: Math.sin(angle) * shellSpeed * 0.42,
-    vy: -Math.cos(angle) * shellSpeed,
-    damage: weapon.damage + 5 + weapon.shatterLevel * 2 + support.shatterDamageBonus,
-    size: shellSize,
-    pierce: 0,
-    age: 0,
-    phase: Math.random() * Math.PI * 2,
-    aimAssist: Math.min(0.24, weapon.aimAssist * 0.7 + 0.08),
-    color: '#FFE7C8',
-    glowColor: '#FFB36B',
-    trailScale: Math.max(1.38, weapon.trailScale + 0.28),
-    curveDirection: 0,
-    launchDuration: 0,
-    turnRate: 0,
-    maxAge: 0.82 + weapon.shatterLevel * 0.06,
-    burstAge: 0.42 - weapon.shatterLevel * 0.02,
-    fragmentCount: 4 + weapon.shatterLevel + support.shatterFragmentBonus,
-  });
-  nextBulletId += 1;
+  for (const launchSide of launchSides) {
+    const shellOriginX = state.playerX + launchSide * (12 + weapon.shatterLevel * 3);
+    const defaultAngle = launchSide * 0.14 + (Math.random() - 0.5) * 0.06;
+    let angle = defaultAngle;
+    if (aimTarget) {
+      const desiredAngle = Math.atan2(aimTarget.x - shellOriginX, muzzleY - aimTarget.y);
+      const angleDelta = clamp(normalizeAngle(desiredAngle - defaultAngle), -0.38, 0.38);
+      angle += angleDelta * Math.min(0.34, weapon.aimAssist + 0.14);
+    }
+
+    bullets.push({
+      id: `B${nextBulletId}`,
+      kind: 'shatterShell',
+      x: shellOriginX,
+      y: muzzleY,
+      angle,
+      speed: shellSpeed,
+      vx: Math.sin(angle) * shellSpeed * 0.42,
+      vy: -Math.cos(angle) * shellSpeed,
+      damage: weapon.damage + 7 + weapon.shatterLevel * 3 + support.shatterDamageBonus,
+      size: shellSize,
+      pierce: 0,
+      age: 0,
+      phase: Math.random() * Math.PI * 2,
+      aimAssist: Math.min(0.32, weapon.aimAssist * 0.8 + 0.12),
+      color: '#FFE7C8',
+      glowColor: '#FFB36B',
+      trailScale: Math.max(1.38, weapon.trailScale + 0.28),
+      curveDirection: 0,
+      launchDuration: 0,
+      turnRate: 0,
+      maxAge: 0.9 + weapon.shatterLevel * 0.08,
+      burstAge: 0.4 - weapon.shatterLevel * 0.02,
+      fragmentCount: 5 + weapon.shatterLevel * 2 + support.shatterFragmentBonus,
+    });
+    launchPoints.push({
+      x: shellOriginX,
+      y: muzzleY,
+      color: '#FFD8A8',
+      size: 26 + weapon.effectIntensity * 7,
+    });
+    nextBulletId += 1;
+  }
 
   return {
     bullets,
     nextBulletId,
     shatterCooldown: getShatterVolleyCooldown(weapon, state),
-    launchPoint: {
-      x: shellOriginX,
-      y: muzzleY,
-      color: '#FFD8A8',
-      size: 22 + weapon.effectIntensity * 6,
-    },
+    launchPoints,
   };
 }
 
@@ -1448,7 +1574,7 @@ function burstShatterShell(shell: PrototypeBullet, nextState: PrototypeGameState
   const fragmentCount = Math.max(4, shell.fragmentCount);
   const centerAngle = clamp(shell.angle * 0.65, -0.45, 0.45);
   const shardSpeed = Math.max(420, shell.speed * 0.82);
-  const shardDamage = Math.max(1, Math.round(shell.damage * 0.76));
+  const shardDamage = Math.max(1, Math.round(shell.damage * 0.82));
 
   for (let index = 0; index < fragmentCount; index += 1) {
     const lane = index - (fragmentCount - 1) / 2;
@@ -1463,7 +1589,7 @@ function burstShatterShell(shell: PrototypeBullet, nextState: PrototypeGameState
       vx: Math.sin(angle) * shardSpeed * 0.42,
       vy: -Math.cos(angle) * shardSpeed,
       damage: shardDamage,
-      size: shell.size * 0.56,
+      size: shell.size * 0.7,
       pierce: 0,
       age: 0,
       phase: Math.random() * Math.PI * 2,
@@ -2192,6 +2318,7 @@ function applyEncounterTransition(state: PrototypeGameState, displayTier: number
     state.bossEscortCooldown = 2.4;
     state.pickupMessage = `Boss contact incoming at T${displayTier}`;
     state.pickupTimer = 2.3;
+    queueEncounterAnnouncement(state, `Boss Intercept T${displayTier}`, '#FFE08B');
     return;
   }
 
@@ -2201,6 +2328,7 @@ function applyEncounterTransition(state: PrototypeGameState, displayTier: number
     state.enemyCooldown = Math.min(state.enemyCooldown, 0.72);
     state.pickupMessage = `${encounter.label} engaged`;
     state.pickupTimer = 1.9;
+    queueEncounterAnnouncement(state, encounter.label, encounter.accentColor);
     if (encounter.type === 'salvageDrift') {
       state.upgradeCooldown = Math.min(state.upgradeCooldown, 2.2);
     }
@@ -2245,6 +2373,7 @@ function resolveEnemyDefeat(
     nextState.enemyCooldown = Math.max(nextState.enemyCooldown, BOSS_CLEAR_TRANSITION_SECONDS + 1.1);
     nextState.pickupMessage = `${getBossLabel(enemy.bossVariant)} neutralized`;
     nextState.pickupTimer = BOSS_CLEAR_TRANSITION_SECONDS;
+    queueEncounterAnnouncement(nextState, `${getBossLabel(enemy.bossVariant)} neutralized`, transitionColor, 1.45);
     nextState.queuedArmoryChoice = createArmoryChoice(nextState, sourceDisplayTier);
     nextState.armoryTransitionTimer = BOSS_CLEAR_TRANSITION_SECONDS;
     nextState.armoryTransitionLabel = `${getBossLabel(enemy.bossVariant)} neutralized`;
@@ -2465,6 +2594,7 @@ function tickPrototypeState(
     enemyCooldown: previousState.enemyCooldown - deltaSeconds,
     bossEscortCooldown: previousState.bossEscortCooldown - deltaSeconds,
     armoryTransitionTimer: Math.max(0, previousState.armoryTransitionTimer - deltaSeconds),
+    encounterAnnouncementTimer: Math.max(0, previousState.encounterAnnouncementTimer - deltaSeconds),
     upgradeCooldown:
       shouldForceUpgradeRevealFromPreviousState || previousState.upgrades.length < 2
         ? previousState.upgradeCooldown - deltaSeconds
@@ -2474,6 +2604,11 @@ function tickPrototypeState(
 
   if (nextState.pickupTimer <= 0) {
     nextState.pickupMessage = null;
+  }
+
+  if (nextState.encounterAnnouncementTimer <= 0) {
+    nextState.encounterAnnouncement = null;
+    nextState.encounterAnnouncementColor = null;
   }
 
   if (
@@ -2574,18 +2709,20 @@ function tickPrototypeState(
       nextState.bullets = shatterVolley.bullets;
       nextState.nextBulletId = shatterVolley.nextBulletId;
       nextState.shatterCooldown += shatterVolley.shatterCooldown;
-      nextState.effects = trimEffects([
-        ...nextState.effects,
-        createPrototypeEffect(
-          'muzzle',
-          shatterVolley.launchPoint.x,
-          shatterVolley.launchPoint.y,
-          shatterVolley.launchPoint.size,
-          shatterVolley.launchPoint.color,
-          nextState.nextEffectId
-        ),
-      ]);
-      nextState.nextEffectId += 1;
+      for (const launchPoint of shatterVolley.launchPoints) {
+        nextState.effects = trimEffects([
+          ...nextState.effects,
+          createPrototypeEffect(
+            'muzzle',
+            launchPoint.x,
+            launchPoint.y,
+            launchPoint.size,
+            launchPoint.color,
+            nextState.nextEffectId
+          ),
+        ]);
+        nextState.nextEffectId += 1;
+      }
     }
   }
 
@@ -3721,6 +3858,7 @@ export function PrototypeShooterScreen({ onSwitchGame }: PrototypeShooterScreenP
 
   const difficultyTier = getDifficultyTier(gameState.elapsed) + 1;
   const activeBoss = getActiveBossEnemy(gameState.enemies);
+  const activeWeapon = getActiveWeapon(gameState);
   const buildProtocolDisplay = getBuildProtocolDisplay(gameState);
   const ultimateDefinition = getUltimateDefinition(gameState);
   const ultimateReady = gameState.ultimateCharge >= MAX_ULTIMATE_CHARGE;
@@ -3750,16 +3888,22 @@ export function PrototypeShooterScreen({ onSwitchGame }: PrototypeShooterScreenP
       ? 1 - gameState.armoryTransitionTimer / BOSS_CLEAR_TRANSITION_SECONDS
       : 0;
   const buildHudValue = buildProtocolDisplay ? `${buildProtocolDisplay.label} ${buildProtocolDisplay.levelLabel}` : 'No build';
-  const encounterHudValue = gameState.activeEncounter
-    ? gameState.activeEncounter.label
-    : isArmoryTransitionActive
-      ? 'Boss clear'
-      : 'Standby';
-  const bossHudValue = activeBoss
-    ? formatCompactHealth(activeBoss.health)
-    : isArmoryTransitionActive
-      ? 'Resolved'
-      : 'No target';
+  const buildStatsSummary = [
+    `DMG ${activeWeapon.damage}`,
+    `ROF ${(1 / Math.max(activeWeapon.fireInterval, 0.001)).toFixed(1)}/s`,
+    `GUN ${activeWeapon.shotCount}`,
+    `PIR ${activeWeapon.pierce}`,
+    `SPD ${Math.round(activeWeapon.bulletSpeed)}`,
+    `AUX M${activeWeapon.missileLevel}/S${activeWeapon.shatterLevel}`,
+  ].join('   ');
+  const hasEncounterAnnouncement = !!gameState.encounterAnnouncement && gameState.encounterAnnouncementTimer > 0;
+  const encounterAnnouncementProgress = hasEncounterAnnouncement
+    ? 1 - gameState.encounterAnnouncementTimer / ENCOUNTER_ANNOUNCEMENT_DURATION_SECONDS
+    : 0;
+  const encounterAnnouncementPulse = hasEncounterAnnouncement ? Math.abs(Math.sin(encounterAnnouncementProgress * Math.PI * 5.2)) : 0;
+  const encounterAnnouncementOpacity = hasEncounterAnnouncement
+    ? clamp((0.24 + encounterAnnouncementPulse * 0.76) * (0.38 + (1 - encounterAnnouncementProgress) * 0.62), 0, 1)
+    : 0;
   const displayMessage =
     !hasStarted
       ? 'Press Start to deploy the ship.'
@@ -3843,13 +3987,19 @@ export function PrototypeShooterScreen({ onSwitchGame }: PrototypeShooterScreenP
       }
 
       const isMaintainingProtocol = previousState.buildProtocol === protocol;
-      const nextLevel = isMaintainingProtocol ? previousState.buildProtocolLevel + 1 : 1;
+      const storedLevel = getStoredBuildProtocolLevel(previousState, protocol);
+      const nextLevel = isMaintainingProtocol ? previousState.buildProtocolLevel + 1 : Math.max(1, storedLevel);
       const nextMessage = `${definition.label} synced ${getBuildProtocolLevelLabel(nextLevel)}`;
+      const nextBuildProtocolLevels = {
+        ...previousState.buildProtocolLevels,
+        [protocol]: nextLevel,
+      };
 
       return {
         ...previousState,
         buildProtocol: protocol,
         buildProtocolLevel: nextLevel,
+        buildProtocolLevels: nextBuildProtocolLevels,
         pendingArmoryChoice: null,
         queuedArmoryChoice: null,
         armoryTransitionTimer: 0,
@@ -3999,22 +4149,12 @@ export function PrototypeShooterScreen({ onSwitchGame }: PrototypeShooterScreenP
             {buildHudValue}
           </Text>
         </View>
-        <View style={[shooterStyles.hudChip, isPortraitViewport && shooterStyles.hudChipPortrait]}>
-          <Text style={shooterStyles.hudLabel}>Encounter</Text>
-          <Text
-            style={[
-              shooterStyles.hudValue,
-              !gameState.activeEncounter && !isArmoryTransitionActive && shooterStyles.hudValueDim,
-              gameState.activeEncounter && { color: gameState.activeEncounter.accentColor },
-              isArmoryTransitionActive && gameState.armoryTransitionColor && { color: gameState.armoryTransitionColor },
-            ]}>
-            {encounterHudValue}
-          </Text>
-        </View>
-        <View style={[shooterStyles.hudChip, isPortraitViewport && shooterStyles.hudChipPortrait]}>
-          <Text style={shooterStyles.hudLabel}>Boss</Text>
-          <Text style={[shooterStyles.hudValue, !activeBoss && !isArmoryTransitionActive && shooterStyles.hudValueDim]}>
-            {bossHudValue}
+      </View>
+
+      <View style={[shooterStyles.weaponRow, isPortraitViewport && shooterStyles.weaponRowPortrait]}>
+        <View style={[shooterStyles.weaponPill, shooterStyles.weaponPillWide]}>
+          <Text numberOfLines={1} style={shooterStyles.weaponPillText}>
+            {buildStatsSummary}
           </Text>
         </View>
       </View>
@@ -4032,7 +4172,6 @@ export function PrototypeShooterScreen({ onSwitchGame }: PrototypeShooterScreenP
               {gameState.pendingArmoryChoice.options.map((protocol) => {
                 const definition = BUILD_PROTOCOL_DEFINITIONS[protocol];
                 const isCurrentProtocol = gameState.buildProtocol === protocol;
-                const nextLevel = isCurrentProtocol ? gameState.buildProtocolLevel + 1 : 1;
                 return (
                   <Pressable
                     key={protocol}
@@ -4044,10 +4183,10 @@ export function PrototypeShooterScreen({ onSwitchGame }: PrototypeShooterScreenP
                     ]}>
                     <Text style={[shooterStyles.armoryCardLabel, { color: '#132132' }]}>{definition.label}</Text>
                     <Text style={[shooterStyles.armoryCardLevel, { color: definition.color }]}>
-                      {isCurrentProtocol ? `Maintain ${getBuildProtocolLevelLabel(nextLevel)}` : 'Reroute'}
+                      {getBuildProtocolOptionLabel(gameState, protocol, isCurrentProtocol)}
                     </Text>
                     <Text style={shooterStyles.armoryCardText}>
-                      {getBuildProtocolOptionDescription(protocol, nextLevel, isCurrentProtocol)}
+                      {getBuildProtocolOptionDescription(gameState, protocol, isCurrentProtocol)}
                     </Text>
                   </Pressable>
                 );
@@ -4090,6 +4229,31 @@ export function PrototypeShooterScreen({ onSwitchGame }: PrototypeShooterScreenP
           onResponderMove={handleBoardTouch}
           style={[shooterStyles.board, { borderColor: atmosphere.borderColor }]}>
           <BackgroundGrid width={boardSize.width} height={boardSize.height} atmosphere={atmosphere} />
+
+          {hasEncounterAnnouncement ? (
+            <View pointerEvents="none" style={shooterStyles.boardAnnouncementWrap}>
+              <View
+                style={[
+                  shooterStyles.boardAnnouncementGlow,
+                  {
+                    backgroundColor: hexToRgba(gameState.encounterAnnouncementColor ?? '#8FC9FF', 0.16 + encounterAnnouncementOpacity * 0.18),
+                    opacity: encounterAnnouncementOpacity,
+                    transform: [{ scale: 0.92 + encounterAnnouncementProgress * 0.12 }],
+                  },
+                ]}
+              />
+              <Text
+                style={[
+                  shooterStyles.boardAnnouncementText,
+                  {
+                    color: gameState.encounterAnnouncementColor ?? '#F4F8FF',
+                    opacity: 0.2 + encounterAnnouncementOpacity * 0.8,
+                  },
+                ]}>
+                {gameState.encounterAnnouncement}
+              </Text>
+            </View>
+          ) : null}
 
           {activeBoss ? (
             <View
@@ -4458,6 +4622,32 @@ const shooterStyles = StyleSheet.create({
     borderWidth: 1,
     borderColor: '#223852',
     backgroundColor: '#08131F',
+  },
+  boardAnnouncementWrap: {
+    position: 'absolute',
+    top: '42%',
+    left: 20,
+    right: 20,
+    alignItems: 'center',
+    justifyContent: 'center',
+    zIndex: 8,
+  },
+  boardAnnouncementGlow: {
+    position: 'absolute',
+    width: '86%',
+    maxWidth: 320,
+    height: 64,
+    borderRadius: 999,
+  },
+  boardAnnouncementText: {
+    fontSize: 22,
+    fontWeight: '900',
+    letterSpacing: 0.8,
+    textTransform: 'uppercase',
+    textAlign: 'center',
+    textShadowColor: 'rgba(5, 10, 18, 0.55)',
+    textShadowOffset: { width: 0, height: 2 },
+    textShadowRadius: 12,
   },
   effectNode: {
     position: 'absolute',
