@@ -28,6 +28,7 @@ import { DEFAULT_GAME_MAP_ID, listGameMaps, loadGameMap } from '@/src/game/maps'
 import { cellCenter } from '@/src/game/path';
 import type { GameEvent, GameMapId, GameMode, TargetMode, TowerTypeId } from '@/src/game/types';
 import { PrototypeShooterScreen } from '@/src/prototype/PrototypeShooterScreen';
+import { ArenaPrototypeScreen } from '@/src/prototype-v2/ArenaPrototypeScreen';
 
 const BOARD_PADDING = 14;
 const TARGET_MODE_LABELS: Record<TargetMode, string> = {
@@ -45,7 +46,7 @@ const DEFAULT_MUSIC_VOLUME = 0.45;
 const VOLUME_STEP = 0.1;
 
 type SimulationSpeed = 1 | 2 | 3;
-type AppGameId = 'defender' | 'prototype';
+type AppGameId = 'defender' | 'prototype' | 'prototypeV2';
 type SoundEffectKey =
   | 'hit'
   | 'place'
@@ -812,6 +813,11 @@ function DefenseScreen({ onSwitchGame }: { onSwitchGame: (game: AppGameId) => vo
                   style={styles.menuModeButton}>
                   <Text style={styles.menuModeButtonText}>Shooter Test</Text>
                 </Pressable>
+                <Pressable
+                  onPress={() => handleSwitchGame('prototypeV2')}
+                  style={styles.menuModeButton}>
+                  <Text style={styles.menuModeButtonText}>Arena V2</Text>
+                </Pressable>
               </View>
 
               <Text style={styles.menuLabel}>Mode</Text>
@@ -1040,7 +1046,7 @@ export default function HomeScreen() {
         }
 
         const orientationLock =
-          activeGame === 'prototype'
+          activeGame === 'prototype' || activeGame === 'prototypeV2'
             ? ScreenOrientation.OrientationLock.PORTRAIT_UP
             : ScreenOrientation.OrientationLock.LANDSCAPE;
 
@@ -1059,6 +1065,10 @@ export default function HomeScreen() {
 
   if (activeGame === 'prototype') {
     return <PrototypeShooterScreen onSwitchGame={setActiveGame} />;
+  }
+
+  if (activeGame === 'prototypeV2') {
+    return <ArenaPrototypeScreen onSwitchGame={setActiveGame} />;
   }
 
   return <DefenseScreen onSwitchGame={setActiveGame} />;

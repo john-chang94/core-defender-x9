@@ -2,7 +2,7 @@ import { useEffect, useMemo, useRef, useState } from 'react';
 import type { GestureResponderEvent, LayoutChangeEvent } from 'react-native';
 import { Pressable, SafeAreaView, StyleSheet, Text, View, useWindowDimensions } from 'react-native';
 
-type AppGameId = 'defender' | 'prototype';
+type AppGameId = 'defender' | 'prototype' | 'prototypeV2';
 
 type EnemyShape = 'circle' | 'square' | 'diamond';
 type EnemyArchetype = 'standard' | 'swarm' | 'tank' | 'splitter' | 'boss';
@@ -1960,50 +1960,64 @@ function buildEnemySpawnDrafts(
   const lanes = getSpawnLanes(boardWidth);
   const centerLane = Math.floor(Math.random() * lanes.length);
   const drafts: EnemySpawnDraft[] = [{ x: lanes[centerLane] }];
-  let cooldown = Math.max(1.45, 4.15 - difficultyTier * 0.06 - Math.random() * 0.24);
+  let cooldown = Math.max(1.32, 3.96 - difficultyTier * 0.065 - Math.random() * 0.26);
   const primarySwarmChance =
     isSwarmPhaseTier
       ? isLateCrowdClampTier
-        ? Math.min(0.9, 0.68 + (difficultyTier - 16) * 0.016)
+        ? Math.min(0.94, 0.76 + (difficultyTier - 16) * 0.014)
         : isCrowdClampTier
-          ? Math.min(0.82, 0.58 + (difficultyTier - 13) * 0.024)
-          : Math.min(0.72, 0.42 + (difficultyTier - 9) * 0.038)
+          ? Math.min(0.88, 0.68 + (difficultyTier - 13) * 0.02)
+          : Math.min(0.82, 0.58 + (difficultyTier - 9) * 0.032)
       : 0;
   const sideSpawnChance = isLateCrowdClampTier
-    ? activeEnemyCount >= 14
+    ? activeEnemyCount >= 16
       ? 0
-      : Math.min(0.14, 0.07 + (difficultyTier - 16) * 0.01)
+      : Math.min(0.22, 0.11 + (difficultyTier - 16) * 0.012)
     : isCrowdClampTier
-      ? activeEnemyCount >= 13
-        ? 0.03
-        : Math.min(0.18, 0.09 + (difficultyTier - 13) * 0.014)
+      ? activeEnemyCount >= 15
+        ? 0.04
+        : Math.min(0.28, 0.14 + (difficultyTier - 13) * 0.018)
       : isSwarmPhaseTier
-        ? Math.min(0.24, 0.12 + (difficultyTier - 9) * 0.018)
+        ? Math.min(0.32, 0.18 + (difficultyTier - 9) * 0.022)
         : Math.min(0.1, 0.02 + difficultyTier * 0.01);
   const flankBurstChance = isLateCrowdClampTier
-    ? activeEnemyCount >= 13
+    ? activeEnemyCount >= 15
       ? 0
-      : Math.min(0.06, 0.026 + (difficultyTier - 16) * 0.004)
+      : Math.min(0.08, 0.036 + (difficultyTier - 16) * 0.004)
     : isCrowdClampTier
-      ? activeEnemyCount >= 12
-        ? 0.015
-        : Math.min(0.085, 0.04 + (difficultyTier - 13) * 0.01)
+      ? activeEnemyCount >= 14
+        ? 0.02
+        : Math.min(0.12, 0.06 + (difficultyTier - 13) * 0.012)
       : difficultyTier >= 10
-        ? Math.min(0.16, 0.07 + (difficultyTier - 10) * 0.012)
+        ? Math.min(0.22, 0.11 + (difficultyTier - 10) * 0.014)
         : Math.min(0.04, 0.008 + difficultyTier * 0.004);
   const eliteSpawnChance = isLateCrowdClampTier
     ? Math.min(0.01, 0.002 + (difficultyTier - 16) * 0.0012)
     : isCrowdClampTier
       ? Math.min(0.018, 0.004 + (difficultyTier - 13) * 0.0024)
       : Math.min(0.03, 0.006 + difficultyTier * 0.003);
-  const tankSpawnChance = difficultyTier >= 6 ? (isLateCrowdClampTier ? 0.03 : isCrowdClampTier ? 0.05 : 0.09) : 0;
+  const tankSpawnChance = difficultyTier >= 6 ? (isLateCrowdClampTier ? 0.018 : isCrowdClampTier ? 0.03 : 0.055) : 0;
   const splitterSpawnChance =
-    difficultyTier >= 9 && activeEnemyCount <= 13
+    difficultyTier >= 9 && activeEnemyCount <= 14
       ? isLateCrowdClampTier
-        ? 0.03
+        ? 0.028
         : isCrowdClampTier
-          ? 0.045
-          : 0.06 + Math.min(0.02, (difficultyTier - 9) * 0.004)
+          ? 0.04
+          : 0.054 + Math.min(0.02, (difficultyTier - 9) * 0.0036)
+      : 0;
+  const extraSwarmPackChance =
+    difficultyTier >= 10
+      ? isLateCrowdClampTier
+        ? activeEnemyCount >= 15
+          ? 0
+          : Math.min(0.42, 0.26 + (difficultyTier - 16) * 0.02)
+        : isCrowdClampTier
+          ? activeEnemyCount >= 14
+            ? 0.08
+            : Math.min(0.5, 0.34 + (difficultyTier - 13) * 0.03)
+          : activeEnemyCount >= 12
+            ? 0.12
+            : Math.min(0.62, 0.42 + (difficultyTier - 10) * 0.04)
       : 0;
 
   if (Math.random() < primarySwarmChance) {
@@ -2066,6 +2080,27 @@ function buildEnemySpawnDrafts(
     cooldown += isCrowdClampTier ? 0.72 : 0.56;
   }
 
+  if (difficultyTier >= 10 && Math.random() < extraSwarmPackChance) {
+    const candidateOffsets = [-2, -1, 1, 2].filter((offset) => {
+      const laneIndex = centerLane + offset;
+      return laneIndex >= 0 && laneIndex < lanes.length;
+    });
+    const shuffledOffsets = candidateOffsets.sort(() => Math.random() - 0.5);
+    const extraCount = difficultyTier >= 18 ? 2 : Math.random() < 0.65 ? 2 : 1;
+    for (const offset of shuffledOffsets.slice(0, extraCount)) {
+      drafts.push({
+        x: lanes[centerLane + offset],
+        archetype: 'swarm',
+        shape: 'circle',
+        color: '#78EAFF',
+        sizeMultiplier: 0.84,
+        healthMultiplier: 0.68,
+        speedMultiplier: 1.1,
+      });
+    }
+    cooldown += 0.48 + Math.max(0, extraCount - 1) * 0.16;
+  }
+
   if (drafts.length > 0) {
     if (Math.random() < splitterSpawnChance) {
       drafts[0] = {
@@ -2108,13 +2143,13 @@ function buildEnemySpawnDrafts(
   const leadDraft = drafts[0];
   if (
     difficultyTier >= 10 &&
-    activeEnemyCount <= (isLateCrowdClampTier ? 12 : 10) &&
+    activeEnemyCount <= (isLateCrowdClampTier ? 14 : 12) &&
     leadDraft &&
     leadDraft.archetype !== 'swarm' &&
-    Math.random() < (isLateCrowdClampTier ? 0.34 : 0.28)
+    Math.random() < (isLateCrowdClampTier ? 0.46 : 0.4)
   ) {
     const escortOffsets =
-      !isLateCrowdClampTier || activeEnemyCount <= 8 ? [-1, 1] : Math.random() < 0.5 ? [-1] : [1];
+      !isLateCrowdClampTier || activeEnemyCount <= 10 ? [-1, 1] : Math.random() < 0.5 ? [-1] : [1];
     for (const offset of escortOffsets) {
       const escortLane = clamp(centerLane + offset, 0, lanes.length - 1);
       if (escortLane === centerLane) {
@@ -4351,6 +4386,11 @@ export function PrototypeShooterScreen({ onSwitchGame }: PrototypeShooterScreenP
                 onPress={() => onSwitchGame('defender')}
                 style={shooterStyles.menuButton}>
                 <Text style={shooterStyles.menuButtonText}>Defender</Text>
+              </Pressable>
+              <Pressable
+                onPress={() => onSwitchGame('prototypeV2')}
+                style={shooterStyles.menuButton}>
+                <Text style={shooterStyles.menuButtonText}>Arena V2</Text>
               </Pressable>
             </View>
 
