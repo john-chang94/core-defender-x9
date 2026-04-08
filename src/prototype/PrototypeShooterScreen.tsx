@@ -263,6 +263,9 @@ function getStraightGunCap(state: PrototypeGameState) {
 }
 
 function getMissileCountCap(state: PrototypeGameState) {
+  if (state.chaosTimer > 0) {
+    return 6;
+  }
   return state.buildProtocol === 'missileCommand' ? 6 : 2;
 }
 
@@ -399,6 +402,9 @@ function getChaosOverdriveWeapon(weapon: PrototypeWeapon): PrototypeWeapon {
 }
 
 function applyWeaponBuildCaps(state: PrototypeGameState, weapon: PrototypeWeapon): PrototypeWeapon {
+  if (state.chaosTimer > 0) {
+    return weapon;
+  }
   return {
     ...weapon,
     shotCount: Math.min(getStraightGunCap(state), weapon.shotCount),
@@ -462,7 +468,11 @@ function getBuildProtocolLevelLabel(level: number) {
 }
 
 function getStoredBuildProtocolLevel(state: PrototypeGameState, protocol: BuildProtocolKey) {
-  return state.buildProtocolLevels[protocol] ?? 0;
+  const storedLevel = state.buildProtocolLevels[protocol] ?? 0;
+  if (state.buildProtocol === protocol) {
+    return Math.max(storedLevel, state.buildProtocolLevel);
+  }
+  return storedLevel;
 }
 
 function getBuildProtocolOptionLabel(
@@ -1432,7 +1442,8 @@ function createMissileVolley(
   const bullets = [...state.bullets];
   let nextBulletId = state.nextBulletId;
   const muzzleY = boardHeight - PLAYER_HEIGHT - 14;
-  const baseMissileCount = weapon.missileLevel >= 2 ? 2 : weapon.missileLevel >= 1 ? 2 : 0;
+  const baseMissileCount =
+    weapon.missileLevel >= 5 ? 6 : weapon.missileLevel >= 3 ? 4 : weapon.missileLevel >= 1 ? 2 : 0;
   const desiredMissileCount = Math.max(baseMissileCount, support.missileCountFloor);
   const missileCount = Math.min(getMissileCountCap(state), Math.max(2, desiredMissileCount));
   const slots =
@@ -1953,46 +1964,46 @@ function buildEnemySpawnDrafts(
   const primarySwarmChance =
     isSwarmPhaseTier
       ? isLateCrowdClampTier
-        ? Math.min(0.8, 0.56 + (difficultyTier - 16) * 0.02)
+        ? Math.min(0.9, 0.68 + (difficultyTier - 16) * 0.016)
         : isCrowdClampTier
-          ? Math.min(0.7, 0.48 + (difficultyTier - 13) * 0.028)
-          : Math.min(0.62, 0.34 + (difficultyTier - 9) * 0.04)
+          ? Math.min(0.82, 0.58 + (difficultyTier - 13) * 0.024)
+          : Math.min(0.72, 0.42 + (difficultyTier - 9) * 0.038)
       : 0;
   const sideSpawnChance = isLateCrowdClampTier
     ? activeEnemyCount >= 14
       ? 0
-      : Math.min(0.085, 0.04 + (difficultyTier - 16) * 0.008)
+      : Math.min(0.14, 0.07 + (difficultyTier - 16) * 0.01)
     : isCrowdClampTier
       ? activeEnemyCount >= 13
-        ? 0.02
-        : Math.min(0.12, 0.055 + (difficultyTier - 13) * 0.012)
+        ? 0.03
+        : Math.min(0.18, 0.09 + (difficultyTier - 13) * 0.014)
       : isSwarmPhaseTier
-        ? Math.min(0.2, 0.1 + (difficultyTier - 9) * 0.016)
+        ? Math.min(0.24, 0.12 + (difficultyTier - 9) * 0.018)
         : Math.min(0.1, 0.02 + difficultyTier * 0.01);
   const flankBurstChance = isLateCrowdClampTier
     ? activeEnemyCount >= 13
       ? 0
-      : Math.min(0.04, 0.014 + (difficultyTier - 16) * 0.005)
+      : Math.min(0.06, 0.026 + (difficultyTier - 16) * 0.004)
     : isCrowdClampTier
       ? activeEnemyCount >= 12
-        ? 0.01
-        : Math.min(0.055, 0.018 + (difficultyTier - 13) * 0.008)
+        ? 0.015
+        : Math.min(0.085, 0.04 + (difficultyTier - 13) * 0.01)
       : difficultyTier >= 10
-        ? Math.min(0.12, 0.05 + (difficultyTier - 10) * 0.01)
+        ? Math.min(0.16, 0.07 + (difficultyTier - 10) * 0.012)
         : Math.min(0.04, 0.008 + difficultyTier * 0.004);
   const eliteSpawnChance = isLateCrowdClampTier
-    ? Math.min(0.018, 0.004 + (difficultyTier - 16) * 0.002)
+    ? Math.min(0.01, 0.002 + (difficultyTier - 16) * 0.0012)
     : isCrowdClampTier
-      ? Math.min(0.03, 0.008 + (difficultyTier - 13) * 0.004)
-      : Math.min(0.05, 0.008 + difficultyTier * 0.005);
-  const tankSpawnChance = difficultyTier >= 6 ? (isLateCrowdClampTier ? 0.08 : isCrowdClampTier ? 0.12 : 0.17) : 0;
+      ? Math.min(0.018, 0.004 + (difficultyTier - 13) * 0.0024)
+      : Math.min(0.03, 0.006 + difficultyTier * 0.003);
+  const tankSpawnChance = difficultyTier >= 6 ? (isLateCrowdClampTier ? 0.03 : isCrowdClampTier ? 0.05 : 0.09) : 0;
   const splitterSpawnChance =
     difficultyTier >= 9 && activeEnemyCount <= 13
       ? isLateCrowdClampTier
-        ? 0.04
+        ? 0.03
         : isCrowdClampTier
-          ? 0.06
-          : 0.075 + Math.min(0.03, (difficultyTier - 9) * 0.005)
+          ? 0.045
+          : 0.06 + Math.min(0.02, (difficultyTier - 9) * 0.004)
       : 0;
 
   if (Math.random() < primarySwarmChance) {
@@ -2103,7 +2114,7 @@ function buildEnemySpawnDrafts(
     Math.random() < (isLateCrowdClampTier ? 0.34 : 0.28)
   ) {
     const escortOffsets =
-      !isLateCrowdClampTier && difficultyTier <= 20 ? [-1, 1] : Math.random() < 0.5 ? [-1] : [1];
+      !isLateCrowdClampTier || activeEnemyCount <= 8 ? [-1, 1] : Math.random() < 0.5 ? [-1] : [1];
     for (const offset of escortOffsets) {
       const escortLane = clamp(centerLane + offset, 0, lanes.length - 1);
       if (escortLane === centerLane) {
@@ -3888,14 +3899,11 @@ export function PrototypeShooterScreen({ onSwitchGame }: PrototypeShooterScreenP
       ? 1 - gameState.armoryTransitionTimer / BOSS_CLEAR_TRANSITION_SECONDS
       : 0;
   const buildHudValue = buildProtocolDisplay ? `${buildProtocolDisplay.label} ${buildProtocolDisplay.levelLabel}` : 'No build';
-  const buildStatsSummary = [
-    `DMG ${activeWeapon.damage}`,
-    `ROF ${(1 / Math.max(activeWeapon.fireInterval, 0.001)).toFixed(1)}/s`,
-    `GUN ${activeWeapon.shotCount}`,
-    `PIR ${activeWeapon.pierce}`,
-    `SPD ${Math.round(activeWeapon.bulletSpeed)}`,
-    `AUX M${activeWeapon.missileLevel}/S${activeWeapon.shatterLevel}`,
-  ].join('   ');
+  const buildStats = [
+    { label: 'Damage', value: `${activeWeapon.damage}` },
+    { label: 'RoF', value: `${(1 / Math.max(activeWeapon.fireInterval, 0.001)).toFixed(1)}/s` },
+    { label: 'Pierce', value: `${activeWeapon.pierce}` },
+  ];
   const hasEncounterAnnouncement = !!gameState.encounterAnnouncement && gameState.encounterAnnouncementTimer > 0;
   const encounterAnnouncementProgress = hasEncounterAnnouncement
     ? 1 - gameState.encounterAnnouncementTimer / ENCOUNTER_ANNOUNCEMENT_DURATION_SECONDS
@@ -3987,11 +3995,23 @@ export function PrototypeShooterScreen({ onSwitchGame }: PrototypeShooterScreenP
       }
 
       const isMaintainingProtocol = previousState.buildProtocol === protocol;
-      const storedLevel = getStoredBuildProtocolLevel(previousState, protocol);
+      const syncedBuildProtocolLevels = previousState.buildProtocol
+        ? {
+            ...previousState.buildProtocolLevels,
+            [previousState.buildProtocol]: Math.max(
+              previousState.buildProtocolLevels[previousState.buildProtocol] ?? 0,
+              previousState.buildProtocolLevel
+            ),
+          }
+        : previousState.buildProtocolLevels;
+      const storedLevel =
+        protocol === previousState.buildProtocol
+          ? Math.max(syncedBuildProtocolLevels[protocol] ?? 0, previousState.buildProtocolLevel)
+          : syncedBuildProtocolLevels[protocol] ?? 0;
       const nextLevel = isMaintainingProtocol ? previousState.buildProtocolLevel + 1 : Math.max(1, storedLevel);
       const nextMessage = `${definition.label} synced ${getBuildProtocolLevelLabel(nextLevel)}`;
       const nextBuildProtocolLevels = {
-        ...previousState.buildProtocolLevels,
+        ...syncedBuildProtocolLevels,
         [protocol]: nextLevel,
       };
 
@@ -4152,11 +4172,14 @@ export function PrototypeShooterScreen({ onSwitchGame }: PrototypeShooterScreenP
       </View>
 
       <View style={[shooterStyles.weaponRow, isPortraitViewport && shooterStyles.weaponRowPortrait]}>
-        <View style={[shooterStyles.weaponPill, shooterStyles.weaponPillWide]}>
-          <Text numberOfLines={1} style={shooterStyles.weaponPillText}>
-            {buildStatsSummary}
-          </Text>
-        </View>
+        {buildStats.map((stat) => (
+          <View key={stat.label} style={shooterStyles.weaponStatCard}>
+            <Text style={shooterStyles.weaponStatLabel}>{stat.label}</Text>
+            <Text numberOfLines={1} style={shooterStyles.weaponStatValue}>
+              {stat.value}
+            </Text>
+          </View>
+        ))}
       </View>
 
       {gameState.pendingArmoryChoice ? (
@@ -4451,7 +4474,7 @@ const shooterStyles = StyleSheet.create({
   },
   hudRowPortrait: {
     flexWrap: 'wrap',
-    minHeight: 118,
+    minHeight: 88,
     alignContent: 'flex-start',
   },
   hudChip: {
@@ -4490,32 +4513,38 @@ const shooterStyles = StyleSheet.create({
     color: '#7E92AF',
   },
   weaponRow: {
-    marginTop: 8,
+    marginTop: 2,
     flexDirection: 'row',
     gap: 8,
   },
   weaponRowPortrait: {
-    flexWrap: 'wrap',
+    flexWrap: 'nowrap',
   },
-  weaponPill: {
+  weaponStatCard: {
+    flex: 1,
     borderRadius: 999,
     borderWidth: 1,
     borderColor: '#24405D',
     backgroundColor: '#0E1A28',
-    paddingHorizontal: 12,
-    paddingVertical: 6,
+    paddingHorizontal: 10,
+    paddingVertical: 5,
+    alignItems: 'center',
   },
-  weaponPillWide: {
-    width: '100%',
-  },
-  weaponPillText: {
-    color: '#BCD4F4',
-    fontSize: 11,
+  weaponStatLabel: {
+    color: '#7D93B5',
+    fontSize: 9,
     fontWeight: '700',
+    textTransform: 'uppercase',
+  },
+  weaponStatValue: {
+    color: '#BCD4F4',
+    fontSize: 12,
+    fontWeight: '700',
+    marginTop: 2,
   },
   boardFrame: {
     flex: 1,
-    marginTop: 6,
+    marginTop: 2,
     position: 'relative',
   },
   bossClearOverlay: {
