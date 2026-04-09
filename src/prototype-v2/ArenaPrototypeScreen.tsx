@@ -1,6 +1,6 @@
 import { useEffect, useRef, useState } from 'react';
-import type { GestureResponderEvent, LayoutChangeEvent } from 'react-native';
-import { Pressable, SafeAreaView, StyleSheet, Text, View, useWindowDimensions } from 'react-native';
+import type { LayoutChangeEvent } from 'react-native';
+import { PanResponder, Pressable, SafeAreaView, StyleSheet, Text, View, useWindowDimensions } from 'react-native';
 
 import {
   ARENA_FIXED_STEP_SECONDS,
@@ -100,6 +100,7 @@ export function ArenaPrototypeScreen({ onSwitchGame }: ArenaPrototypeScreenProps
   const hasInitializedBoardRef = useRef(false);
   const boardRef = useRef<View | null>(null);
   const boardWindowXRef = useRef(0);
+  const pendingPlayerXRef = useRef<number | null>(null);
   const isArmoryOpen = gameState.pendingArmoryChoice !== null;
 
   const measureBoardBounds = () => {
@@ -157,7 +158,8 @@ export function ArenaPrototypeScreen({ onSwitchGame }: ArenaPrototypeScreenProps
       if (hasStarted && !isPaused && !isArmoryOpen) {
         accumulatedSimulationSeconds += elapsedSeconds;
         const steps = Math.min(ARENA_MAX_CATCH_UP_STEPS, Math.floor(accumulatedSimulationSeconds / ARENA_FIXED_STEP_SECONDS));
-        if (steps > 0) {
+        const pendingPlayerX = pendingPlayerXRef.current;
+        if (steps > 0 || pendingPlayerX !== null) {
           accumulatedSimulationSeconds -= steps * ARENA_FIXED_STEP_SECONDS;
           setGameState((previousState) => {
             if (previousState.status !== 'running') {
@@ -165,6 +167,12 @@ export function ArenaPrototypeScreen({ onSwitchGame }: ArenaPrototypeScreenProps
             }
 
             let nextState = previousState;
+            if (pendingPlayerX !== null && Math.abs(previousState.playerX - pendingPlayerX) > 0.1) {
+              nextState = {
+                ...previousState,
+                playerX: pendingPlayerX,
+              };
+            }
             for (let index = 0; index < steps; index += 1) {
               if (nextState.status !== 'running') {
                 break;
@@ -195,12 +203,14 @@ export function ArenaPrototypeScreen({ onSwitchGame }: ArenaPrototypeScreenProps
 
   useEffect(() => {
     if (gameState.status === 'lost') {
+      pendingPlayerXRef.current = null;
       setIsPaused(true);
     }
   }, [gameState.status]);
 
   useEffect(() => {
     if (isArmoryOpen && hasStarted && gameState.status === 'running') {
+      pendingPlayerXRef.current = null;
       setIsPaused(true);
       setIsMenuOpen(false);
     }
@@ -247,17 +257,34 @@ export function ArenaPrototypeScreen({ onSwitchGame }: ArenaPrototypeScreenProps
       ? 'Boss cache unlocked. Pick one premium install.'
       : `Salvage spent ${gameState.pendingArmoryChoice?.cost}. Next draft ${gameState.nextArmoryCost}.`;
 
-  const handleBoardTouch = (event: GestureResponderEvent) => {
+  const queueBoardTouch = (pageX: number) => {
     if (boardSize.width <= 0 || boardSize.height <= 0 || isMenuOpen || isArmoryOpen || !hasStarted || isPaused || gameState.status !== 'running') {
       return;
     }
 
-    const localX = event.nativeEvent.pageX - boardWindowXRef.current;
-    setGameState((previousState) => ({
-      ...previousState,
-      playerX: clamp(localX, ARENA_PLAYER_HALF_WIDTH + ARENA_PLAYER_MARGIN, boardSize.width - ARENA_PLAYER_HALF_WIDTH - ARENA_PLAYER_MARGIN),
-    }));
+    const localX = pageX - boardWindowXRef.current;
+    pendingPlayerXRef.current = clamp(localX, ARENA_PLAYER_HALF_WIDTH + ARENA_PLAYER_MARGIN, boardSize.width - ARENA_PLAYER_HALF_WIDTH - ARENA_PLAYER_MARGIN);
   };
+
+  const panResponder = useRef(
+    PanResponder.create({
+      onStartShouldSetPanResponder: () => true,
+      onMoveShouldSetPanResponder: () => true,
+      onPanResponderGrant: (_, gestureState) => {
+        queueBoardTouch(gestureState.x0);
+      },
+      onPanResponderMove: (_, gestureState) => {
+        queueBoardTouch(gestureState.moveX);
+      },
+      onPanResponderTerminationRequest: () => false,
+      onPanResponderRelease: () => {
+        pendingPlayerXRef.current = null;
+      },
+      onPanResponderTerminate: () => {
+        pendingPlayerXRef.current = null;
+      },
+    })
+  ).current;
 
   const handleBoardLayout = (event: LayoutChangeEvent) => {
     const nextWidth = Math.round(event.nativeEvent.layout.width);
@@ -272,6 +299,7 @@ export function ArenaPrototypeScreen({ onSwitchGame }: ArenaPrototypeScreenProps
     if (boardSize.width <= 0) {
       return;
     }
+    pendingPlayerXRef.current = null;
     setGameState(createInitialArenaState(boardSize.width));
     setHasStarted(false);
     setIsPaused(true);
@@ -434,10 +462,7 @@ export function ArenaPrototypeScreen({ onSwitchGame }: ArenaPrototypeScreenProps
         <View
           ref={boardRef}
           onLayout={handleBoardLayout}
-          onStartShouldSetResponder={() => true}
-          onMoveShouldSetResponder={() => true}
-          onResponderGrant={handleBoardTouch}
-          onResponderMove={handleBoardTouch}
+          {...panResponder.panHandlers}
           style={arenaStyles.board}>
           <ArenaCanvas boardWidth={boardSize.width} boardHeight={boardSize.height} state={gameState} />
 
