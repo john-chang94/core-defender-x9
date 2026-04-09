@@ -272,7 +272,7 @@ function hitTestCircle(xA: number, yA: number, radiusA: number, xB: number, yB: 
 
 function createDrop(state: ArenaGameState, x: number, y: number, type: ArenaDropType) {
   const palette: Record<ArenaDropType, { label: string; color: string }> = {
-    hullPatch: { label: 'Hull', color: '#FF8D7A' },
+    hullPatch: { label: 'Health', color: '#FF8D7A' },
     shieldCell: { label: 'Shield', color: '#7CEAFF' },
     overclock: { label: 'Overclock', color: '#FFCB6F' },
     salvageBurst: { label: 'Salvage', color: '#C1B2FF' },
@@ -515,7 +515,6 @@ export function tickArenaState(
   nextState.enemyBullets = [...preExistingEnemyBullets];
   const playerWeaponBullets = [...previousState.playerBullets, ...nextState.playerBullets];
   nextState.playerBullets = [];
-  const enemyZoneMaxY = getEnemyZoneMaxY(boardHeight);
 
   for (const enemy of previousState.enemies.concat(nextState.enemies)) {
     if (enemy.health <= 0) {
@@ -548,15 +547,11 @@ export function tickArenaState(
         nextEnemy.x = maxX;
         nextEnemy.vx = -Math.abs(nextEnemy.vx);
       }
-      nextEnemy.y = clamp(
-        nextEnemy.cruiseY + Math.sin(nextState.elapsed * 0.9 + nextEnemy.phase) * config.bobAmplitude * 0.55,
-        nextEnemy.size / 2 + 18,
-        enemyZoneMaxY - nextEnemy.size / 2 - 10
-      );
+      nextEnemy.y = nextEnemy.cruiseY;
     }
 
-    nextEnemy.x = Math.round(nextEnemy.x * 2) / 2;
-    nextEnemy.y = Math.round(nextEnemy.y * 2) / 2;
+    nextEnemy.x = Math.round(nextEnemy.x);
+    nextEnemy.y = Math.round(nextEnemy.y);
 
     if (previousWindup > 0 && nextEnemy.windupTimer <= 0) {
       fireEnemyPattern(nextState, nextEnemy, boardHeight);
@@ -667,7 +662,7 @@ export function tickArenaState(
     if (hitTestCircle(drop.x, drop.y, drop.size * 0.42, closestX, closestY, 2)) {
       if (drop.type === 'hullPatch') {
         nextState.hull = Math.min(nextState.maxHull, nextState.hull + 18);
-        nextState.pickupMessage = 'Hull patch recovered';
+        nextState.pickupMessage = 'Health restored';
       } else if (drop.type === 'shieldCell') {
         nextState.shield = Math.min(nextState.maxShield, nextState.shield + 24);
         nextState.pickupMessage = 'Shield cell absorbed';

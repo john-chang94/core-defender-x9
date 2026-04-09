@@ -61,7 +61,7 @@ function BackgroundGrid({ width, height }: { width: number; height: number }) {
   const enemyZoneHeight = height * ARENA_ENEMY_ZONE_RATIO;
 
   return (
-    <>
+    <View pointerEvents="none" style={arenaStyles.backgroundLayer}>
       <View style={arenaStyles.bgFill} />
       <View style={arenaStyles.bgHazeTop} />
       <View style={arenaStyles.bgHazeBottom} />
@@ -73,7 +73,7 @@ function BackgroundGrid({ width, height }: { width: number; height: number }) {
       {horizontalLines.map((y, index) => (
         <View key={`arena-grid-h-${index}`} pointerEvents="none" style={[arenaStyles.gridLine, { top: y, left: 0, right: 0, height: 1 }]} />
       ))}
-    </>
+    </View>
   );
 }
 
@@ -333,13 +333,14 @@ export function ArenaPrototypeScreen({ onSwitchGame }: ArenaPrototypeScreenProps
   const displayTier = getArenaDisplayTier(gameState.elapsed);
   const activeEnemyCap = getArenaActiveEnemyCap(displayTier);
   const activeWeapon = getArenaActiveWeapon(gameState);
+  const salvageProgress = clamp(gameState.salvage / Math.max(1, gameState.nextArmoryCost), 0, 1);
   const statusText =
     !hasStarted
       ? 'Press Start to deploy the arena test.'
       : isArmoryOpen
         ? 'Armory draft ready.'
       : gameState.status === 'lost'
-        ? 'Hull collapse. Restart to run again.'
+        ? 'Health depleted. Restart to run again.'
         : isPaused
           ? 'Arena Prototype paused.'
           : gameState.pickupMessage ??
@@ -454,7 +455,7 @@ export function ArenaPrototypeScreen({ onSwitchGame }: ArenaPrototypeScreenProps
           <Text style={arenaStyles.hudValue}>T{displayTier}</Text>
         </View>
         <View style={arenaStyles.hudChip}>
-          <Text style={arenaStyles.hudLabel}>Hull</Text>
+          <Text style={arenaStyles.hudLabel}>Health</Text>
           <Text style={[arenaStyles.hudValue, hullRatio <= 0.35 && arenaStyles.hudValueDanger]}>{Math.ceil(gameState.hull)}</Text>
         </View>
         <View style={arenaStyles.hudChip}>
@@ -472,9 +473,14 @@ export function ArenaPrototypeScreen({ onSwitchGame }: ArenaPrototypeScreenProps
           <Text style={arenaStyles.statLabel}>RoF</Text>
           <Text style={arenaStyles.statValue}>{(1 / activeWeapon.fireInterval).toFixed(1)}/s</Text>
         </View>
-        <View style={arenaStyles.statCard}>
+        <View style={[arenaStyles.statCard, arenaStyles.salvageCard]}>
           <Text style={arenaStyles.statLabel}>Salvage</Text>
-          <Text style={arenaStyles.statValue}>{gameState.salvage}</Text>
+          <View style={arenaStyles.salvageMeter}>
+            <View style={[arenaStyles.salvageMeterFill, { width: `${salvageProgress * 100}%` }]} />
+            <Text style={arenaStyles.salvageMeterText}>
+              {gameState.salvage} / {gameState.nextArmoryCost}
+            </Text>
+          </View>
         </View>
       </View>
 
@@ -571,7 +577,7 @@ export function ArenaPrototypeScreen({ onSwitchGame }: ArenaPrototypeScreenProps
 
             <Text style={arenaStyles.menuLabel}>Notes</Text>
             <Text style={arenaStyles.menuHint}>
-              Enemies stay in the upper half, shoot back, and the run ends when hull reaches zero. Kills now generate salvage and can drop tactical pickups.
+              Enemies stay in the upper half, shoot back, and the run ends when health reaches zero. Kills now generate salvage and can drop tactical pickups.
             </Text>
 
             <View style={arenaStyles.menuActions}>
@@ -586,7 +592,7 @@ export function ArenaPrototypeScreen({ onSwitchGame }: ArenaPrototypeScreenProps
       {gameState.status === 'lost' ? (
         <View style={arenaStyles.overlay}>
           <View style={arenaStyles.gameOverModal}>
-            <Text style={arenaStyles.gameOverTitle}>Hull Collapse</Text>
+            <Text style={arenaStyles.gameOverTitle}>Health Depleted</Text>
             <Text style={arenaStyles.gameOverText}>
               Enemy fire broke through the shields. Score {gameState.score}. Pressure tier {displayTier}.
             </Text>
@@ -717,25 +723,55 @@ const arenaStyles = StyleSheet.create({
   },
   statCard: {
     flex: 1,
-    borderRadius: 999,
+    minHeight: 54,
+    borderRadius: 12,
     borderWidth: 1,
     borderColor: '#24405D',
     backgroundColor: '#0E1A28',
     paddingHorizontal: 10,
-    paddingVertical: 5,
-    alignItems: 'center',
+    paddingVertical: 7,
+    alignItems: 'stretch',
+    justifyContent: 'center',
   },
   statLabel: {
     color: '#7D93B5',
     fontSize: 9,
     fontWeight: '700',
     textTransform: 'uppercase',
+    textAlign: 'center',
   },
   statValue: {
     color: '#BCD4F4',
     fontSize: 12,
     fontWeight: '700',
     marginTop: 2,
+    textAlign: 'center',
+  },
+  salvageCard: {
+    gap: 5,
+  },
+  salvageMeter: {
+    height: 24,
+    borderRadius: 9,
+    borderWidth: 1,
+    borderColor: '#30516F',
+    backgroundColor: '#12253A',
+    overflow: 'hidden',
+    justifyContent: 'center',
+  },
+  salvageMeterFill: {
+    position: 'absolute',
+    left: 0,
+    top: 0,
+    bottom: 0,
+    borderRadius: 8,
+    backgroundColor: 'rgba(133, 176, 255, 0.38)',
+  },
+  salvageMeterText: {
+    color: '#DCEBFF',
+    fontSize: 11,
+    fontWeight: '800',
+    textAlign: 'center',
   },
   boardFrame: {
     flex: 1,
@@ -749,6 +785,9 @@ const arenaStyles = StyleSheet.create({
     borderWidth: 1,
     borderColor: '#223852',
     backgroundColor: '#08131F',
+  },
+  backgroundLayer: {
+    ...StyleSheet.absoluteFillObject,
   },
   bgFill: {
     ...StyleSheet.absoluteFillObject,
