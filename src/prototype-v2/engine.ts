@@ -17,6 +17,7 @@ import type {
   ArenaArmoryUpgradeKey,
   ArenaDrop,
   ArenaDropType,
+  ArenaEncounter,
   ArenaEffect,
   ArenaEffectKind,
   ArenaEnemy,
@@ -25,7 +26,11 @@ import type {
   ArenaProjectile,
   ArenaWeapon,
 } from './types';
-import { ARENA_ARMORY_UPGRADES, createArenaArmoryChoice } from './upgrades';
+import { ARENA_ARMORY_UPGRADES, createArenaArmoryChoice, createArenaBossArmoryChoice } from './upgrades';
+
+const ARENA_MINI_BOSS_TIER_INTERVAL = 3;
+const ARENA_BOSS_TIER_INTERVAL = 6;
+const ARENA_ANNOUNCEMENT_DURATION_SECONDS = 1.75;
 
 function clamp(value: number, min: number, max: number) {
   return Math.max(min, Math.min(max, value));
@@ -82,6 +87,12 @@ function queueEffect(state: ArenaGameState, kind: ArenaEffectKind, x: number, y:
   state.nextEffectId += 1;
 }
 
+function queueEncounterAnnouncement(state: ArenaGameState, label: string, accentColor: string) {
+  state.encounterAnnouncement = label;
+  state.encounterAnnouncementColor = accentColor;
+  state.encounterAnnouncementTimer = ARENA_ANNOUNCEMENT_DURATION_SECONDS;
+}
+
 export function getArenaDisplayTier(elapsedSeconds: number) {
   return Math.floor(elapsedSeconds / ARENA_TIER_DURATION_SECONDS) + 1;
 }
@@ -128,10 +139,42 @@ function getEnemyKindPool(displayTier: number): ArenaEnemyKind[] {
   if (displayTier >= 3) {
     pool.push('burst', 'burst');
   }
+  if (displayTier >= 4) {
+    pool.push('orbiter', 'orbiter');
+  }
   if (displayTier >= 6) {
     pool.push('tank');
   }
+  if (displayTier >= 8) {
+    pool.push('sniper');
+  }
   return pool;
+}
+
+function createEncounterForTier(displayTier: number): ArenaEncounter | null {
+  if (displayTier >= ARENA_BOSS_TIER_INTERVAL && displayTier % ARENA_BOSS_TIER_INTERVAL === 0) {
+    return {
+      type: 'boss',
+      label: 'Prism Core',
+      accentColor: '#FF89C0',
+      anchorKind: 'prismBoss',
+      rewardSalvage: 170,
+      startedAtTier: displayTier,
+    };
+  }
+
+  if (displayTier >= ARENA_MINI_BOSS_TIER_INTERVAL && displayTier % ARENA_MINI_BOSS_TIER_INTERVAL === 0) {
+    return {
+      type: 'miniBoss',
+      label: 'Interceptor Sweep',
+      accentColor: '#C3B5FF',
+      anchorKind: 'interceptor',
+      rewardSalvage: 80,
+      startedAtTier: displayTier,
+    };
+  }
+
+  return null;
 }
 
 function getPlayerShipTop(boardHeight: number) {
@@ -148,6 +191,18 @@ function createEnemyProjectile(
   size: number
 ) {
   const originY = enemy.y + enemy.size * 0.46;
+  const projectileColor =
+    enemy.kind === 'tank'
+      ? '#FFE6B8'
+      : enemy.kind === 'sniper'
+        ? '#FFD8EF'
+        : enemy.kind === 'orbiter'
+          ? '#CFFFF9'
+      : enemy.kind === 'interceptor'
+        ? '#E3D7FF'
+        : enemy.kind === 'prismBoss'
+          ? '#FFD5EA'
+          : '#FFD9F2';
   const projectile: ArenaProjectile = {
     id: `B${state.nextBulletId}`,
     owner: 'enemy',
@@ -157,7 +212,7 @@ function createEnemyProjectile(
     vy: Math.cos(angle) * speed,
     damage,
     size,
-    color: enemy.kind === 'tank' ? '#FFE6B8' : '#FFD9F2',
+    color: projectileColor,
     age: 0,
     maxAge: 5.5,
     pierce: 0,
@@ -169,7 +224,10 @@ function createEnemyProjectile(
 function fireEnemyPattern(state: ArenaGameState, enemy: ArenaEnemy, boardHeight: number) {
   const config = ARENA_ENEMY_CONFIG[enemy.kind];
   const targetY = getPlayerShipTop(boardHeight) + ARENA_PLAYER_HEIGHT * 0.22;
-  const desiredAngle = Math.atan2(state.playerX - enemy.x, targetY - enemy.y);
+  let desiredAngle = Math.atan2(state.playerX - enemy.x, targetY - enemy.y);
+  if (enemy.kind === 'orbiter') {
+    desiredAngle += Math.sin(enemy.phase) * 0.22;
+  }
   const cappedEnemyBulletCap = getArenaEnemyBulletCap(getArenaDisplayTier(state.elapsed));
   const remainingBulletBudget = Math.max(0, cappedEnemyBulletCap - state.enemyBullets.length);
   if (remainingBulletBudget <= 0) {
@@ -196,40 +254,61 @@ function fireEnemyPattern(state: ArenaGameState, enemy: ArenaEnemy, boardHeight:
   }
 }
 
-function spawnEnemy(state: ArenaGameState, boardWidth: number, boardHeight: number, kind: ArenaEnemyKind, laneIndex?: number) {
+function spawnEnemy(
+  state: ArenaGameState,
+  boardWidth: number,
+  boardHeight: number,
+  kind: ArenaEnemyKind,
+  options?: {
+    laneIndex?: number;
+    x?: number;
+    cruiseY?: number;
+    healthMultiplier?: number;
+    rewardMultiplier?: number;
+    attackCooldownMultiplier?: number;
+    vx?: number;
+  }
+) {
   const displayTier = getArenaDisplayTier(state.elapsed);
   const config = ARENA_ENEMY_CONFIG[kind];
   const lanes = getSpawnLanes(boardWidth);
-  const chosenLane = laneIndex ?? Math.floor(Math.random() * lanes.length);
+  const chosenLane = options?.laneIndex ?? Math.floor(Math.random() * lanes.length);
   const x = clamp(
-    lanes[chosenLane] + (Math.random() - 0.5) * 18,
+    options?.x ?? lanes[chosenLane] + (Math.random() - 0.5) * 18,
     config.size / 2 + 10,
     boardWidth - config.size / 2 - 10
   );
   const zoneMaxY = getEnemyZoneMaxY(boardHeight);
   const cruiseY = clamp(
-    lerp(boardHeight * ARENA_MIN_ENEMY_CRUISE_Y_RATIO, boardHeight * ARENA_MAX_ENEMY_CRUISE_Y_RATIO, Math.random()),
+    options?.cruiseY ??
+      lerp(boardHeight * ARENA_MIN_ENEMY_CRUISE_Y_RATIO, boardHeight * ARENA_MAX_ENEMY_CRUISE_Y_RATIO, Math.random()),
     config.size / 2 + 18,
     zoneMaxY - config.size / 2 - 10
   );
-  const health = Math.round(config.baseHealth + (displayTier - 1) * config.healthPerTier + Math.random() * config.healthPerTier * 0.35);
+  const health = Math.round(
+    (config.baseHealth + (displayTier - 1) * config.healthPerTier + Math.random() * config.healthPerTier * 0.35) *
+      (options?.healthMultiplier ?? 1)
+  );
   const enemy: ArenaEnemy = {
     id: `E${state.nextEnemyId}`,
     kind,
     shape: ARENA_ENEMY_SHAPES[kind],
     x,
     y: -config.size * 0.9,
-    vx: config.strafeSpeed * (Math.random() < 0.5 ? -1 : 1) * (1 + Math.min(0.18, displayTier * 0.012)),
+    vx:
+      options?.vx ??
+      config.strafeSpeed * (Math.random() < 0.5 ? -1 : 1) * (1 + Math.min(0.18, displayTier * 0.012)),
     cruiseY,
     size: config.size,
     health,
     maxHealth: health,
-    attackCooldown: Math.max(0.62, config.fireInterval - Math.min(0.6, (displayTier - 1) * 0.035)),
+    attackCooldown:
+      Math.max(0.62, config.fireInterval - Math.min(0.6, (displayTier - 1) * 0.035)) * (options?.attackCooldownMultiplier ?? 1),
     windupTimer: 0,
     flash: 0,
     phase: Math.random() * Math.PI * 2,
     color: ARENA_ENEMY_COLORS[kind],
-    reward: config.reward + displayTier * 10,
+    reward: Math.round((config.reward + displayTier * 10) * (options?.rewardMultiplier ?? 1)),
   };
 
   state.enemies = [...state.enemies, enemy];
@@ -247,20 +326,80 @@ function spawnEnemyGroup(state: ArenaGameState, boardWidth: number, boardHeight:
   const laneIndex = Math.floor(Math.random() * lanes.length);
   const kindPool = getEnemyKindPool(displayTier);
   const primaryKind = randomChoice(kindPool);
-  spawnEnemy(state, boardWidth, boardHeight, primaryKind, laneIndex);
+  spawnEnemy(state, boardWidth, boardHeight, primaryKind, { laneIndex });
 
   const remainingCapacity = activeEnemyCap - state.enemies.length;
   const shouldAddWingman =
     remainingCapacity > 0 &&
     displayTier >= 4 &&
-    (primaryKind === 'hover' || primaryKind === 'burst') &&
+    (primaryKind === 'hover' || primaryKind === 'burst' || primaryKind === 'orbiter') &&
     Math.random() < (displayTier >= 8 ? 0.38 : 0.22);
 
   if (shouldAddWingman) {
     const offset = laneIndex <= 1 ? 1 : laneIndex >= lanes.length - 2 ? -1 : Math.random() < 0.5 ? -1 : 1;
     const secondLane = clamp(laneIndex + offset, 0, lanes.length - 1);
-    spawnEnemy(state, boardWidth, boardHeight, 'hover', secondLane);
+    spawnEnemy(state, boardWidth, boardHeight, 'hover', { laneIndex: secondLane });
   }
+}
+
+function startEncounter(state: ArenaGameState, boardWidth: number, boardHeight: number, encounter: ArenaEncounter) {
+  state.activeEncounter = encounter;
+  queueEncounterAnnouncement(state, encounter.label, encounter.accentColor);
+  state.pickupMessage = encounter.type === 'boss' ? 'Boss intercept. Break the prism core.' : 'Mini-boss breach detected.';
+  state.pickupTimer = 1.9;
+
+  if (encounter.type === 'boss') {
+    spawnEnemy(state, boardWidth, boardHeight, 'prismBoss', {
+      x: boardWidth / 2,
+      cruiseY: boardHeight * 0.21,
+      healthMultiplier: 1 + Math.max(0, encounter.startedAtTier - ARENA_BOSS_TIER_INTERVAL) * 0.05,
+      rewardMultiplier: 1.35,
+      attackCooldownMultiplier: 0.92,
+      vx: ARENA_ENEMY_CONFIG.prismBoss.strafeSpeed,
+    });
+    spawnEnemy(state, boardWidth, boardHeight, 'hover', {
+      laneIndex: 1,
+      healthMultiplier: 1.15,
+      rewardMultiplier: 0.9,
+    });
+    spawnEnemy(state, boardWidth, boardHeight, 'hover', {
+      laneIndex: 4,
+      healthMultiplier: 1.15,
+      rewardMultiplier: 0.9,
+    });
+    if (encounter.startedAtTier >= 12) {
+      spawnEnemy(state, boardWidth, boardHeight, 'sniper', {
+        laneIndex: 0,
+        healthMultiplier: 1.1,
+        rewardMultiplier: 0.95,
+        attackCooldownMultiplier: 1.05,
+      });
+    }
+    state.enemySpawnCooldown = Math.max(state.enemySpawnCooldown, 3.8);
+    return;
+  }
+
+  spawnEnemy(state, boardWidth, boardHeight, 'interceptor', {
+    x: boardWidth / 2,
+    cruiseY: boardHeight * 0.25,
+    healthMultiplier: 1 + Math.max(0, encounter.startedAtTier - ARENA_MINI_BOSS_TIER_INTERVAL) * 0.04,
+    rewardMultiplier: 1.25,
+    attackCooldownMultiplier: 0.95,
+    vx: ARENA_ENEMY_CONFIG.interceptor.strafeSpeed,
+  });
+  spawnEnemy(state, boardWidth, boardHeight, 'hover', {
+    laneIndex: 2,
+    healthMultiplier: 1.1,
+    rewardMultiplier: 0.82,
+  });
+  if (encounter.startedAtTier >= 9) {
+    spawnEnemy(state, boardWidth, boardHeight, 'orbiter', {
+      laneIndex: 4,
+      healthMultiplier: 1.08,
+      rewardMultiplier: 0.9,
+    });
+  }
+  state.enemySpawnCooldown = Math.max(state.enemySpawnCooldown, 2.6);
 }
 
 function hitTestCircle(xA: number, yA: number, radiusA: number, xB: number, yB: number, radiusB: number) {
@@ -331,6 +470,16 @@ function maybeQueueArmoryChoice(state: ArenaGameState) {
   state.pendingArmoryChoice = createArenaArmoryChoice(cost);
   state.pickupMessage = 'Armory draft ready';
   state.pickupTimer = 1.6;
+}
+
+function queueBossRewardChoice(state: ArenaGameState) {
+  if (state.pendingArmoryChoice) {
+    return;
+  }
+
+  state.pendingArmoryChoice = createArenaBossArmoryChoice();
+  state.pickupMessage = 'Boss cache recovered';
+  state.pickupTimer = 1.9;
 }
 
 function applyPlayerDamage(state: ArenaGameState, damage: number, boardHeight: number) {
@@ -424,6 +573,11 @@ export function createInitialArenaState(boardWidth: number): ArenaGameState {
     nextEffectId: 1,
     pickupMessage: 'Enemies are active now. Catch drops and spend salvage on armory drafts.',
     pickupTimer: 3.4,
+    activeEncounter: null,
+    lastProcessedDisplayTier: 1,
+    encounterAnnouncement: 'Arena live',
+    encounterAnnouncementColor: '#8BCBFF',
+    encounterAnnouncementTimer: 1.5,
     pendingArmoryChoice: null,
   };
 }
@@ -464,6 +618,7 @@ export function tickArenaState(
     shieldRegenCooldown: Math.max(0, previousState.shieldRegenCooldown - deltaSeconds),
     playerFlash: Math.max(0, previousState.playerFlash - deltaSeconds * 4.5),
     overclockTimer: Math.max(0, previousState.overclockTimer - deltaSeconds),
+    encounterAnnouncementTimer: Math.max(0, previousState.encounterAnnouncementTimer - deltaSeconds),
     effects: previousState.effects
       .map((effect) => ({ ...effect, age: effect.age + deltaSeconds }))
       .filter((effect) => effect.age < effect.duration),
@@ -493,6 +648,11 @@ export function tickArenaState(
     }
   }
 
+  if (nextState.encounterAnnouncementTimer <= 0) {
+    nextState.encounterAnnouncement = null;
+    nextState.encounterAnnouncementColor = null;
+  }
+
   if (nextState.shieldRegenCooldown <= 0 && nextState.shield < nextState.maxShield) {
     nextState.shield = Math.min(nextState.maxShield, nextState.shield + ARENA_SHIELD_REGEN_PER_SECOND * deltaSeconds);
   }
@@ -502,11 +662,26 @@ export function tickArenaState(
   }
 
   const displayTier = getArenaDisplayTier(nextState.elapsed);
-  while (nextState.enemySpawnCooldown <= 0) {
-    spawnEnemyGroup(nextState, boardWidth, boardHeight);
-    nextState.enemySpawnCooldown += getArenaSpawnCooldown(displayTier, nextState.enemies.length);
-    if (nextState.enemies.length >= getArenaActiveEnemyCap(displayTier)) {
-      break;
+  if (displayTier > previousState.lastProcessedDisplayTier) {
+    for (let tier = previousState.lastProcessedDisplayTier + 1; tier <= displayTier; tier += 1) {
+      nextState.lastProcessedDisplayTier = tier;
+      if (nextState.activeEncounter) {
+        continue;
+      }
+      const encounter = createEncounterForTier(tier);
+      if (encounter) {
+        startEncounter(nextState, boardWidth, boardHeight, encounter);
+      }
+    }
+  }
+
+  if (!nextState.activeEncounter) {
+    while (nextState.enemySpawnCooldown <= 0) {
+      spawnEnemyGroup(nextState, boardWidth, boardHeight);
+      nextState.enemySpawnCooldown += getArenaSpawnCooldown(displayTier, nextState.enemies.length);
+      if (nextState.enemies.length >= getArenaActiveEnemyCap(displayTier)) {
+        break;
+      }
     }
   }
 
@@ -529,6 +704,7 @@ export function tickArenaState(
       flash: Math.max(0, enemy.flash - deltaSeconds * 4.5),
       attackCooldown: enemy.attackCooldown - deltaSeconds,
       windupTimer: Math.max(0, enemy.windupTimer - deltaSeconds),
+      phase: enemy.phase + deltaSeconds * (enemy.kind === 'orbiter' ? 2.2 : enemy.kind === 'prismBoss' ? 0.65 : 1),
     };
 
     if (!hadReachedCruise) {
@@ -547,7 +723,12 @@ export function tickArenaState(
         nextEnemy.x = maxX;
         nextEnemy.vx = -Math.abs(nextEnemy.vx);
       }
-      nextEnemy.y = nextEnemy.cruiseY;
+      nextEnemy.y =
+        enemy.kind === 'orbiter'
+          ? clamp(nextEnemy.cruiseY + Math.sin(nextEnemy.phase) * config.bobAmplitude, enemy.size / 2 + 10, getEnemyZoneMaxY(boardHeight) - enemy.size / 2 - 10)
+          : enemy.kind === 'prismBoss'
+            ? nextEnemy.cruiseY + Math.sin(nextEnemy.phase) * 4
+            : nextEnemy.cruiseY;
     }
 
     nextEnemy.x = Math.round(nextEnemy.x);
@@ -598,7 +779,9 @@ export function tickArenaState(
         nextState.salvage += Math.max(12, Math.round(enemy.reward / 6));
         queueEffect(nextState, 'burst', enemy.x, enemy.y, enemy.size * 1.24, enemy.color);
         maybeSpawnEnemyDrop(nextState, enemy);
-        maybeQueueArmoryChoice(nextState);
+        if (!nextState.activeEncounter) {
+          maybeQueueArmoryChoice(nextState);
+        }
       }
 
       if (activeBullet.pierce > 0) {
@@ -672,7 +855,9 @@ export function tickArenaState(
       } else {
         nextState.salvage += 55;
         nextState.pickupMessage = 'Salvage burst secured';
-        maybeQueueArmoryChoice(nextState);
+        if (!nextState.activeEncounter) {
+          maybeQueueArmoryChoice(nextState);
+        }
       }
       nextState.pickupTimer = 1.6;
       queueEffect(nextState, 'pickup', drop.x, drop.y, drop.size * 1.1, drop.color);
@@ -683,5 +868,32 @@ export function tickArenaState(
   }
 
   nextState.drops = remainingDrops;
+
+  if (nextState.activeEncounter) {
+    const anchorAlive = nextState.enemies.some((enemy) => enemy.kind === nextState.activeEncounter?.anchorKind);
+    if (!anchorAlive) {
+      const completedEncounter = nextState.activeEncounter;
+      nextState.activeEncounter = null;
+      nextState.salvage += completedEncounter.rewardSalvage;
+      if (completedEncounter.type === 'boss') {
+        nextState.enemyBullets = [];
+        queueBossRewardChoice(nextState);
+      } else {
+        maybeQueueArmoryChoice(nextState);
+      }
+      nextState.pickupMessage =
+        completedEncounter.type === 'boss'
+          ? `${completedEncounter.label} cache unlocked`
+          : `${completedEncounter.label} cleared`;
+      nextState.pickupTimer = 1.9;
+      queueEncounterAnnouncement(
+        nextState,
+        completedEncounter.type === 'boss' ? 'Boss neutralized' : 'Mini-boss cleared',
+        completedEncounter.accentColor
+      );
+      nextState.enemySpawnCooldown = Math.max(nextState.enemySpawnCooldown, completedEncounter.type === 'boss' ? 2.4 : 1.4);
+    }
+  }
+
   return nextState;
 }

@@ -45,6 +45,13 @@ function hexToRgba(hexColor: string, alpha: number) {
   return `rgba(${red}, ${green}, ${blue}, ${alpha})`;
 }
 
+function formatArenaValue(value: number) {
+  if (value >= 1000) {
+    return `${(value / 1000).toFixed(1)}k`;
+  }
+  return `${Math.max(0, Math.ceil(value))}`;
+}
+
 function getPlayerShipTop(boardHeight: number) {
   return Math.max(0, boardHeight - ARENA_PLAYER_HEIGHT - 14);
 }
@@ -80,6 +87,11 @@ function BackgroundGrid({ width, height }: { width: number; height: number }) {
 function EnemyNode({ enemy }: { enemy: ArenaEnemy }) {
   const isCircle = enemy.shape === 'circle';
   const isDiamond = enemy.shape === 'diamond';
+  const isOrbiter = enemy.kind === 'orbiter';
+  const isSniper = enemy.kind === 'sniper';
+  const isElite = enemy.kind === 'interceptor';
+  const isBoss = enemy.kind === 'prismBoss';
+  const showAura = isElite || isBoss;
 
   return (
     <View
@@ -94,10 +106,25 @@ function EnemyNode({ enemy }: { enemy: ArenaEnemy }) {
           backgroundColor: enemy.color,
           borderRadius: isCircle ? enemy.size / 2 : 12,
           transform: [{ scale: enemy.flash > 0 ? 1.05 : 1 }, ...(isDiamond ? [{ rotate: '45deg' as const }] : [])],
-          borderColor: enemy.windupTimer > 0 ? '#FFF0C7' : '#0D1726',
-          borderWidth: enemy.windupTimer > 0 ? 2.1 : 1.4,
+          borderColor: enemy.windupTimer > 0 ? '#FFF0C7' : isBoss ? '#FFE8BE' : isElite ? '#E5DDFF' : '#0D1726',
+          borderWidth: enemy.windupTimer > 0 ? 2.1 : isBoss ? 2.4 : isElite ? 1.9 : 1.4,
         },
       ]}>
+      {showAura ? (
+        <View
+          style={[
+            arenaStyles.enemyAura,
+            isBoss ? arenaStyles.enemyAuraBoss : arenaStyles.enemyAuraElite,
+            {
+              width: enemy.size * (isBoss ? 1.42 : 1.28),
+              height: enemy.size * (isBoss ? 1.42 : 1.28),
+              borderRadius: enemy.size,
+              left: -(enemy.size * (isBoss ? 0.21 : 0.14)),
+              top: -(enemy.size * (isBoss ? 0.21 : 0.14)),
+            },
+          ]}
+        />
+      ) : null}
       {enemy.windupTimer > 0 ? (
         <View
           style={[
@@ -113,8 +140,36 @@ function EnemyNode({ enemy }: { enemy: ArenaEnemy }) {
         />
       ) : null}
       <View style={[arenaStyles.enemyContent, isDiamond && { transform: [{ rotate: '-45deg' }] }]}>
-        <Text style={[arenaStyles.enemyHealthText, enemy.maxHealth >= 100 && arenaStyles.enemyHealthTextCompact]}>
-          {enemy.health}
+        {isElite ? (
+          <View style={arenaStyles.enemyEliteMarker}>
+            <View style={arenaStyles.enemyEliteSlash} />
+            <View style={arenaStyles.enemyEliteSlash} />
+          </View>
+        ) : null}
+        {isOrbiter ? (
+          <View style={arenaStyles.enemyOrbiterMarker}>
+            <View style={arenaStyles.enemyOrbiterCore} />
+          </View>
+        ) : null}
+        {isSniper ? (
+          <View style={arenaStyles.enemySniperMarker}>
+            <View style={arenaStyles.enemySniperLens} />
+          </View>
+        ) : null}
+        {isBoss ? (
+          <View style={arenaStyles.enemyBossMarker}>
+            <View style={arenaStyles.enemyBossPip} />
+            <View style={[arenaStyles.enemyBossPip, arenaStyles.enemyBossPipWide]} />
+            <View style={arenaStyles.enemyBossPip} />
+          </View>
+        ) : null}
+        <Text
+          style={[
+            arenaStyles.enemyHealthText,
+            enemy.maxHealth >= 100 && arenaStyles.enemyHealthTextCompact,
+            isBoss && arenaStyles.enemyHealthTextBoss,
+          ]}>
+          {formatArenaValue(enemy.health)}
         </Text>
       </View>
     </View>
@@ -333,7 +388,19 @@ export function ArenaPrototypeScreen({ onSwitchGame }: ArenaPrototypeScreenProps
   const displayTier = getArenaDisplayTier(gameState.elapsed);
   const activeEnemyCap = getArenaActiveEnemyCap(displayTier);
   const activeWeapon = getArenaActiveWeapon(gameState);
+  const activeEncounterAnchor = gameState.activeEncounter
+    ? gameState.enemies.find((enemy) => enemy.kind === gameState.activeEncounter?.anchorKind) ?? null
+    : null;
+  const healthProgress = clamp(gameState.hull / Math.max(1, gameState.maxHull), 0, 1);
+  const shieldProgress = clamp(gameState.shield / Math.max(1, gameState.maxShield), 0, 1);
   const salvageProgress = clamp(gameState.salvage / Math.max(1, gameState.nextArmoryCost), 0, 1);
+  const hasEncounterAnnouncement = gameState.encounterAnnouncement !== null && gameState.encounterAnnouncementTimer > 0;
+  const encounterAnnouncementProgress = hasEncounterAnnouncement
+    ? 1 - gameState.encounterAnnouncementTimer / 1.75
+    : 0;
+  const encounterAnnouncementOpacity = hasEncounterAnnouncement
+    ? Math.sin(Math.min(1, encounterAnnouncementProgress) * Math.PI)
+    : 0;
   const statusText =
     !hasStarted
       ? 'Press Start to deploy the arena test.'
@@ -344,9 +411,17 @@ export function ArenaPrototypeScreen({ onSwitchGame }: ArenaPrototypeScreenProps
         : isPaused
           ? 'Arena Prototype paused.'
           : gameState.pickupMessage ??
-            (gameState.overclockTimer > 0
-              ? `Overclock ${gameState.overclockTimer.toFixed(1)}s. Threat ${gameState.enemies.length}/${activeEnemyCap}`
-              : `Enemies hold the upper half. Threat ${gameState.enemies.length}/${activeEnemyCap}`);
+            (activeEncounterAnchor && gameState.activeEncounter
+              ? `${gameState.activeEncounter.label} ${formatArenaValue(activeEncounterAnchor.health)}`
+              : gameState.activeEncounter
+                ? `${gameState.activeEncounter.label} active`
+                : gameState.overclockTimer > 0
+                  ? `Overclock ${gameState.overclockTimer.toFixed(1)}s. Threat ${gameState.enemies.length}/${activeEnemyCap}`
+                  : `Enemies hold the upper half. Threat ${gameState.enemies.length}/${activeEnemyCap}`);
+  const armorySubtitle =
+    gameState.pendingArmoryChoice?.source === 'boss'
+      ? 'Boss cache unlocked. Pick one premium install.'
+      : `Salvage spent ${gameState.pendingArmoryChoice?.cost}. Next draft ${gameState.nextArmoryCost}.`;
 
   const handleBoardTouch = (event: GestureResponderEvent) => {
     if (boardSize.width <= 0 || boardSize.height <= 0 || isMenuOpen || isArmoryOpen || !hasStarted || isPaused || gameState.status !== 'running') {
@@ -454,13 +529,35 @@ export function ArenaPrototypeScreen({ onSwitchGame }: ArenaPrototypeScreenProps
           <Text style={arenaStyles.hudLabel}>Pressure</Text>
           <Text style={arenaStyles.hudValue}>T{displayTier}</Text>
         </View>
-        <View style={arenaStyles.hudChip}>
+        <View style={[arenaStyles.hudChip, arenaStyles.hudMeterChip]}>
           <Text style={arenaStyles.hudLabel}>Health</Text>
-          <Text style={[arenaStyles.hudValue, hullRatio <= 0.35 && arenaStyles.hudValueDanger]}>{Math.ceil(gameState.hull)}</Text>
+          <View style={arenaStyles.hudMeter}>
+            <View
+              style={[
+                arenaStyles.hudMeterFill,
+                arenaStyles.hudMeterFillHealth,
+                { width: `${healthProgress * 100}%` },
+              ]}
+            />
+            <Text style={[arenaStyles.hudMeterText, hullRatio <= 0.35 && arenaStyles.hudMeterTextDanger]}>
+              {Math.ceil(gameState.hull)} / {Math.ceil(gameState.maxHull)}
+            </Text>
+          </View>
         </View>
-        <View style={arenaStyles.hudChip}>
+        <View style={[arenaStyles.hudChip, arenaStyles.hudMeterChip]}>
           <Text style={arenaStyles.hudLabel}>Shield</Text>
-          <Text style={[arenaStyles.hudValue, arenaStyles.hudValueShield]}>{Math.ceil(gameState.shield)}</Text>
+          <View style={arenaStyles.hudMeter}>
+            <View
+              style={[
+                arenaStyles.hudMeterFill,
+                arenaStyles.hudMeterFillShield,
+                { width: `${shieldProgress * 100}%` },
+              ]}
+            />
+            <Text style={[arenaStyles.hudMeterText, arenaStyles.hudMeterTextShield]}>
+              {Math.ceil(gameState.shield)} / {Math.ceil(gameState.maxShield)}
+            </Text>
+          </View>
         </View>
       </View>
 
@@ -493,6 +590,31 @@ export function ArenaPrototypeScreen({ onSwitchGame }: ArenaPrototypeScreenProps
           onResponderMove={handleBoardTouch}
           style={arenaStyles.board}>
           <BackgroundGrid width={boardSize.width} height={boardSize.height} />
+
+          {hasEncounterAnnouncement ? (
+            <View pointerEvents="none" style={arenaStyles.boardAnnouncementWrap}>
+              <View
+                style={[
+                  arenaStyles.boardAnnouncementGlow,
+                  {
+                    backgroundColor: hexToRgba(gameState.encounterAnnouncementColor ?? '#8BCBFF', 0.14 + encounterAnnouncementOpacity * 0.18),
+                    opacity: encounterAnnouncementOpacity,
+                    transform: [{ scale: 0.88 + encounterAnnouncementProgress * 0.16 }],
+                  },
+                ]}
+              />
+              <Text
+                style={[
+                  arenaStyles.boardAnnouncementText,
+                  {
+                    color: gameState.encounterAnnouncementColor ?? '#F1F7FF',
+                    opacity: 0.25 + encounterAnnouncementOpacity * 0.75,
+                  },
+                ]}>
+                {gameState.encounterAnnouncement}
+              </Text>
+            </View>
+          ) : null}
 
           {gameState.effects.map((effect) => (
             <EffectNode key={effect.id} effect={effect} />
@@ -535,9 +657,7 @@ export function ArenaPrototypeScreen({ onSwitchGame }: ArenaPrototypeScreenProps
           <View style={arenaStyles.armoryOverlay}>
             <View style={arenaStyles.armoryPanel}>
               <Text style={arenaStyles.armoryTitle}>{gameState.pendingArmoryChoice?.title}</Text>
-              <Text style={arenaStyles.armorySubtitle}>
-                Salvage spent {gameState.pendingArmoryChoice?.cost}. Next draft {gameState.nextArmoryCost}.
-              </Text>
+              <Text style={arenaStyles.armorySubtitle}>{armorySubtitle}</Text>
               <Text style={arenaStyles.armoryPrompt}>{gameState.pendingArmoryChoice?.prompt}</Text>
 
               <View style={arenaStyles.armoryOptions}>
@@ -698,6 +818,9 @@ const arenaStyles = StyleSheet.create({
     paddingHorizontal: 12,
     paddingVertical: 9,
   },
+  hudMeterChip: {
+    gap: 5,
+  },
   hudLabel: {
     color: '#7B92B0',
     fontSize: 9,
@@ -715,6 +838,40 @@ const arenaStyles = StyleSheet.create({
   },
   hudValueShield: {
     color: '#9DEBFF',
+  },
+  hudMeter: {
+    height: 24,
+    borderRadius: 9,
+    borderWidth: 1,
+    borderColor: '#30516F',
+    backgroundColor: '#12253A',
+    overflow: 'hidden',
+    justifyContent: 'center',
+  },
+  hudMeterFill: {
+    position: 'absolute',
+    left: 0,
+    top: 0,
+    bottom: 0,
+    borderRadius: 8,
+  },
+  hudMeterFillHealth: {
+    backgroundColor: 'rgba(255, 145, 120, 0.36)',
+  },
+  hudMeterFillShield: {
+    backgroundColor: 'rgba(110, 234, 255, 0.34)',
+  },
+  hudMeterText: {
+    color: '#E7F0FF',
+    fontSize: 11,
+    fontWeight: '800',
+    textAlign: 'center',
+  },
+  hudMeterTextDanger: {
+    color: '#FFD3C6',
+  },
+  hudMeterTextShield: {
+    color: '#D1F8FF',
   },
   subHudRow: {
     marginTop: 6,
@@ -829,10 +986,45 @@ const arenaStyles = StyleSheet.create({
     position: 'absolute',
     backgroundColor: 'rgba(122, 149, 184, 0.12)',
   },
+  boardAnnouncementWrap: {
+    position: 'absolute',
+    left: 16,
+    right: 16,
+    top: '38%',
+    alignItems: 'center',
+    justifyContent: 'center',
+    zIndex: 4,
+  },
+  boardAnnouncementGlow: {
+    position: 'absolute',
+    width: 260,
+    height: 82,
+    borderRadius: 999,
+  },
+  boardAnnouncementText: {
+    color: '#F1F7FF',
+    fontSize: 26,
+    fontWeight: '900',
+    letterSpacing: 0.8,
+    textAlign: 'center',
+    textTransform: 'uppercase',
+  },
   enemyBody: {
     position: 'absolute',
     justifyContent: 'center',
     alignItems: 'center',
+  },
+  enemyAura: {
+    position: 'absolute',
+    borderWidth: 1.4,
+  },
+  enemyAuraElite: {
+    borderColor: 'rgba(203, 192, 255, 0.45)',
+    backgroundColor: 'rgba(177, 149, 255, 0.08)',
+  },
+  enemyAuraBoss: {
+    borderColor: 'rgba(255, 206, 171, 0.6)',
+    backgroundColor: 'rgba(255, 116, 173, 0.1)',
   },
   enemyWarningRing: {
     position: 'absolute',
@@ -850,6 +1042,68 @@ const arenaStyles = StyleSheet.create({
   },
   enemyHealthTextCompact: {
     fontSize: 13,
+  },
+  enemyHealthTextBoss: {
+    fontSize: 15,
+  },
+  enemyEliteMarker: {
+    marginBottom: 2,
+    flexDirection: 'row',
+    gap: 3,
+  },
+  enemyEliteSlash: {
+    width: 3,
+    height: 10,
+    borderRadius: 2,
+    backgroundColor: '#F0E9FF',
+    transform: [{ rotate: '18deg' }],
+  },
+  enemyOrbiterMarker: {
+    marginBottom: 3,
+    width: 14,
+    height: 14,
+    borderRadius: 999,
+    borderWidth: 1.2,
+    borderColor: '#E2FFF7',
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  enemyOrbiterCore: {
+    width: 4,
+    height: 4,
+    borderRadius: 999,
+    backgroundColor: '#F2FFF8',
+  },
+  enemySniperMarker: {
+    marginBottom: 3,
+    width: 16,
+    height: 9,
+    borderRadius: 999,
+    borderWidth: 1.2,
+    borderColor: '#FFE4F1',
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  enemySniperLens: {
+    width: 5,
+    height: 5,
+    borderRadius: 999,
+    backgroundColor: '#FFF0F7',
+  },
+  enemyBossMarker: {
+    marginBottom: 4,
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 4,
+  },
+  enemyBossPip: {
+    width: 5,
+    height: 5,
+    borderRadius: 999,
+    backgroundColor: '#FFF5D2',
+  },
+  enemyBossPipWide: {
+    width: 9,
   },
   playerProjectileShell: {
     position: 'absolute',

@@ -1,4 +1,4 @@
-export type ArenaEnemyKind = 'hover' | 'burst' | 'tank';
+export type ArenaEnemyKind = 'hover' | 'burst' | 'tank' | 'orbiter' | 'sniper' | 'interceptor' | 'prismBoss';
 
 export type ArenaEnemyShape = 'circle' | 'square' | 'diamond';
 
@@ -16,6 +16,8 @@ export type ArenaArmoryUpgradeKey =
   | 'shieldCapacitor'
   | 'hullWeave'
   | 'accelerator';
+
+export type ArenaEncounterType = 'miniBoss' | 'boss';
 
 export type ArenaWeapon = {
   damage: number;
@@ -61,6 +63,15 @@ export type ArenaEnemy = {
   reward: number;
 };
 
+export type ArenaEncounter = {
+  type: ArenaEncounterType;
+  label: string;
+  accentColor: string;
+  anchorKind: ArenaEnemyKind;
+  rewardSalvage: number;
+  startedAtTier: number;
+};
+
 export type ArenaEffect = {
   id: string;
   kind: ArenaEffectKind;
@@ -89,6 +100,7 @@ export type ArenaArmoryChoice = {
   prompt: string;
   cost: number;
   options: ArenaArmoryUpgradeKey[];
+  source: 'standard' | 'boss';
 };
 
 export type ArenaGameState = {
@@ -119,5 +131,10 @@ export type ArenaGameState = {
   nextEffectId: number;
   pickupMessage: string | null;
   pickupTimer: number;
+  activeEncounter: ArenaEncounter | null;
+  lastProcessedDisplayTier: number;
+  encounterAnnouncement: string | null;
+  encounterAnnouncementColor: string | null;
+  encounterAnnouncementTimer: number;
   pendingArmoryChoice: ArenaArmoryChoice | null;
 };

@@ -93,5 +93,25 @@ export function createArenaArmoryChoice(cost: number): ArenaArmoryChoice {
     prompt: 'Spend salvage to harden the run. Pick one permanent upgrade.',
     cost,
     options,
+    source: 'standard',
+  };
+}
+
+export function createArenaBossArmoryChoice(): ArenaArmoryChoice {
+  const pool = [...ALL_ARENA_ARMORY_UPGRADES];
+  const options: ArenaArmoryUpgradeKey[] = [];
+
+  while (pool.length > 0 && options.length < 4) {
+    const pick = randomChoice(pool);
+    options.push(pick);
+    pool.splice(pool.indexOf(pick), 1);
+  }
+
+  return {
+    title: 'Boss Cache',
+    prompt: 'Prism wreckage exposed a clean tech cache. Pick one premium install for free.',
+    cost: 0,
+    options,
+    source: 'boss',
   };
 }
