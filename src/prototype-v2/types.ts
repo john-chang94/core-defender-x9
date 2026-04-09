@@ -117,6 +117,9 @@ export type ArenaGameState = {
   shieldRegenCooldown: number;
   playerFlash: number;
   overclockTimer: number;
+  ultimateCharge: number;
+  ultimateTimer: number;
+  ultimateColumns: number[];
   weapon: ArenaWeapon;
   enemies: ArenaEnemy[];
   drops: ArenaDrop[];

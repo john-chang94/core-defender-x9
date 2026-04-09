@@ -1,18 +1,16 @@
-import { useEffect, useMemo, useRef, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import type { GestureResponderEvent, LayoutChangeEvent } from 'react-native';
 import { Pressable, SafeAreaView, StyleSheet, Text, View, useWindowDimensions } from 'react-native';
 
 import {
-  ARENA_ENEMY_ZONE_RATIO,
   ARENA_FIXED_STEP_SECONDS,
   ARENA_MAX_CATCH_UP_STEPS,
   ARENA_MAX_FRAME_DELTA_SECONDS,
   ARENA_PLAYER_HALF_WIDTH,
-  ARENA_PLAYER_HEIGHT,
   ARENA_PLAYER_MARGIN,
-  ARENA_PLAYER_RENDER_HALF_WIDTH,
 } from './config';
 import {
+  activateArenaUltimate,
   applyArenaArmoryUpgrade,
   createInitialArenaState,
   getArenaActiveEnemyCap,
@@ -20,8 +18,9 @@ import {
   getArenaDisplayTier,
   tickArenaState,
 } from './engine';
+import { ArenaCanvas } from './ArenaCanvas';
 import { ARENA_ARMORY_UPGRADES } from './upgrades';
-import type { ArenaDrop, ArenaEffect, ArenaEnemy, ArenaProjectile } from './types';
+import type { ArenaDrop, ArenaEnemy } from './types';
 
 type AppGameId = 'defender' | 'prototype' | 'prototypeV2';
 
@@ -52,238 +51,41 @@ function formatArenaValue(value: number) {
   return `${Math.max(0, Math.ceil(value))}`;
 }
 
-function getPlayerShipTop(boardHeight: number) {
-  return Math.max(0, boardHeight - ARENA_PLAYER_HEIGHT - 14);
-}
-
-function BackgroundGrid({ width, height }: { width: number; height: number }) {
-  const verticalLines = useMemo(() => {
-    const lineCount = Math.max(6, Math.floor(width / 62));
-    return Array.from({ length: lineCount }, (_, index) => ((index + 1) * width) / (lineCount + 1));
-  }, [width]);
-  const horizontalLines = useMemo(() => {
-    const lineCount = Math.max(5, Math.floor(height / 62));
-    return Array.from({ length: lineCount }, (_, index) => ((index + 1) * height) / (lineCount + 1));
-  }, [height]);
-  const enemyZoneHeight = height * ARENA_ENEMY_ZONE_RATIO;
-
-  return (
-    <View pointerEvents="none" style={arenaStyles.backgroundLayer}>
-      <View style={arenaStyles.bgFill} />
-      <View style={arenaStyles.bgHazeTop} />
-      <View style={arenaStyles.bgHazeBottom} />
-      <View style={[arenaStyles.enemyZoneFill, { height: enemyZoneHeight }]} />
-      <View style={[arenaStyles.enemyZoneLine, { top: enemyZoneHeight }]} />
-      {verticalLines.map((x, index) => (
-        <View key={`arena-grid-v-${index}`} pointerEvents="none" style={[arenaStyles.gridLine, { left: x, top: 0, bottom: 0, width: 1 }]} />
-      ))}
-      {horizontalLines.map((y, index) => (
-        <View key={`arena-grid-h-${index}`} pointerEvents="none" style={[arenaStyles.gridLine, { top: y, left: 0, right: 0, height: 1 }]} />
-      ))}
-    </View>
-  );
-}
-
 function EnemyNode({ enemy }: { enemy: ArenaEnemy }) {
-  const isCircle = enemy.shape === 'circle';
-  const isDiamond = enemy.shape === 'diamond';
-  const isOrbiter = enemy.kind === 'orbiter';
-  const isSniper = enemy.kind === 'sniper';
-  const isElite = enemy.kind === 'interceptor';
   const isBoss = enemy.kind === 'prismBoss';
-  const showAura = isElite || isBoss;
 
   return (
     <View
       pointerEvents="none"
       style={[
-        arenaStyles.enemyBody,
+        arenaStyles.enemyLabelWrap,
         {
-          width: enemy.size,
-          height: enemy.size,
-          left: Math.round(enemy.x - enemy.size / 2),
-          top: Math.round(enemy.y - enemy.size / 2),
-          backgroundColor: enemy.color,
-          borderRadius: isCircle ? enemy.size / 2 : 12,
-          transform: [{ scale: enemy.flash > 0 ? 1.05 : 1 }, ...(isDiamond ? [{ rotate: '45deg' as const }] : [])],
-          borderColor: enemy.windupTimer > 0 ? '#FFF0C7' : isBoss ? '#FFE8BE' : isElite ? '#E5DDFF' : '#0D1726',
-          borderWidth: enemy.windupTimer > 0 ? 2.1 : isBoss ? 2.4 : isElite ? 1.9 : 1.4,
+          width: enemy.size + 24,
+          left: Math.round(enemy.x - enemy.size / 2 - 12),
+          top: Math.round(enemy.y - 11),
         },
       ]}>
-      {showAura ? (
-        <View
-          style={[
-            arenaStyles.enemyAura,
-            isBoss ? arenaStyles.enemyAuraBoss : arenaStyles.enemyAuraElite,
-            {
-              width: enemy.size * (isBoss ? 1.42 : 1.28),
-              height: enemy.size * (isBoss ? 1.42 : 1.28),
-              borderRadius: enemy.size,
-              left: -(enemy.size * (isBoss ? 0.21 : 0.14)),
-              top: -(enemy.size * (isBoss ? 0.21 : 0.14)),
-            },
-          ]}
-        />
-      ) : null}
-      {enemy.windupTimer > 0 ? (
-        <View
-          style={[
-            arenaStyles.enemyWarningRing,
-            {
-              width: enemy.size * 1.32,
-              height: enemy.size * 1.32,
-              borderRadius: enemy.size,
-              left: -(enemy.size * 0.16),
-              top: -(enemy.size * 0.16),
-            },
-          ]}
-        />
-      ) : null}
-      <View style={[arenaStyles.enemyContent, isDiamond && { transform: [{ rotate: '-45deg' }] }]}>
-        {isElite ? (
-          <View style={arenaStyles.enemyEliteMarker}>
-            <View style={arenaStyles.enemyEliteSlash} />
-            <View style={arenaStyles.enemyEliteSlash} />
-          </View>
-        ) : null}
-        {isOrbiter ? (
-          <View style={arenaStyles.enemyOrbiterMarker}>
-            <View style={arenaStyles.enemyOrbiterCore} />
-          </View>
-        ) : null}
-        {isSniper ? (
-          <View style={arenaStyles.enemySniperMarker}>
-            <View style={arenaStyles.enemySniperLens} />
-          </View>
-        ) : null}
-        {isBoss ? (
-          <View style={arenaStyles.enemyBossMarker}>
-            <View style={arenaStyles.enemyBossPip} />
-            <View style={[arenaStyles.enemyBossPip, arenaStyles.enemyBossPipWide]} />
-            <View style={arenaStyles.enemyBossPip} />
-          </View>
-        ) : null}
-        <Text
-          style={[
-            arenaStyles.enemyHealthText,
-            enemy.maxHealth >= 100 && arenaStyles.enemyHealthTextCompact,
-            isBoss && arenaStyles.enemyHealthTextBoss,
-          ]}>
-          {formatArenaValue(enemy.health)}
-        </Text>
-      </View>
-    </View>
-  );
-}
-
-function ProjectileNode({ projectile }: { projectile: ArenaProjectile }) {
-  if (projectile.owner === 'enemy') {
-    return (
-      <View
-        pointerEvents="none"
-        style={[
-          arenaStyles.enemyProjectile,
-          {
-            width: projectile.size,
-            height: projectile.size,
-            left: Math.round(projectile.x - projectile.size / 2),
-            top: Math.round(projectile.y - projectile.size / 2),
-            backgroundColor: projectile.color,
-          },
-        ]}
-      />
-    );
-  }
-
-  const trailHeight = projectile.size * 2.3;
-  return (
-    <View
-      pointerEvents="none"
-        style={[
-          arenaStyles.playerProjectileShell,
-          {
-            left: Math.round(projectile.x - projectile.size / 2),
-            top: Math.round(projectile.y - trailHeight),
-            width: projectile.size,
-            height: trailHeight,
-          },
-        ]}>
-      <View
-        style={[
-          arenaStyles.playerProjectile,
-          {
-            width: projectile.size,
-            height: trailHeight,
-            borderRadius: projectile.size,
-            backgroundColor: projectile.color,
-          },
-        ]}
-      />
+      <Text style={[arenaStyles.enemyHealthText, enemy.maxHealth >= 100 && arenaStyles.enemyHealthTextCompact, isBoss && arenaStyles.enemyHealthTextBoss]}>
+        {formatArenaValue(enemy.health)}
+      </Text>
     </View>
   );
 }
 
 function DropNode({ drop }: { drop: ArenaDrop }) {
-  const pulse = 1 + Math.sin(drop.age * 8) * 0.05;
   return (
     <View
       pointerEvents="none"
       style={[
-        arenaStyles.dropToken,
+        arenaStyles.dropLabelWrap,
         {
-          width: drop.size,
-          height: drop.size,
-          left: Math.round(drop.x - drop.size / 2),
-          top: Math.round(drop.y - drop.size / 2),
-          backgroundColor: drop.color,
-          transform: [{ scale: pulse }, { rotate: `${Math.sin(drop.age * 2.2) * 7}deg` }],
+          width: 84,
+          left: Math.round(drop.x - 42),
+          top: Math.round(drop.y + drop.size * 0.46),
         },
       ]}>
       <Text style={arenaStyles.dropLabel}>{drop.label}</Text>
     </View>
-  );
-}
-
-function EffectNode({ effect }: { effect: ArenaEffect }) {
-  const progress = effect.age / effect.duration;
-  const opacity = 1 - progress;
-  const size = effect.size * (0.68 + progress * 0.62);
-
-  if (effect.kind === 'muzzle') {
-    return (
-      <View
-        pointerEvents="none"
-        style={[
-          arenaStyles.effectMuzzle,
-          {
-            width: effect.size * 0.42,
-            height: effect.size,
-            left: effect.x - effect.size * 0.21,
-            top: effect.y - effect.size,
-            opacity,
-            backgroundColor: effect.color,
-          },
-        ]}
-      />
-    );
-  }
-
-  return (
-    <View
-      pointerEvents="none"
-        style={[
-          effect.kind === 'warning' ? arenaStyles.effectWarning : effect.kind === 'shield' ? arenaStyles.effectShield : arenaStyles.effectBurst,
-          {
-            width: size,
-            height: size,
-            left: Math.round(effect.x - size / 2),
-            top: Math.round(effect.y - size / 2),
-            opacity,
-            borderColor: effect.color,
-            backgroundColor: effect.kind === 'warning' ? 'transparent' : hexToRgba(effect.color, effect.kind === 'shield' ? 0.14 : 0.08),
-          },
-        ]}
-    />
   );
 }
 
@@ -388,6 +190,8 @@ export function ArenaPrototypeScreen({ onSwitchGame }: ArenaPrototypeScreenProps
   const displayTier = getArenaDisplayTier(gameState.elapsed);
   const activeEnemyCap = getArenaActiveEnemyCap(displayTier);
   const activeWeapon = getArenaActiveWeapon(gameState);
+  const ultimateChargeProgress = clamp(gameState.ultimateCharge / 100, 0, 1);
+  const ultimateReady = gameState.ultimateCharge >= 100;
   const activeEncounterAnchor = gameState.activeEncounter
     ? gameState.enemies.find((enemy) => enemy.kind === gameState.activeEncounter?.anchorKind) ?? null
     : null;
@@ -462,16 +266,27 @@ export function ArenaPrototypeScreen({ onSwitchGame }: ArenaPrototypeScreenProps
     });
 
     if (hasStarted && gameState.status === 'running') {
-      setIsPaused(false);
+      requestAnimationFrame(() => {
+        setIsPaused(false);
+      });
     }
   };
-
-  const playerTop = getPlayerShipTop(boardSize.height);
-  const playerStyle = {
-    left: Math.round(gameState.playerX - ARENA_PLAYER_RENDER_HALF_WIDTH),
-    top: Math.round(playerTop),
-  };
   const hullRatio = gameState.hull / gameState.maxHull;
+  const handleActivateUltimate = () => {
+    if (
+      boardSize.width <= 0 ||
+      boardSize.height <= 0 ||
+      !hasStarted ||
+      isPaused ||
+      isArmoryOpen ||
+      isMenuOpen ||
+      gameState.status !== 'running'
+    ) {
+      return;
+    }
+
+    setGameState((previousState) => activateArenaUltimate(previousState, boardSize.width, boardSize.height));
+  };
 
   return (
     <SafeAreaView style={[arenaStyles.container, isPortraitViewport && arenaStyles.containerPortrait]}>
@@ -589,7 +404,7 @@ export function ArenaPrototypeScreen({ onSwitchGame }: ArenaPrototypeScreenProps
           onResponderGrant={handleBoardTouch}
           onResponderMove={handleBoardTouch}
           style={arenaStyles.board}>
-          <BackgroundGrid width={boardSize.width} height={boardSize.height} />
+          <ArenaCanvas boardWidth={boardSize.width} boardHeight={boardSize.height} state={gameState} />
 
           {hasEncounterAnnouncement ? (
             <View pointerEvents="none" style={arenaStyles.boardAnnouncementWrap}>
@@ -616,10 +431,6 @@ export function ArenaPrototypeScreen({ onSwitchGame }: ArenaPrototypeScreenProps
             </View>
           ) : null}
 
-          {gameState.effects.map((effect) => (
-            <EffectNode key={effect.id} effect={effect} />
-          ))}
-
           {gameState.drops.map((drop) => (
             <DropNode key={drop.id} drop={drop} />
           ))}
@@ -628,29 +439,19 @@ export function ArenaPrototypeScreen({ onSwitchGame }: ArenaPrototypeScreenProps
             <EnemyNode key={enemy.id} enemy={enemy} />
           ))}
 
-          {gameState.playerBullets.map((projectile) => (
-            <ProjectileNode key={projectile.id} projectile={projectile} />
-          ))}
-
-          {gameState.enemyBullets.map((projectile) => (
-            <ProjectileNode key={projectile.id} projectile={projectile} />
-          ))}
-
-          <View
-            pointerEvents="none"
+          <Pressable
+            onPress={handleActivateUltimate}
             style={[
-              arenaStyles.playerShell,
-              playerStyle,
-              gameState.playerFlash > 0 && arenaStyles.playerShellHit,
+              arenaStyles.ultimateButton,
+              ultimateReady && arenaStyles.ultimateButtonReady,
+              (isPaused || isArmoryOpen || isMenuOpen || gameState.status !== 'running') && arenaStyles.ultimateButtonDisabled,
             ]}>
-            <View style={arenaStyles.playerCore}>
-              <View style={arenaStyles.playerCockpit} />
-              <View style={arenaStyles.playerWingLeft} />
-              <View style={arenaStyles.playerWingRight} />
+            <View style={arenaStyles.ultimateButtonMeter}>
+              <View style={[arenaStyles.ultimateButtonFill, { width: `${ultimateChargeProgress * 100}%` }]} />
             </View>
-          </View>
-
-          <View pointerEvents="none" style={arenaStyles.bottomGlow} />
+            <Text style={arenaStyles.ultimateButtonLabel}>ULT</Text>
+            <Text style={arenaStyles.ultimateButtonValue}>{ultimateReady ? 'READY' : `${Math.round(gameState.ultimateCharge)}%`}</Text>
+          </Pressable>
         </View>
 
         {isArmoryOpen ? (
@@ -1009,6 +810,10 @@ const arenaStyles = StyleSheet.create({
     textAlign: 'center',
     textTransform: 'uppercase',
   },
+  enemyLabelWrap: {
+    position: 'absolute',
+    alignItems: 'center',
+  },
   enemyBody: {
     position: 'absolute',
     justifyContent: 'center',
@@ -1039,12 +844,25 @@ const arenaStyles = StyleSheet.create({
     color: '#FBFEFF',
     fontSize: 14,
     fontWeight: '900',
+    textAlign: 'center',
+    textShadowColor: 'rgba(5, 11, 20, 0.9)',
+    textShadowOffset: { width: 0, height: 1 },
+    textShadowRadius: 4,
   },
   enemyHealthTextCompact: {
     fontSize: 13,
   },
   enemyHealthTextBoss: {
     fontSize: 15,
+  },
+  dropLabelWrap: {
+    position: 'absolute',
+    alignItems: 'center',
+    justifyContent: 'center',
+    paddingHorizontal: 6,
+    paddingVertical: 2,
+    borderRadius: 8,
+    backgroundColor: 'rgba(8, 19, 30, 0.52)',
   },
   enemyEliteMarker: {
     marginBottom: 2,
@@ -1129,11 +947,14 @@ const arenaStyles = StyleSheet.create({
     paddingHorizontal: 4,
   },
   dropLabel: {
-    color: '#08131D',
-    fontSize: 9,
+    color: '#E9F5FF',
+    fontSize: 10,
     fontWeight: '900',
     textTransform: 'uppercase',
     textAlign: 'center',
+    textShadowColor: 'rgba(4, 10, 18, 0.78)',
+    textShadowOffset: { width: 0, height: 1 },
+    textShadowRadius: 3,
   },
   playerShell: {
     position: 'absolute',
@@ -1366,5 +1187,53 @@ const arenaStyles = StyleSheet.create({
     color: '#BFD0E5',
     fontSize: 13,
     lineHeight: 19,
+  },
+  ultimateButton: {
+    position: 'absolute',
+    right: 14,
+    bottom: 16,
+    width: 72,
+    borderRadius: 14,
+    borderWidth: 1,
+    borderColor: '#385673',
+    backgroundColor: 'rgba(10, 20, 30, 0.9)',
+    paddingHorizontal: 10,
+    paddingVertical: 8,
+    alignItems: 'center',
+    overflow: 'hidden',
+  },
+  ultimateButtonReady: {
+    borderColor: '#FFE2A8',
+    backgroundColor: 'rgba(56, 40, 14, 0.94)',
+  },
+  ultimateButtonDisabled: {
+    opacity: 0.78,
+  },
+  ultimateButtonMeter: {
+    position: 'absolute',
+    left: 0,
+    right: 0,
+    bottom: 0,
+    height: 12,
+    backgroundColor: 'rgba(23, 41, 60, 0.66)',
+  },
+  ultimateButtonFill: {
+    position: 'absolute',
+    left: 0,
+    top: 0,
+    bottom: 0,
+    backgroundColor: 'rgba(255, 192, 96, 0.54)',
+  },
+  ultimateButtonLabel: {
+    color: '#EAF5FF',
+    fontSize: 12,
+    fontWeight: '900',
+    letterSpacing: 0.6,
+  },
+  ultimateButtonValue: {
+    marginTop: 2,
+    color: '#BDD7F6',
+    fontSize: 10,
+    fontWeight: '800',
   },
 });

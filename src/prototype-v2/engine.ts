@@ -31,6 +31,8 @@ import { ARENA_ARMORY_UPGRADES, createArenaArmoryChoice, createArenaBossArmoryCh
 const ARENA_MINI_BOSS_TIER_INTERVAL = 3;
 const ARENA_BOSS_TIER_INTERVAL = 6;
 const ARENA_ANNOUNCEMENT_DURATION_SECONDS = 1.75;
+const ARENA_MAX_ULTIMATE_CHARGE = 100;
+const ARENA_ULTIMATE_DURATION_SECONDS = 1.15;
 
 function clamp(value: number, min: number, max: number) {
   return Math.max(min, Math.min(max, value));
@@ -91,6 +93,32 @@ function queueEncounterAnnouncement(state: ArenaGameState, label: string, accent
   state.encounterAnnouncement = label;
   state.encounterAnnouncementColor = accentColor;
   state.encounterAnnouncementTimer = ARENA_ANNOUNCEMENT_DURATION_SECONDS;
+}
+
+function addUltimateCharge(state: ArenaGameState, amount: number) {
+  state.ultimateCharge = Math.min(ARENA_MAX_ULTIMATE_CHARGE, state.ultimateCharge + amount);
+}
+
+function buildUltimateColumns(enemies: ArenaEnemy[], boardWidth: number) {
+  const fallbackColumns = [0.16, 0.34, 0.5, 0.66, 0.84].map((ratio) => boardWidth * ratio);
+  const priorityColumns = enemies
+    .slice()
+    .sort((left, right) => right.maxHealth - left.maxHealth)
+    .map((enemy) => enemy.x);
+
+  const columns: number[] = [];
+  for (const candidate of [...priorityColumns, ...fallbackColumns]) {
+    const clampedCandidate = clamp(candidate, 26, boardWidth - 26);
+    if (columns.some((existing) => Math.abs(existing - clampedCandidate) < 34)) {
+      continue;
+    }
+    columns.push(clampedCandidate);
+    if (columns.length >= 5) {
+      break;
+    }
+  }
+
+  return columns;
 }
 
 export function getArenaDisplayTier(elapsedSeconds: number) {
@@ -482,6 +510,54 @@ function queueBossRewardChoice(state: ArenaGameState) {
   state.pickupTimer = 1.9;
 }
 
+function applyDamageToEnemy(
+  state: ArenaGameState,
+  enemy: ArenaEnemy,
+  damage: number,
+  options?: {
+    allowDrafts?: boolean;
+    grantCharge?: boolean;
+    effectScale?: number;
+    effectColor?: string;
+  }
+) {
+  if (enemy.health <= 0) {
+    return;
+  }
+
+  enemy.health = Math.max(0, enemy.health - damage);
+  enemy.flash = 1;
+  queueEffect(
+    state,
+    'burst',
+    enemy.x,
+    enemy.y,
+    enemy.size * (options?.effectScale ?? 0.8),
+    options?.effectColor ?? '#FFE5B3'
+  );
+
+  if (options?.grantCharge !== false) {
+    addUltimateCharge(state, Math.min(4.8, damage * 0.05));
+  }
+
+  if (enemy.health > 0) {
+    return;
+  }
+
+  state.score += enemy.reward;
+  state.salvage += Math.max(12, Math.round(enemy.reward / 6));
+  queueEffect(state, 'burst', enemy.x, enemy.y, enemy.size * 1.24, enemy.color);
+  maybeSpawnEnemyDrop(state, enemy);
+
+  if (options?.grantCharge !== false) {
+    addUltimateCharge(state, Math.min(8, Math.max(2, enemy.reward / 95)));
+  }
+
+  if (options?.allowDrafts && !state.activeEncounter) {
+    maybeQueueArmoryChoice(state);
+  }
+}
+
 function applyPlayerDamage(state: ArenaGameState, damage: number, boardHeight: number) {
   let remainingDamage = damage;
   if (state.shield > 0) {
@@ -537,9 +613,9 @@ function createPlayerVolley(state: ArenaGameState, boardHeight: number) {
 function getPlayerHitbox(state: ArenaGameState, boardHeight: number) {
   const top = getPlayerShipTop(boardHeight);
   return {
-    left: state.playerX - 20,
+    left: state.playerX - 18,
     top,
-    right: state.playerX + 20,
+    right: state.playerX + 18,
     bottom: top + ARENA_PLAYER_HEIGHT,
   };
 }
@@ -559,6 +635,9 @@ export function createInitialArenaState(boardWidth: number): ArenaGameState {
     shieldRegenCooldown: 0,
     playerFlash: 0,
     overclockTimer: 0,
+    ultimateCharge: 0,
+    ultimateTimer: 0,
+    ultimateColumns: [],
     weapon: BASE_ARENA_WEAPON,
     enemies: [],
     drops: [],
@@ -582,6 +661,47 @@ export function createInitialArenaState(boardWidth: number): ArenaGameState {
   };
 }
 
+export function activateArenaUltimate(
+  previousState: ArenaGameState,
+  boardWidth: number,
+  boardHeight: number
+): ArenaGameState {
+  if (previousState.status !== 'running' || previousState.ultimateCharge < ARENA_MAX_ULTIMATE_CHARGE) {
+    return previousState;
+  }
+
+  const nextState: ArenaGameState = {
+    ...previousState,
+    shield: Math.min(previousState.maxShield, previousState.shield + 12),
+    enemyBullets: [],
+    ultimateCharge: 0,
+    ultimateTimer: ARENA_ULTIMATE_DURATION_SECONDS,
+    ultimateColumns: buildUltimateColumns(previousState.enemies, boardWidth),
+    pickupMessage: 'Skybreak unleashed',
+    pickupTimer: 1.2,
+    effects: previousState.effects,
+  };
+
+  for (const enemy of nextState.enemies) {
+    const damage =
+      enemy.kind === 'prismBoss'
+        ? enemy.maxHealth * 0.34 + 140
+        : enemy.kind === 'interceptor'
+          ? enemy.maxHealth * 0.52 + 90
+          : enemy.maxHealth * 0.6 + 70;
+    applyDamageToEnemy(nextState, enemy, damage, {
+      allowDrafts: false,
+      grantCharge: false,
+      effectScale: enemy.kind === 'prismBoss' ? 1.85 : 1.4,
+      effectColor: '#FFE7B8',
+    });
+  }
+
+  nextState.enemies = nextState.enemies.filter((enemy) => enemy.health > 0);
+  queueEffect(nextState, 'shield', previousState.playerX, getPlayerShipTop(boardHeight) + ARENA_PLAYER_HEIGHT * 0.35, 92, '#9EEBFF');
+  return nextState;
+}
+
 export function applyArenaArmoryUpgrade(
   previousState: ArenaGameState,
   key: ArenaArmoryUpgradeKey
@@ -589,14 +709,16 @@ export function applyArenaArmoryUpgrade(
   const definition = ARENA_ARMORY_UPGRADES[key];
   const hullBonus = definition.applyMeta?.hullBonus ?? 0;
   const shieldBonus = definition.applyMeta?.shieldBonus ?? 0;
+  const nextWeapon = definition.apply(previousState.weapon);
 
   return {
     ...previousState,
-    weapon: definition.apply(previousState.weapon),
+    weapon: nextWeapon,
     maxHull: previousState.maxHull + hullBonus,
     hull: Math.min(previousState.maxHull + hullBonus, previousState.hull + hullBonus),
     maxShield: previousState.maxShield + shieldBonus,
     shield: Math.min(previousState.maxShield + shieldBonus, previousState.shield + shieldBonus),
+    fireCooldown: Math.min(previousState.fireCooldown, nextWeapon.fireInterval),
     pendingArmoryChoice: null,
     pickupMessage: `${definition.label} installed`,
     pickupTimer: 2,
@@ -618,6 +740,9 @@ export function tickArenaState(
     shieldRegenCooldown: Math.max(0, previousState.shieldRegenCooldown - deltaSeconds),
     playerFlash: Math.max(0, previousState.playerFlash - deltaSeconds * 4.5),
     overclockTimer: Math.max(0, previousState.overclockTimer - deltaSeconds),
+    ultimateCharge: previousState.ultimateCharge,
+    ultimateTimer: Math.max(0, previousState.ultimateTimer - deltaSeconds),
+    ultimateColumns: previousState.ultimateTimer > deltaSeconds ? previousState.ultimateColumns : [],
     encounterAnnouncementTimer: Math.max(0, previousState.encounterAnnouncementTimer - deltaSeconds),
     effects: previousState.effects
       .map((effect) => ({ ...effect, age: effect.age + deltaSeconds }))
@@ -726,13 +851,8 @@ export function tickArenaState(
       nextEnemy.y =
         enemy.kind === 'orbiter'
           ? clamp(nextEnemy.cruiseY + Math.sin(nextEnemy.phase) * config.bobAmplitude, enemy.size / 2 + 10, getEnemyZoneMaxY(boardHeight) - enemy.size / 2 - 10)
-          : enemy.kind === 'prismBoss'
-            ? nextEnemy.cruiseY + Math.sin(nextEnemy.phase) * 4
-            : nextEnemy.cruiseY;
+          : nextEnemy.cruiseY;
     }
-
-    nextEnemy.x = Math.round(nextEnemy.x);
-    nextEnemy.y = Math.round(nextEnemy.y);
 
     if (previousWindup > 0 && nextEnemy.windupTimer <= 0) {
       fireEnemyPattern(nextState, nextEnemy, boardHeight);
@@ -770,19 +890,9 @@ export function tickArenaState(
         continue;
       }
 
-      enemy.health = Math.max(0, enemy.health - activeBullet.damage);
-      enemy.flash = 1;
-      queueEffect(nextState, 'burst', enemy.x, enemy.y, enemy.size * 0.8, '#FFE5B3');
-
-      if (enemy.health <= 0) {
-        nextState.score += enemy.reward;
-        nextState.salvage += Math.max(12, Math.round(enemy.reward / 6));
-        queueEffect(nextState, 'burst', enemy.x, enemy.y, enemy.size * 1.24, enemy.color);
-        maybeSpawnEnemyDrop(nextState, enemy);
-        if (!nextState.activeEncounter) {
-          maybeQueueArmoryChoice(nextState);
-        }
-      }
+      applyDamageToEnemy(nextState, enemy, activeBullet.damage, {
+        allowDrafts: !nextState.activeEncounter,
+      });
 
       if (activeBullet.pierce > 0) {
         activeBullet = { ...activeBullet, pierce: activeBullet.pierce - 1 };
@@ -822,7 +932,7 @@ export function tickArenaState(
     const closestX = clamp(nextBullet.x, playerHitbox.left, playerHitbox.right);
     const closestY = clamp(nextBullet.y, playerHitbox.top, playerHitbox.bottom);
     if (
-      hitTestCircle(nextBullet.x, nextBullet.y, nextBullet.size * 0.56, closestX, closestY, 2)
+      hitTestCircle(nextBullet.x, nextBullet.y, nextBullet.size * 0.42, closestX, closestY, 2)
     ) {
       applyPlayerDamage(nextState, nextBullet.damage, boardHeight);
       if (nextState.status !== 'running') {
@@ -875,6 +985,7 @@ export function tickArenaState(
       const completedEncounter = nextState.activeEncounter;
       nextState.activeEncounter = null;
       nextState.salvage += completedEncounter.rewardSalvage;
+      addUltimateCharge(nextState, completedEncounter.type === 'boss' ? 30 : 16);
       if (completedEncounter.type === 'boss') {
         nextState.enemyBullets = [];
         queueBossRewardChoice(nextState);

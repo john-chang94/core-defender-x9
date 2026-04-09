@@ -94,7 +94,7 @@ export const ARENA_ENEMY_CONFIG: Record<
     bulletSize: 8,
     reward: 140,
     burstCount: 3,
-    spreadAngle: 0.18,
+    spreadAngle: 0.28,
     bobAmplitude: 6,
   },
   tank: {
@@ -126,7 +126,7 @@ export const ARENA_ENEMY_CONFIG: Record<
     bulletSize: 8,
     reward: 165,
     burstCount: 2,
-    spreadAngle: 0.24,
+    spreadAngle: 0.34,
     bobAmplitude: 16,
   },
   sniper: {
@@ -158,7 +158,7 @@ export const ARENA_ENEMY_CONFIG: Record<
     bulletSize: 9,
     reward: 420,
     burstCount: 5,
-    spreadAngle: 0.12,
+    spreadAngle: 0.2,
     bobAmplitude: 4,
   },
   prismBoss: {
@@ -174,7 +174,7 @@ export const ARENA_ENEMY_CONFIG: Record<
     bulletSize: 11,
     reward: 980,
     burstCount: 5,
-    spreadAngle: 0.13,
+    spreadAngle: 0.22,
     bobAmplitude: 0,
   },
 };
