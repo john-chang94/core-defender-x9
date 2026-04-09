@@ -98,7 +98,19 @@ export function ArenaPrototypeScreen({ onSwitchGame }: ArenaPrototypeScreenProps
   const [isPaused, setIsPaused] = useState(true);
   const [isMenuOpen, setIsMenuOpen] = useState(false);
   const hasInitializedBoardRef = useRef(false);
+  const boardRef = useRef<View | null>(null);
+  const boardWindowXRef = useRef(0);
   const isArmoryOpen = gameState.pendingArmoryChoice !== null;
+
+  const measureBoardBounds = () => {
+    requestAnimationFrame(() => {
+      boardRef.current?.measureInWindow((x) => {
+        if (Number.isFinite(x)) {
+          boardWindowXRef.current = x;
+        }
+      });
+    });
+  };
 
   useEffect(() => {
     if (boardSize.width <= 0 || boardSize.height <= 0) {
@@ -175,6 +187,13 @@ export function ArenaPrototypeScreen({ onSwitchGame }: ArenaPrototypeScreenProps
   }, [boardSize.height, boardSize.width, hasStarted, isArmoryOpen, isPaused]);
 
   useEffect(() => {
+    if (boardSize.width <= 0 || boardSize.height <= 0) {
+      return;
+    }
+    measureBoardBounds();
+  }, [boardSize.height, boardSize.width, windowHeight, windowWidth]);
+
+  useEffect(() => {
     if (gameState.status === 'lost') {
       setIsPaused(true);
     }
@@ -190,6 +209,7 @@ export function ArenaPrototypeScreen({ onSwitchGame }: ArenaPrototypeScreenProps
   const displayTier = getArenaDisplayTier(gameState.elapsed);
   const activeEnemyCap = getArenaActiveEnemyCap(displayTier);
   const activeWeapon = getArenaActiveWeapon(gameState);
+  const fireRate = (1 / activeWeapon.fireInterval).toFixed(1);
   const ultimateChargeProgress = clamp(gameState.ultimateCharge / 100, 0, 1);
   const ultimateReady = gameState.ultimateCharge >= 100;
   const activeEncounterAnchor = gameState.activeEncounter
@@ -232,7 +252,7 @@ export function ArenaPrototypeScreen({ onSwitchGame }: ArenaPrototypeScreenProps
       return;
     }
 
-    const localX = event.nativeEvent.locationX;
+    const localX = event.nativeEvent.pageX - boardWindowXRef.current;
     setGameState((previousState) => ({
       ...previousState,
       playerX: clamp(localX, ARENA_PLAYER_HALF_WIDTH + ARENA_PLAYER_MARGIN, boardSize.width - ARENA_PLAYER_HALF_WIDTH - ARENA_PLAYER_MARGIN),
@@ -245,6 +265,7 @@ export function ArenaPrototypeScreen({ onSwitchGame }: ArenaPrototypeScreenProps
     if (nextWidth !== boardSize.width || nextHeight !== boardSize.height) {
       setBoardSize({ width: nextWidth, height: nextHeight });
     }
+    measureBoardBounds();
   };
 
   const handleRestart = () => {
@@ -335,7 +356,7 @@ export function ArenaPrototypeScreen({ onSwitchGame }: ArenaPrototypeScreenProps
         </Pressable>
       </View>
 
-      <View style={arenaStyles.hudRow}>
+      <View style={arenaStyles.topHudRow}>
         <View style={arenaStyles.hudChip}>
           <Text style={arenaStyles.hudLabel}>Score</Text>
           <Text style={arenaStyles.hudValue}>{gameState.score}</Text>
@@ -344,7 +365,10 @@ export function ArenaPrototypeScreen({ onSwitchGame }: ArenaPrototypeScreenProps
           <Text style={arenaStyles.hudLabel}>Pressure</Text>
           <Text style={arenaStyles.hudValue}>T{displayTier}</Text>
         </View>
-        <View style={[arenaStyles.hudChip, arenaStyles.hudMeterChip]}>
+      </View>
+
+      <View style={arenaStyles.meterRow}>
+        <View style={[arenaStyles.hudChip, arenaStyles.hudMeterChip, arenaStyles.meterCard]}>
           <Text style={arenaStyles.hudLabel}>Health</Text>
           <View style={arenaStyles.hudMeter}>
             <View
@@ -359,7 +383,7 @@ export function ArenaPrototypeScreen({ onSwitchGame }: ArenaPrototypeScreenProps
             </Text>
           </View>
         </View>
-        <View style={[arenaStyles.hudChip, arenaStyles.hudMeterChip]}>
+        <View style={[arenaStyles.hudChip, arenaStyles.hudMeterChip, arenaStyles.meterCard]}>
           <Text style={arenaStyles.hudLabel}>Shield</Text>
           <View style={arenaStyles.hudMeter}>
             <View
@@ -374,30 +398,41 @@ export function ArenaPrototypeScreen({ onSwitchGame }: ArenaPrototypeScreenProps
             </Text>
           </View>
         </View>
-      </View>
-
-      <View style={arenaStyles.subHudRow}>
-        <View style={arenaStyles.statCard}>
-          <Text style={arenaStyles.statLabel}>Damage</Text>
-          <Text style={arenaStyles.statValue}>{activeWeapon.damage}</Text>
-        </View>
-        <View style={arenaStyles.statCard}>
-          <Text style={arenaStyles.statLabel}>RoF</Text>
-          <Text style={arenaStyles.statValue}>{(1 / activeWeapon.fireInterval).toFixed(1)}/s</Text>
-        </View>
-        <View style={[arenaStyles.statCard, arenaStyles.salvageCard]}>
-          <Text style={arenaStyles.statLabel}>Salvage</Text>
-          <View style={arenaStyles.salvageMeter}>
-            <View style={[arenaStyles.salvageMeterFill, { width: `${salvageProgress * 100}%` }]} />
-            <Text style={arenaStyles.salvageMeterText}>
+        <View style={[arenaStyles.hudChip, arenaStyles.hudMeterChip, arenaStyles.meterCard]}>
+          <Text style={arenaStyles.hudLabel}>Salvage</Text>
+          <View style={arenaStyles.hudMeter}>
+            <View
+              style={[
+                arenaStyles.hudMeterFill,
+                arenaStyles.hudMeterFillSalvage,
+                { width: `${salvageProgress * 100}%` },
+              ]}
+            />
+            <Text style={arenaStyles.hudMeterText}>
               {gameState.salvage} / {gameState.nextArmoryCost}
             </Text>
           </View>
         </View>
       </View>
 
+      <View style={arenaStyles.statRow}>
+        <View style={arenaStyles.statCard}>
+          <Text style={arenaStyles.statLabel}>Damage</Text>
+          <Text style={arenaStyles.statValue}>{activeWeapon.damage}</Text>
+        </View>
+        <View style={arenaStyles.statCard}>
+          <Text style={arenaStyles.statLabel}>RoF</Text>
+          <Text style={arenaStyles.statValue}>{fireRate}/s</Text>
+        </View>
+        <View style={arenaStyles.statCard}>
+          <Text style={arenaStyles.statLabel}>Speed</Text>
+          <Text style={arenaStyles.statValue}>{Math.round(activeWeapon.bulletSpeed)}</Text>
+        </View>
+      </View>
+
       <View style={arenaStyles.boardFrame}>
         <View
+          ref={boardRef}
           onLayout={handleBoardLayout}
           onStartShouldSetResponder={() => true}
           onMoveShouldSetResponder={() => true}
@@ -543,10 +578,10 @@ const arenaStyles = StyleSheet.create({
     paddingHorizontal: 10,
   },
   topBar: {
-    height: 44,
+    height: 40,
     flexDirection: 'row',
     alignItems: 'center',
-    gap: 8,
+    gap: 6,
   },
   primaryButton: {
     minWidth: 82,
@@ -554,7 +589,7 @@ const arenaStyles = StyleSheet.create({
     borderWidth: 1,
     borderColor: '#3F6683',
     backgroundColor: '#14263A',
-    paddingVertical: 9,
+    paddingVertical: 7,
     alignItems: 'center',
   },
   primaryButtonStart: {
@@ -576,8 +611,8 @@ const arenaStyles = StyleSheet.create({
     borderWidth: 1,
     borderColor: '#24405D',
     backgroundColor: '#0E1A28',
-    paddingHorizontal: 12,
-    paddingVertical: 9,
+    paddingHorizontal: 10,
+    paddingVertical: 7,
   },
   statusPillText: {
     color: '#BFD4F1',
@@ -591,7 +626,7 @@ const arenaStyles = StyleSheet.create({
     borderWidth: 1,
     borderColor: '#2D4E6B',
     backgroundColor: '#112133',
-    paddingVertical: 9,
+    paddingVertical: 7,
     alignItems: 'center',
   },
   quickButtonActive: {
@@ -603,24 +638,35 @@ const arenaStyles = StyleSheet.create({
     fontSize: 12,
     fontWeight: '800',
   },
-  hudRow: {
-    marginTop: 8,
+  topHudRow: {
+    marginTop: 6,
     flexDirection: 'row',
-    flexWrap: 'wrap',
-    gap: 8,
+    gap: 6,
+  },
+  meterRow: {
+    marginTop: 6,
+    flexDirection: 'row',
+    gap: 6,
+  },
+  statRow: {
+    marginTop: 6,
+    flexDirection: 'row',
+    gap: 6,
   },
   hudChip: {
-    flexBasis: '48%',
-    minWidth: '48%',
+    flex: 1,
     borderRadius: 12,
     borderWidth: 1,
     borderColor: '#213A56',
     backgroundColor: '#0D1826',
-    paddingHorizontal: 12,
-    paddingVertical: 9,
+    paddingHorizontal: 10,
+    paddingVertical: 7,
   },
   hudMeterChip: {
-    gap: 5,
+    gap: 4,
+  },
+  meterCard: {
+    minHeight: 50,
   },
   hudLabel: {
     color: '#7B92B0',
@@ -629,7 +675,7 @@ const arenaStyles = StyleSheet.create({
     textTransform: 'uppercase',
   },
   hudValue: {
-    marginTop: 2,
+    marginTop: 1,
     color: '#EDF6FF',
     fontSize: 13,
     fontWeight: '800',
@@ -641,7 +687,7 @@ const arenaStyles = StyleSheet.create({
     color: '#9DEBFF',
   },
   hudMeter: {
-    height: 24,
+    height: 22,
     borderRadius: 9,
     borderWidth: 1,
     borderColor: '#30516F',
@@ -662,9 +708,12 @@ const arenaStyles = StyleSheet.create({
   hudMeterFillShield: {
     backgroundColor: 'rgba(110, 234, 255, 0.34)',
   },
+  hudMeterFillSalvage: {
+    backgroundColor: 'rgba(133, 176, 255, 0.38)',
+  },
   hudMeterText: {
     color: '#E7F0FF',
-    fontSize: 11,
+    fontSize: 10.5,
     fontWeight: '800',
     textAlign: 'center',
   },
@@ -674,20 +723,15 @@ const arenaStyles = StyleSheet.create({
   hudMeterTextShield: {
     color: '#D1F8FF',
   },
-  subHudRow: {
-    marginTop: 6,
-    flexDirection: 'row',
-    gap: 8,
-  },
   statCard: {
     flex: 1,
-    minHeight: 54,
+    minHeight: 44,
     borderRadius: 12,
     borderWidth: 1,
     borderColor: '#24405D',
     backgroundColor: '#0E1A28',
     paddingHorizontal: 10,
-    paddingVertical: 7,
+    paddingVertical: 6,
     alignItems: 'stretch',
     justifyContent: 'center',
   },
@@ -702,38 +746,12 @@ const arenaStyles = StyleSheet.create({
     color: '#BCD4F4',
     fontSize: 12,
     fontWeight: '700',
-    marginTop: 2,
-    textAlign: 'center',
-  },
-  salvageCard: {
-    gap: 5,
-  },
-  salvageMeter: {
-    height: 24,
-    borderRadius: 9,
-    borderWidth: 1,
-    borderColor: '#30516F',
-    backgroundColor: '#12253A',
-    overflow: 'hidden',
-    justifyContent: 'center',
-  },
-  salvageMeterFill: {
-    position: 'absolute',
-    left: 0,
-    top: 0,
-    bottom: 0,
-    borderRadius: 8,
-    backgroundColor: 'rgba(133, 176, 255, 0.38)',
-  },
-  salvageMeterText: {
-    color: '#DCEBFF',
-    fontSize: 11,
-    fontWeight: '800',
+    marginTop: 1,
     textAlign: 'center',
   },
   boardFrame: {
     flex: 1,
-    marginTop: 4,
+    marginTop: 3,
     position: 'relative',
   },
   board: {

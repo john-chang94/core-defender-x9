@@ -18,7 +18,7 @@ export const ARENA_ARMORY_UPGRADES: Record<
 > = {
   damageMatrix: {
     label: 'Damage Matrix',
-    summary: 'Increases raw projectile payload.',
+    summary: '+3 damage per shot.',
     apply: (weapon) => ({
       ...weapon,
       damage: weapon.damage + 3,
@@ -26,7 +26,7 @@ export const ARENA_ARMORY_UPGRADES: Record<
   },
   rapidCycle: {
     label: 'Rapid Cycle',
-    summary: 'Tightens the fire loop for higher output.',
+    summary: 'Cuts fire interval by 12% for faster RoF.',
     apply: (weapon) => ({
       ...weapon,
       fireInterval: Math.max(0.055, weapon.fireInterval * 0.88),
@@ -34,7 +34,7 @@ export const ARENA_ARMORY_UPGRADES: Record<
   },
   twinArray: {
     label: 'Twin Array',
-    summary: 'Adds another barrel to the primary spread.',
+    summary: '+1 primary barrel and a slightly wider spread.',
     apply: (weapon) => ({
       ...weapon,
       shotCount: Math.min(4, weapon.shotCount + 1),
@@ -43,7 +43,7 @@ export const ARENA_ARMORY_UPGRADES: Record<
   },
   phasePierce: {
     label: 'Phase Pierce',
-    summary: 'Rounds continue through more targets.',
+    summary: '+1 pierce. Shots pass through one more target.',
     apply: (weapon) => ({
       ...weapon,
       pierce: Math.min(3, weapon.pierce + 1),
@@ -51,15 +51,15 @@ export const ARENA_ARMORY_UPGRADES: Record<
   },
   shieldCapacitor: {
     label: 'Shield Capacitor',
-    summary: 'Raises shield capacity and stabilizes recovery.',
+    summary: '+16 max shield.',
     apply: (weapon) => weapon,
     applyMeta: {
       shieldBonus: 16,
     },
   },
   hullWeave: {
-    label: 'Hull Weave',
-    summary: 'Adds hull plating for longer survival.',
+    label: 'Reinforced Plating',
+    summary: '+20 max health.',
     apply: (weapon) => weapon,
     applyMeta: {
       hullBonus: 20,
@@ -67,7 +67,7 @@ export const ARENA_ARMORY_UPGRADES: Record<
   },
   accelerator: {
     label: 'Accelerator',
-    summary: 'Faster rounds with slightly larger impact.',
+    summary: '+160 projectile speed and +0.5 shot size.',
     apply: (weapon) => ({
       ...weapon,
       bulletSpeed: Math.min(1500, weapon.bulletSpeed + 160),
