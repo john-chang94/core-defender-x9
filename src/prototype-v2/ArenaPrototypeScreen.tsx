@@ -100,7 +100,6 @@ export function ArenaPrototypeScreen({ onSwitchGame }: ArenaPrototypeScreenProps
   const hasInitializedBoardRef = useRef(false);
   const boardRef = useRef<View | null>(null);
   const boardWindowXRef = useRef(0);
-  const pendingPlayerXRef = useRef<number | null>(null);
   const isArmoryOpen = gameState.pendingArmoryChoice !== null;
 
   const measureBoardBounds = () => {
@@ -158,8 +157,7 @@ export function ArenaPrototypeScreen({ onSwitchGame }: ArenaPrototypeScreenProps
       if (hasStarted && !isPaused && !isArmoryOpen) {
         accumulatedSimulationSeconds += elapsedSeconds;
         const steps = Math.min(ARENA_MAX_CATCH_UP_STEPS, Math.floor(accumulatedSimulationSeconds / ARENA_FIXED_STEP_SECONDS));
-        const pendingPlayerX = pendingPlayerXRef.current;
-        if (steps > 0 || pendingPlayerX !== null) {
+        if (steps > 0) {
           accumulatedSimulationSeconds -= steps * ARENA_FIXED_STEP_SECONDS;
           setGameState((previousState) => {
             if (previousState.status !== 'running') {
@@ -167,12 +165,6 @@ export function ArenaPrototypeScreen({ onSwitchGame }: ArenaPrototypeScreenProps
             }
 
             let nextState = previousState;
-            if (pendingPlayerX !== null && Math.abs(previousState.playerX - pendingPlayerX) > 0.1) {
-              nextState = {
-                ...previousState,
-                playerX: pendingPlayerX,
-              };
-            }
             for (let index = 0; index < steps; index += 1) {
               if (nextState.status !== 'running') {
                 break;
@@ -203,14 +195,12 @@ export function ArenaPrototypeScreen({ onSwitchGame }: ArenaPrototypeScreenProps
 
   useEffect(() => {
     if (gameState.status === 'lost') {
-      pendingPlayerXRef.current = null;
       setIsPaused(true);
     }
   }, [gameState.status]);
 
   useEffect(() => {
     if (isArmoryOpen && hasStarted && gameState.status === 'running') {
-      pendingPlayerXRef.current = null;
       setIsPaused(true);
       setIsMenuOpen(false);
     }
@@ -257,21 +247,22 @@ export function ArenaPrototypeScreen({ onSwitchGame }: ArenaPrototypeScreenProps
       ? 'Boss cache unlocked. Pick one premium install.'
       : `Salvage spent ${gameState.pendingArmoryChoice?.cost}. Next draft ${gameState.nextArmoryCost}.`;
 
-  const queueBoardTouch = (pageX: number) => {
+  const handleBoardTouch = (event: GestureResponderEvent) => {
     if (boardSize.width <= 0 || boardSize.height <= 0 || isMenuOpen || isArmoryOpen || !hasStarted || isPaused || gameState.status !== 'running') {
       return;
     }
 
-    const localX = pageX - boardWindowXRef.current;
-    pendingPlayerXRef.current = clamp(localX, ARENA_PLAYER_HALF_WIDTH + ARENA_PLAYER_MARGIN, boardSize.width - ARENA_PLAYER_HALF_WIDTH - ARENA_PLAYER_MARGIN);
-  };
+    const localX = event.nativeEvent.pageX - boardWindowXRef.current;
+    setGameState((previousState) => {
+      if (previousState.status !== 'running') {
+        return previousState;
+      }
 
-  const handleBoardTouch = (event: GestureResponderEvent) => {
-    queueBoardTouch(event.nativeEvent.pageX);
-  };
-
-  const handleBoardTouchEnd = () => {
-    pendingPlayerXRef.current = null;
+      return {
+        ...previousState,
+        playerX: clamp(localX, ARENA_PLAYER_HALF_WIDTH + ARENA_PLAYER_MARGIN, boardSize.width - ARENA_PLAYER_HALF_WIDTH - ARENA_PLAYER_MARGIN),
+      };
+    });
   };
 
   const handleBoardLayout = (event: LayoutChangeEvent) => {
@@ -287,7 +278,6 @@ export function ArenaPrototypeScreen({ onSwitchGame }: ArenaPrototypeScreenProps
     if (boardSize.width <= 0) {
       return;
     }
-    pendingPlayerXRef.current = null;
     setGameState(createInitialArenaState(boardSize.width));
     setHasStarted(false);
     setIsPaused(true);
@@ -454,8 +444,6 @@ export function ArenaPrototypeScreen({ onSwitchGame }: ArenaPrototypeScreenProps
           onMoveShouldSetResponder={() => true}
           onResponderGrant={handleBoardTouch}
           onResponderMove={handleBoardTouch}
-          onResponderRelease={handleBoardTouchEnd}
-          onResponderTerminate={handleBoardTouchEnd}
           style={arenaStyles.board}>
           <ArenaCanvas boardWidth={boardSize.width} boardHeight={boardSize.height} state={gameState} />
 
