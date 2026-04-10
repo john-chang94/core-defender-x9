@@ -38,6 +38,11 @@ function clamp(value: number, min: number, max: number) {
   return Math.max(min, Math.min(max, value));
 }
 
+function clampWorklet(value: number, min: number, max: number) {
+  'worklet';
+  return Math.max(min, Math.min(max, value));
+}
+
 function hexToRgba(hexColor: string, alpha: number) {
   const normalizedHex = hexColor.replace('#', '');
   if (normalizedHex.length !== 6) {
@@ -256,23 +261,19 @@ export function ArenaPrototypeScreen({ onSwitchGame }: ArenaPrototypeScreenProps
   const panGesture = useMemo(
     () =>
       Gesture.Pan()
+        .enabled(canControlShip)
         .maxPointers(1)
+        .minDistance(0)
         .shouldCancelWhenOutside(false)
         .onBegin((event) => {
-          if (!canControlShip) {
-            return;
-          }
-          playerVisualX.value = clamp(
+          playerVisualX.value = clampWorklet(
             event.x,
             ARENA_PLAYER_HALF_WIDTH + ARENA_PLAYER_MARGIN,
             boardSize.width - ARENA_PLAYER_HALF_WIDTH - ARENA_PLAYER_MARGIN
           );
         })
         .onUpdate((event) => {
-          if (!canControlShip) {
-            return;
-          }
-          playerVisualX.value = clamp(
+          playerVisualX.value = clampWorklet(
             event.x,
             ARENA_PLAYER_HALF_WIDTH + ARENA_PLAYER_MARGIN,
             boardSize.width - ARENA_PLAYER_HALF_WIDTH - ARENA_PLAYER_MARGIN
