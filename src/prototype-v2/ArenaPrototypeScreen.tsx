@@ -98,19 +98,7 @@ export function ArenaPrototypeScreen({ onSwitchGame }: ArenaPrototypeScreenProps
   const [isPaused, setIsPaused] = useState(true);
   const [isMenuOpen, setIsMenuOpen] = useState(false);
   const hasInitializedBoardRef = useRef(false);
-  const boardRef = useRef<View | null>(null);
-  const boardWindowXRef = useRef(0);
   const isArmoryOpen = gameState.pendingArmoryChoice !== null;
-
-  const measureBoardBounds = () => {
-    requestAnimationFrame(() => {
-      boardRef.current?.measureInWindow((x) => {
-        if (Number.isFinite(x)) {
-          boardWindowXRef.current = x;
-        }
-      });
-    });
-  };
 
   useEffect(() => {
     if (boardSize.width <= 0 || boardSize.height <= 0) {
@@ -187,13 +175,6 @@ export function ArenaPrototypeScreen({ onSwitchGame }: ArenaPrototypeScreenProps
   }, [boardSize.height, boardSize.width, hasStarted, isArmoryOpen, isPaused]);
 
   useEffect(() => {
-    if (boardSize.width <= 0 || boardSize.height <= 0) {
-      return;
-    }
-    measureBoardBounds();
-  }, [boardSize.height, boardSize.width, windowHeight, windowWidth]);
-
-  useEffect(() => {
     if (gameState.status === 'lost') {
       setIsPaused(true);
     }
@@ -252,7 +233,7 @@ export function ArenaPrototypeScreen({ onSwitchGame }: ArenaPrototypeScreenProps
       return;
     }
 
-    const localX = event.nativeEvent.pageX - boardWindowXRef.current;
+    const localX = event.nativeEvent.locationX;
     setGameState((previousState) => {
       if (previousState.status !== 'running') {
         return previousState;
@@ -271,7 +252,6 @@ export function ArenaPrototypeScreen({ onSwitchGame }: ArenaPrototypeScreenProps
     if (nextWidth !== boardSize.width || nextHeight !== boardSize.height) {
       setBoardSize({ width: nextWidth, height: nextHeight });
     }
-    measureBoardBounds();
   };
 
   const handleRestart = () => {
@@ -438,7 +418,6 @@ export function ArenaPrototypeScreen({ onSwitchGame }: ArenaPrototypeScreenProps
 
       <View style={arenaStyles.boardFrame}>
         <View
-          ref={boardRef}
           onLayout={handleBoardLayout}
           onStartShouldSetResponder={() => true}
           onMoveShouldSetResponder={() => true}
