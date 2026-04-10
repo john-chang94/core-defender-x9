@@ -1,6 +1,8 @@
-import { useEffect, useRef, useState } from 'react';
-import type { GestureResponderEvent, LayoutChangeEvent } from 'react-native';
+import { useEffect, useMemo, useRef, useState } from 'react';
+import type { LayoutChangeEvent } from 'react-native';
 import { Pressable, SafeAreaView, StyleSheet, Text, View, useWindowDimensions } from 'react-native';
+import { Gesture, GestureDetector } from 'react-native-gesture-handler';
+import { useSharedValue } from 'react-native-reanimated';
 
 import {
   ARENA_FIXED_STEP_SECONDS,
@@ -99,6 +101,7 @@ export function ArenaPrototypeScreen({ onSwitchGame }: ArenaPrototypeScreenProps
   const [isPaused, setIsPaused] = useState(true);
   const [isMenuOpen, setIsMenuOpen] = useState(false);
   const hasInitializedBoardRef = useRef(false);
+  const playerVisualX = useSharedValue(900 / 2);
   const isArmoryOpen = gameState.pendingArmoryChoice !== null;
 
   useEffect(() => {
@@ -108,12 +111,14 @@ export function ArenaPrototypeScreen({ onSwitchGame }: ArenaPrototypeScreenProps
 
     if (!hasInitializedBoardRef.current) {
       hasInitializedBoardRef.current = true;
+      playerVisualX.value = boardSize.width / 2;
       setGameState(createInitialArenaState(boardSize.width));
       setHasStarted(false);
       setIsPaused(true);
       return;
     }
 
+    playerVisualX.value = clamp(playerVisualX.value, ARENA_PLAYER_HALF_WIDTH + ARENA_PLAYER_MARGIN, boardSize.width - ARENA_PLAYER_HALF_WIDTH - ARENA_PLAYER_MARGIN);
     setGameState((previousState) => ({
       ...previousState,
       playerX: clamp(previousState.playerX, ARENA_PLAYER_HALF_WIDTH + ARENA_PLAYER_MARGIN, boardSize.width - ARENA_PLAYER_HALF_WIDTH - ARENA_PLAYER_MARGIN),
@@ -122,7 +127,7 @@ export function ArenaPrototypeScreen({ onSwitchGame }: ArenaPrototypeScreenProps
         x: clamp(enemy.x, enemy.size / 2 + 8, boardSize.width - enemy.size / 2 - 8),
       })),
     }));
-  }, [boardSize.height, boardSize.width]);
+  }, [boardSize.height, boardSize.width, playerVisualX]);
 
   useEffect(() => {
     if (boardSize.width <= 0 || boardSize.height <= 0) {
@@ -146,23 +151,35 @@ export function ArenaPrototypeScreen({ onSwitchGame }: ArenaPrototypeScreenProps
       if (hasStarted && !isPaused && !isArmoryOpen) {
         accumulatedSimulationSeconds += elapsedSeconds;
         const steps = Math.min(ARENA_MAX_CATCH_UP_STEPS, Math.floor(accumulatedSimulationSeconds / ARENA_FIXED_STEP_SECONDS));
-        if (steps > 0) {
-          accumulatedSimulationSeconds -= steps * ARENA_FIXED_STEP_SECONDS;
-          setGameState((previousState) => {
-            if (previousState.status !== 'running') {
-              return previousState;
-            }
+        const livePlayerX = clamp(
+          playerVisualX.value,
+          ARENA_PLAYER_HALF_WIDTH + ARENA_PLAYER_MARGIN,
+          boardSize.width - ARENA_PLAYER_HALF_WIDTH - ARENA_PLAYER_MARGIN
+        );
+        accumulatedSimulationSeconds -= steps * ARENA_FIXED_STEP_SECONDS;
+        setGameState((previousState) => {
+          if (previousState.status !== 'running') {
+            return previousState;
+          }
 
-            let nextState = previousState;
-            for (let index = 0; index < steps; index += 1) {
-              if (nextState.status !== 'running') {
-                break;
-              }
-              nextState = tickArenaState(nextState, ARENA_FIXED_STEP_SECONDS, boardSize.width, boardSize.height);
+          let nextState = previousState;
+          if (Math.abs(previousState.playerX - livePlayerX) > 0.1) {
+            nextState = {
+              ...previousState,
+              playerX: livePlayerX,
+            };
+          }
+          if (steps === 0 && nextState === previousState) {
+            return previousState;
+          }
+          for (let index = 0; index < steps; index += 1) {
+            if (nextState.status !== 'running') {
+              break;
             }
-            return nextState;
-          });
-        }
+            nextState = tickArenaState(nextState, ARENA_FIXED_STEP_SECONDS, boardSize.width, boardSize.height);
+          }
+          return nextState;
+        });
       }
 
       animationFrameId = requestAnimationFrame(frame);
@@ -173,7 +190,7 @@ export function ArenaPrototypeScreen({ onSwitchGame }: ArenaPrototypeScreenProps
     return () => {
       cancelAnimationFrame(animationFrameId);
     };
-  }, [boardSize.height, boardSize.width, hasStarted, isArmoryOpen, isPaused]);
+  }, [boardSize.height, boardSize.width, hasStarted, isArmoryOpen, isPaused, playerVisualX]);
 
   useEffect(() => {
     if (gameState.status === 'lost') {
@@ -229,23 +246,34 @@ export function ArenaPrototypeScreen({ onSwitchGame }: ArenaPrototypeScreenProps
       ? 'Boss cache unlocked. Pick one premium install.'
       : `Salvage spent ${gameState.pendingArmoryChoice?.cost}. Next draft ${gameState.nextArmoryCost}.`;
 
-  const handleBoardTouch = (event: GestureResponderEvent) => {
-    if (boardSize.width <= 0 || boardSize.height <= 0 || isMenuOpen || isArmoryOpen || !hasStarted || isPaused || gameState.status !== 'running') {
-      return;
-    }
-
-    const localX = event.nativeEvent.locationX;
-    setGameState((previousState) => {
-      if (previousState.status !== 'running') {
-        return previousState;
-      }
-
-      return {
-        ...previousState,
-        playerX: clamp(localX, ARENA_PLAYER_HALF_WIDTH + ARENA_PLAYER_MARGIN, boardSize.width - ARENA_PLAYER_HALF_WIDTH - ARENA_PLAYER_MARGIN),
-      };
-    });
-  };
+  const canControlShip = boardSize.width > 0 && boardSize.height > 0 && !isMenuOpen && !isArmoryOpen && hasStarted && !isPaused && gameState.status === 'running';
+  const panGesture = useMemo(
+    () =>
+      Gesture.Pan()
+        .maxPointers(1)
+        .shouldCancelWhenOutside(false)
+        .onBegin((event) => {
+          if (!canControlShip) {
+            return;
+          }
+          playerVisualX.value = clamp(
+            event.x,
+            ARENA_PLAYER_HALF_WIDTH + ARENA_PLAYER_MARGIN,
+            boardSize.width - ARENA_PLAYER_HALF_WIDTH - ARENA_PLAYER_MARGIN
+          );
+        })
+        .onUpdate((event) => {
+          if (!canControlShip) {
+            return;
+          }
+          playerVisualX.value = clamp(
+            event.x,
+            ARENA_PLAYER_HALF_WIDTH + ARENA_PLAYER_MARGIN,
+            boardSize.width - ARENA_PLAYER_HALF_WIDTH - ARENA_PLAYER_MARGIN
+          );
+        }),
+    [boardSize.width, canControlShip, playerVisualX]
+  );
 
   const handleBoardLayout = (event: LayoutChangeEvent) => {
     const nextWidth = Math.round(event.nativeEvent.layout.width);
@@ -259,6 +287,7 @@ export function ArenaPrototypeScreen({ onSwitchGame }: ArenaPrototypeScreenProps
     if (boardSize.width <= 0) {
       return;
     }
+    playerVisualX.value = boardSize.width / 2;
     setGameState(createInitialArenaState(boardSize.width));
     setHasStarted(false);
     setIsPaused(true);
@@ -418,14 +447,12 @@ export function ArenaPrototypeScreen({ onSwitchGame }: ArenaPrototypeScreenProps
       </View>
 
       <View style={arenaStyles.boardFrame}>
-        <View
-          onLayout={handleBoardLayout}
-          onStartShouldSetResponder={() => true}
-          onMoveShouldSetResponder={() => true}
-          onResponderGrant={handleBoardTouch}
-          onResponderMove={handleBoardTouch}
-          style={arenaStyles.board}>
-          <ArenaCanvas boardWidth={boardSize.width} boardHeight={boardSize.height} state={gameState} />
+        <View onLayout={handleBoardLayout} style={arenaStyles.board}>
+          <ArenaCanvas boardWidth={boardSize.width} boardHeight={boardSize.height} state={gameState} playerRenderX={playerVisualX} />
+
+          <GestureDetector gesture={panGesture}>
+            <View style={arenaStyles.gestureLayer} />
+          </GestureDetector>
 
           <View pointerEvents="none" style={arenaStyles.versionBadge}>
             <Text style={arenaStyles.versionBadgeText}>{ARENA_VERSION_LABEL}</Text>
@@ -751,6 +778,9 @@ const arenaStyles = StyleSheet.create({
     borderWidth: 1,
     borderColor: '#223852',
     backgroundColor: '#08131F',
+  },
+  gestureLayer: {
+    ...StyleSheet.absoluteFillObject,
   },
   backgroundLayer: {
     ...StyleSheet.absoluteFillObject,

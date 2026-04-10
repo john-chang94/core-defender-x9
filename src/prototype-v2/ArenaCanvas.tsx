@@ -13,6 +13,7 @@ import {
   type SkImage,
   vec,
 } from '@shopify/react-native-skia';
+import type { SharedValue } from 'react-native-reanimated';
 
 import {
   ARENA_ENEMY_ZONE_RATIO,
@@ -24,6 +25,7 @@ type ArenaCanvasProps = {
   boardWidth: number;
   boardHeight: number;
   state: ArenaGameState;
+  playerRenderX: SharedValue<number>;
 };
 
 const MAX_RENDERED_EFFECTS = 36;
@@ -196,7 +198,7 @@ function PathOrFallback({
   );
 }
 
-export function ArenaCanvas({ boardWidth, boardHeight, state }: ArenaCanvasProps) {
+export function ArenaCanvas({ boardWidth, boardHeight, state, playerRenderX }: ArenaCanvasProps) {
   const verticalGridLines = useMemo(() => {
     const lineCount = Math.max(6, Math.floor(boardWidth / 62));
     return Array.from({ length: lineCount }, (_, index) => ((index + 1) * boardWidth) / (lineCount + 1));
@@ -379,16 +381,18 @@ export function ArenaCanvas({ boardWidth, boardHeight, state }: ArenaCanvasProps
         </Group>
       ))}
 
-      <Group opacity={state.playerFlash > 0 ? 0.82 : 1}>
-        <Circle cx={state.playerX} cy={playerCenterY + 18} r={24} color="rgba(110, 234, 255, 0.08)" />
-        <Line p1={vec(state.playerX - 6, playerCenterY + 24)} p2={vec(state.playerX - 10, playerCenterY + 40)} color="rgba(255, 156, 98, 0.6)" strokeWidth={5} strokeCap="round" />
-        <Line p1={vec(state.playerX + 6, playerCenterY + 24)} p2={vec(state.playerX + 10, playerCenterY + 40)} color="rgba(255, 156, 98, 0.6)" strokeWidth={5} strokeCap="round" />
-        <RoundedRect x={state.playerX - 10} y={playerCenterY - 12} width={20} height={26} r={9} color={state.playerFlash > 0 ? '#FFD6CB' : '#77E9FF'} />
-        <RoundedRect x={state.playerX - 10} y={playerCenterY - 12} width={20} height={26} r={9} style="stroke" strokeWidth={1.4} color="#EAFDFF" />
-        <RoundedRect x={state.playerX - 4} y={playerCenterY - 6} width={8} height={10} r={4} color="#FFF5CC" />
-        <RoundedRect x={state.playerX - 22} y={playerCenterY + 4} width={12} height={6} r={999} color="#2A74B7" />
-        <RoundedRect x={state.playerX + 10} y={playerCenterY + 4} width={12} height={6} r={999} color="#2A74B7" />
-        <Line p1={vec(state.playerX, playerCenterY - 14)} p2={vec(state.playerX, playerCenterY - 30)} color={withAlpha('#B6EFFF', state.overclockTimer > 0 ? 0.74 : 0.24)} strokeWidth={4} strokeCap="round" />
+      <Group
+        opacity={state.playerFlash > 0 ? 0.82 : 1}
+        transform={[{ translateX: playerRenderX as unknown as number }, { translateY: playerCenterY }]}>
+        <Circle cx={0} cy={18} r={24} color="rgba(110, 234, 255, 0.08)" />
+        <Line p1={vec(-6, 24)} p2={vec(-10, 40)} color="rgba(255, 156, 98, 0.6)" strokeWidth={5} strokeCap="round" />
+        <Line p1={vec(6, 24)} p2={vec(10, 40)} color="rgba(255, 156, 98, 0.6)" strokeWidth={5} strokeCap="round" />
+        <RoundedRect x={-10} y={-12} width={20} height={26} r={9} color={state.playerFlash > 0 ? '#FFD6CB' : '#77E9FF'} />
+        <RoundedRect x={-10} y={-12} width={20} height={26} r={9} style="stroke" strokeWidth={1.4} color="#EAFDFF" />
+        <RoundedRect x={-4} y={-6} width={8} height={10} r={4} color="#FFF5CC" />
+        <RoundedRect x={-22} y={4} width={12} height={6} r={999} color="#2A74B7" />
+        <RoundedRect x={10} y={4} width={12} height={6} r={999} color="#2A74B7" />
+        <Line p1={vec(0, -14)} p2={vec(0, -30)} color={withAlpha('#B6EFFF', state.overclockTimer > 0 ? 0.74 : 0.24)} strokeWidth={4} strokeCap="round" />
       </Group>
     </Canvas>
   );
