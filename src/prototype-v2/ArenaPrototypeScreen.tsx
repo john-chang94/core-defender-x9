@@ -2,14 +2,17 @@ import { useEffect, useMemo, useRef, useState } from 'react';
 import type { LayoutChangeEvent } from 'react-native';
 import { Pressable, SafeAreaView, StyleSheet, Text, View, useWindowDimensions } from 'react-native';
 import { Gesture, GestureDetector } from 'react-native-gesture-handler';
-import { useSharedValue } from 'react-native-reanimated';
+import Animated, { useAnimatedStyle, useSharedValue } from 'react-native-reanimated';
 
 import {
   ARENA_FIXED_STEP_SECONDS,
   ARENA_MAX_CATCH_UP_STEPS,
   ARENA_MAX_FRAME_DELTA_SECONDS,
+  ARENA_PLAYER_FLOOR_OFFSET,
   ARENA_PLAYER_HALF_WIDTH,
   ARENA_PLAYER_MARGIN,
+  ARENA_PLAYER_RENDER_HALF_WIDTH,
+  ARENA_PLAYER_HEIGHT,
   ARENA_VERSION_LABEL,
 } from './config';
 import {
@@ -103,6 +106,9 @@ export function ArenaPrototypeScreen({ onSwitchGame }: ArenaPrototypeScreenProps
   const hasInitializedBoardRef = useRef(false);
   const playerVisualX = useSharedValue(900 / 2);
   const isArmoryOpen = gameState.pendingArmoryChoice !== null;
+  const playerShellAnimatedStyle = useAnimatedStyle(() => ({
+    transform: [{ translateX: playerVisualX.value - ARENA_PLAYER_RENDER_HALF_WIDTH }],
+  }));
 
   useEffect(() => {
     if (boardSize.width <= 0 || boardSize.height <= 0) {
@@ -448,11 +454,26 @@ export function ArenaPrototypeScreen({ onSwitchGame }: ArenaPrototypeScreenProps
 
       <View style={arenaStyles.boardFrame}>
         <View onLayout={handleBoardLayout} style={arenaStyles.board}>
-          <ArenaCanvas boardWidth={boardSize.width} boardHeight={boardSize.height} state={gameState} playerRenderX={playerVisualX} />
+          <ArenaCanvas boardWidth={boardSize.width} boardHeight={boardSize.height} state={gameState} />
 
           <GestureDetector gesture={panGesture}>
             <View style={arenaStyles.gestureLayer} />
           </GestureDetector>
+
+          <Animated.View
+            pointerEvents="none"
+            style={[
+              arenaStyles.playerShell,
+              { top: Math.max(0, boardSize.height - ARENA_PLAYER_HEIGHT - ARENA_PLAYER_FLOOR_OFFSET - 6) },
+              playerShellAnimatedStyle,
+              gameState.playerFlash > 0 && arenaStyles.playerShellHit,
+            ]}>
+            <View style={arenaStyles.playerCore}>
+              <View style={arenaStyles.playerCockpit} />
+            </View>
+            <View style={arenaStyles.playerWingLeft} />
+            <View style={arenaStyles.playerWingRight} />
+          </Animated.View>
 
           <View pointerEvents="none" style={arenaStyles.versionBadge}>
             <Text style={arenaStyles.versionBadgeText}>{ARENA_VERSION_LABEL}</Text>

@@ -13,11 +13,9 @@ import {
   type SkImage,
   vec,
 } from '@shopify/react-native-skia';
-import type { SharedValue } from 'react-native-reanimated';
 
 import {
   ARENA_ENEMY_ZONE_RATIO,
-  ARENA_PLAYER_HEIGHT,
 } from './config';
 import type { ArenaEnemy, ArenaGameState } from './types';
 
@@ -25,7 +23,6 @@ type ArenaCanvasProps = {
   boardWidth: number;
   boardHeight: number;
   state: ArenaGameState;
-  playerRenderX: SharedValue<number>;
 };
 
 const MAX_RENDERED_EFFECTS = 36;
@@ -198,7 +195,7 @@ function PathOrFallback({
   );
 }
 
-export function ArenaCanvas({ boardWidth, boardHeight, state, playerRenderX }: ArenaCanvasProps) {
+export function ArenaCanvas({ boardWidth, boardHeight, state }: ArenaCanvasProps) {
   const verticalGridLines = useMemo(() => {
     const lineCount = Math.max(6, Math.floor(boardWidth / 62));
     return Array.from({ length: lineCount }, (_, index) => ((index + 1) * boardWidth) / (lineCount + 1));
@@ -246,8 +243,6 @@ export function ArenaCanvas({ boardWidth, boardHeight, state, playerRenderX }: A
   const sampledEffects = useMemo(() => sampleForRender(state.effects, MAX_RENDERED_EFFECTS), [state.effects]);
   const sampledPlayerBullets = useMemo(() => sampleForRender(state.playerBullets, MAX_RENDERED_PLAYER_BULLETS), [state.playerBullets]);
   const sampledEnemyBullets = useMemo(() => sampleForRender(state.enemyBullets, MAX_RENDERED_ENEMY_BULLETS), [state.enemyBullets]);
-  const playerTop = Math.max(0, boardHeight - ARENA_PLAYER_HEIGHT - 14);
-  const playerCenterY = playerTop + 18;
   const ultimateProgress = state.ultimateTimer > 0 ? state.ultimateTimer / 1.15 : 0;
 
   return (
@@ -381,19 +376,6 @@ export function ArenaCanvas({ boardWidth, boardHeight, state, playerRenderX }: A
         </Group>
       ))}
 
-      <Group
-        opacity={state.playerFlash > 0 ? 0.82 : 1}
-        transform={[{ translateX: playerRenderX as unknown as number }, { translateY: playerCenterY }]}>
-        <Circle cx={0} cy={18} r={24} color="rgba(110, 234, 255, 0.08)" />
-        <Line p1={vec(-6, 24)} p2={vec(-10, 40)} color="rgba(255, 156, 98, 0.6)" strokeWidth={5} strokeCap="round" />
-        <Line p1={vec(6, 24)} p2={vec(10, 40)} color="rgba(255, 156, 98, 0.6)" strokeWidth={5} strokeCap="round" />
-        <RoundedRect x={-10} y={-12} width={20} height={26} r={9} color={state.playerFlash > 0 ? '#FFD6CB' : '#77E9FF'} />
-        <RoundedRect x={-10} y={-12} width={20} height={26} r={9} style="stroke" strokeWidth={1.4} color="#EAFDFF" />
-        <RoundedRect x={-4} y={-6} width={8} height={10} r={4} color="#FFF5CC" />
-        <RoundedRect x={-22} y={4} width={12} height={6} r={999} color="#2A74B7" />
-        <RoundedRect x={10} y={4} width={12} height={6} r={999} color="#2A74B7" />
-        <Line p1={vec(0, -14)} p2={vec(0, -30)} color={withAlpha('#B6EFFF', state.overclockTimer > 0 ? 0.74 : 0.24)} strokeWidth={4} strokeCap="round" />
-      </Group>
     </Canvas>
   );
 }
