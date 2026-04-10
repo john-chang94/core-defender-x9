@@ -21,12 +21,14 @@ import {
   createInitialArenaState,
   getArenaActiveEnemyCap,
   getArenaActiveWeapon,
+  setArenaBuild,
   getArenaDisplayTier,
   tickArenaState,
 } from './engine';
 import { ArenaCanvas } from './ArenaCanvas';
+import { ARENA_BUILD_META, ARENA_BUILD_ORDER } from './builds';
 import { ARENA_ARMORY_UPGRADES } from './upgrades';
-import type { ArenaDrop, ArenaEnemy } from './types';
+import type { ArenaBuildId, ArenaDrop, ArenaEnemy } from './types';
 
 type AppGameId = 'defender' | 'prototype' | 'prototypeV2';
 
@@ -72,8 +74,8 @@ function EnemyNode({ enemy }: { enemy: ArenaEnemy }) {
         arenaStyles.enemyLabelWrap,
         {
           width: enemy.size + 24,
-          left: Math.round(enemy.x - enemy.size / 2 - 12),
-          top: Math.round(enemy.y - 11),
+          left: enemy.x - enemy.size / 2 - 12,
+          top: enemy.y - 11,
         },
       ]}>
       <Text style={[arenaStyles.enemyHealthText, enemy.maxHealth >= 100 && arenaStyles.enemyHealthTextCompact, isBoss && arenaStyles.enemyHealthTextBoss]}>
@@ -91,8 +93,8 @@ function DropNode({ drop }: { drop: ArenaDrop }) {
         arenaStyles.dropLabelWrap,
         {
           width: 84,
-          left: Math.round(drop.x - 42),
-          top: Math.round(drop.y + drop.size * 0.46),
+          left: drop.x - 42,
+          top: drop.y + drop.size * 0.46,
         },
       ]}>
       <Text style={arenaStyles.dropLabel}>{drop.label}</Text>
@@ -148,6 +150,7 @@ export function ArenaPrototypeScreen({ onSwitchGame }: ArenaPrototypeScreenProps
     let animationFrameId = 0;
     let lastFrameTimeMs = 0;
     let accumulatedSimulationSeconds = 0;
+    const maxSubstepsPerFrame = ARENA_MAX_CATCH_UP_STEPS * 2;
 
     const frame = (timeMs: number) => {
       if (lastFrameTimeMs === 0) {
@@ -159,15 +162,22 @@ export function ArenaPrototypeScreen({ onSwitchGame }: ArenaPrototypeScreenProps
       const elapsedSeconds = Math.min((timeMs - lastFrameTimeMs) / 1000, ARENA_MAX_FRAME_DELTA_SECONDS);
       lastFrameTimeMs = timeMs;
 
-      if (hasStarted && !isPaused && !isArmoryOpen) {
+      if (hasStarted && !isPaused && !isArmoryOpen && !isMenuOpen) {
         accumulatedSimulationSeconds += elapsedSeconds;
-        const steps = Math.min(ARENA_MAX_CATCH_UP_STEPS, Math.floor(accumulatedSimulationSeconds / ARENA_FIXED_STEP_SECONDS));
+        const stepDurations: number[] = [];
+        let remainingStepSeconds = accumulatedSimulationSeconds;
+        while (remainingStepSeconds > 0.0001 && stepDurations.length < maxSubstepsPerFrame) {
+          const stepSeconds = Math.min(ARENA_FIXED_STEP_SECONDS, remainingStepSeconds);
+          stepDurations.push(stepSeconds);
+          remainingStepSeconds -= stepSeconds;
+        }
+        accumulatedSimulationSeconds =
+          stepDurations.length >= maxSubstepsPerFrame ? 0 : Math.max(0, remainingStepSeconds);
         const livePlayerX = clamp(
           playerVisualX.value,
           ARENA_PLAYER_HALF_WIDTH + ARENA_PLAYER_MARGIN,
           boardSize.width - ARENA_PLAYER_HALF_WIDTH - ARENA_PLAYER_MARGIN
         );
-        accumulatedSimulationSeconds -= steps * ARENA_FIXED_STEP_SECONDS;
         setGameState((previousState) => {
           if (previousState.status !== 'running') {
             return previousState;
@@ -180,14 +190,14 @@ export function ArenaPrototypeScreen({ onSwitchGame }: ArenaPrototypeScreenProps
               playerX: livePlayerX,
             };
           }
-          if (steps === 0 && nextState === previousState) {
+          if (stepDurations.length === 0 && nextState === previousState) {
             return previousState;
           }
-          for (let index = 0; index < steps; index += 1) {
+          for (let index = 0; index < stepDurations.length; index += 1) {
             if (nextState.status !== 'running') {
               break;
             }
-            nextState = tickArenaState(nextState, ARENA_FIXED_STEP_SECONDS, boardSize.width, boardSize.height);
+            nextState = tickArenaState(nextState, stepDurations[index], boardSize.width, boardSize.height);
           }
           return nextState;
         });
@@ -201,7 +211,7 @@ export function ArenaPrototypeScreen({ onSwitchGame }: ArenaPrototypeScreenProps
     return () => {
       cancelAnimationFrame(animationFrameId);
     };
-  }, [boardSize.height, boardSize.width, hasStarted, isArmoryOpen, isPaused, playerVisualX]);
+  }, [boardSize.height, boardSize.width, hasStarted, isArmoryOpen, isMenuOpen, isPaused, playerVisualX]);
 
   useEffect(() => {
     if (gameState.status === 'lost') {
@@ -219,6 +229,7 @@ export function ArenaPrototypeScreen({ onSwitchGame }: ArenaPrototypeScreenProps
   const displayTier = getArenaDisplayTier(gameState.elapsed);
   const activeEnemyCap = getArenaActiveEnemyCap(displayTier);
   const activeWeapon = getArenaActiveWeapon(gameState);
+  const activeBuildMeta = ARENA_BUILD_META[gameState.activeBuild];
   const fireRate = (1 / activeWeapon.fireInterval).toFixed(1);
   const ultimateChargeProgress = clamp(gameState.ultimateCharge / 100, 0, 1);
   const ultimateReady = gameState.ultimateCharge >= 100;
@@ -240,6 +251,8 @@ export function ArenaPrototypeScreen({ onSwitchGame }: ArenaPrototypeScreenProps
       ? 'Press Start to deploy the arena test.'
       : isArmoryOpen
         ? 'Armory draft ready.'
+      : isMenuOpen
+        ? 'Menu open. Simulation paused.'
       : gameState.status === 'lost'
         ? 'Health depleted. Restart to run again.'
         : isPaused
@@ -250,8 +263,8 @@ export function ArenaPrototypeScreen({ onSwitchGame }: ArenaPrototypeScreenProps
               : gameState.activeEncounter
                 ? `${gameState.activeEncounter.label} active`
                 : gameState.overclockTimer > 0
-                  ? `Overclock ${gameState.overclockTimer.toFixed(1)}s. Threat ${gameState.enemies.length}/${activeEnemyCap}`
-                  : `Enemies hold the upper half. Threat ${gameState.enemies.length}/${activeEnemyCap}`);
+                  ? `${activeBuildMeta.shortLabel} Overclock ${gameState.overclockTimer.toFixed(1)}s. Threat ${gameState.enemies.length}/${activeEnemyCap}`
+                  : `${activeBuildMeta.shortLabel} Build online. Threat ${gameState.enemies.length}/${activeEnemyCap}`);
   const armorySubtitle =
     gameState.pendingArmoryChoice?.source === 'boss'
       ? 'Boss cache unlocked. Pick one premium install.'
@@ -294,11 +307,16 @@ export function ArenaPrototypeScreen({ onSwitchGame }: ArenaPrototypeScreenProps
     if (boardSize.width <= 0) {
       return;
     }
+    const nextState = createInitialArenaState(boardSize.width);
     playerVisualX.value = boardSize.width / 2;
-    setGameState(createInitialArenaState(boardSize.width));
+    setGameState(setArenaBuild(nextState, gameState.activeBuild));
     setHasStarted(false);
     setIsPaused(true);
     setIsMenuOpen(false);
+  };
+
+  const handleSelectBuild = (buildId: ArenaBuildId) => {
+    setGameState((previousState) => setArenaBuild(previousState, buildId));
   };
 
   const handleSelectArmoryUpgrade = (key: keyof typeof ARENA_ARMORY_UPGRADES) => {
@@ -388,6 +406,12 @@ export function ArenaPrototypeScreen({ onSwitchGame }: ArenaPrototypeScreenProps
           <Text style={arenaStyles.hudLabel}>Pressure</Text>
           <Text style={arenaStyles.hudValue}>T{displayTier}</Text>
         </View>
+        <View style={arenaStyles.hudChip}>
+          <Text style={arenaStyles.hudLabel}>Build</Text>
+          <Text style={[arenaStyles.hudValue, { color: activeBuildMeta.accent }]}>
+            {activeBuildMeta.shortLabel}
+          </Text>
+        </View>
       </View>
 
       <View style={arenaStyles.meterRow}>
@@ -469,11 +493,16 @@ export function ArenaPrototypeScreen({ onSwitchGame }: ArenaPrototypeScreenProps
               playerShellAnimatedStyle,
               gameState.playerFlash > 0 && arenaStyles.playerShellHit,
             ]}>
-            <View style={arenaStyles.playerCore}>
-              <View style={arenaStyles.playerCockpit} />
+            <View style={arenaStyles.playerThrusterGlow} />
+            <View style={arenaStyles.playerWingBaseLeft} />
+            <View style={arenaStyles.playerWingBaseRight} />
+            <View style={arenaStyles.playerFuselage}>
+              <View style={arenaStyles.playerCanopy} />
+              <View style={arenaStyles.playerSpine} />
             </View>
-            <View style={arenaStyles.playerWingLeft} />
-            <View style={arenaStyles.playerWingRight} />
+            <View style={arenaStyles.playerNose} />
+            <View style={arenaStyles.playerEngineLeft} />
+            <View style={arenaStyles.playerEngineRight} />
           </Animated.View>
 
           <View pointerEvents="none" style={arenaStyles.versionBadge}>
@@ -570,10 +599,44 @@ export function ArenaPrototypeScreen({ onSwitchGame }: ArenaPrototypeScreenProps
               </Pressable>
             </View>
 
-            <Text style={arenaStyles.menuLabel}>Notes</Text>
-            <Text style={arenaStyles.menuHint}>
-              Enemies stay in the upper half, shoot back, and the run ends when health reaches zero. Kills now generate salvage and can drop tactical pickups.
-            </Text>
+            <Text style={arenaStyles.menuLabel}>Build</Text>
+            <View style={arenaStyles.menuBuildGrid}>
+              {ARENA_BUILD_ORDER.map((buildId) => {
+                const buildMeta = ARENA_BUILD_META[buildId];
+                const isActive = gameState.activeBuild === buildId;
+                return (
+                  <Pressable
+                    key={`build-${buildId}`}
+                    onPress={() => handleSelectBuild(buildId)}
+                    style={[arenaStyles.menuBuildButton, isActive && arenaStyles.menuBuildButtonActive]}>
+                    <Text style={[arenaStyles.menuBuildTitle, isActive && { color: buildMeta.accent }]}>
+                      {buildMeta.label}
+                    </Text>
+                    <Text numberOfLines={2} style={arenaStyles.menuBuildText}>
+                      {buildMeta.summary}
+                    </Text>
+                  </Pressable>
+                );
+              })}
+            </View>
+
+            <Text style={arenaStyles.menuLabel}>Build Details</Text>
+            <View style={arenaStyles.menuBuildDetails}>
+              {ARENA_BUILD_ORDER.map((buildId) => {
+                const buildMeta = ARENA_BUILD_META[buildId];
+                return (
+                  <View key={`build-details-${buildId}`} style={arenaStyles.menuBuildDetailsCard}>
+                    <Text style={[arenaStyles.menuBuildDetailsTitle, { color: buildMeta.accent }]}>
+                      {buildMeta.label}
+                    </Text>
+                    <Text style={arenaStyles.menuBuildDetailsText}>{buildMeta.description}</Text>
+                    <Text style={arenaStyles.menuBuildDetailsText}>
+                      Ultimate: {buildMeta.ultimateLabel}. {buildMeta.ultimateDescription}
+                    </Text>
+                  </View>
+                );
+              })}
+            </View>
 
             <View style={arenaStyles.menuActions}>
               <Pressable onPress={handleRestart} style={[arenaStyles.menuActionButton, arenaStyles.menuActionPrimary]}>
@@ -611,13 +674,13 @@ const arenaStyles = StyleSheet.create({
     flex: 1,
     backgroundColor: '#07111A',
     paddingHorizontal: 12,
-    paddingBottom: 10,
+    paddingBottom: 8,
   },
   containerPortrait: {
     paddingHorizontal: 10,
   },
   topBar: {
-    height: 40,
+    height: 36,
     flexDirection: 'row',
     alignItems: 'center',
     gap: 6,
@@ -628,7 +691,7 @@ const arenaStyles = StyleSheet.create({
     borderWidth: 1,
     borderColor: '#3F6683',
     backgroundColor: '#14263A',
-    paddingVertical: 7,
+    paddingVertical: 5,
     alignItems: 'center',
   },
   primaryButtonStart: {
@@ -651,7 +714,7 @@ const arenaStyles = StyleSheet.create({
     borderColor: '#24405D',
     backgroundColor: '#0E1A28',
     paddingHorizontal: 10,
-    paddingVertical: 7,
+    paddingVertical: 5,
   },
   statusPillText: {
     color: '#BFD4F1',
@@ -665,7 +728,7 @@ const arenaStyles = StyleSheet.create({
     borderWidth: 1,
     borderColor: '#2D4E6B',
     backgroundColor: '#112133',
-    paddingVertical: 7,
+    paddingVertical: 5,
     alignItems: 'center',
   },
   quickButtonActive: {
@@ -678,17 +741,17 @@ const arenaStyles = StyleSheet.create({
     fontWeight: '800',
   },
   topHudRow: {
-    marginTop: 6,
+    marginTop: 2,
     flexDirection: 'row',
     gap: 6,
   },
   meterRow: {
-    marginTop: 6,
+    marginTop: 4,
     flexDirection: 'row',
     gap: 6,
   },
   statRow: {
-    marginTop: 6,
+    marginTop: 4,
     flexDirection: 'row',
     gap: 6,
   },
@@ -699,13 +762,13 @@ const arenaStyles = StyleSheet.create({
     borderColor: '#213A56',
     backgroundColor: '#0D1826',
     paddingHorizontal: 10,
-    paddingVertical: 7,
+    paddingVertical: 5,
   },
   hudMeterChip: {
     gap: 4,
   },
   meterCard: {
-    minHeight: 50,
+    minHeight: 44,
   },
   hudLabel: {
     color: '#7B92B0',
@@ -726,7 +789,7 @@ const arenaStyles = StyleSheet.create({
     color: '#9DEBFF',
   },
   hudMeter: {
-    height: 22,
+    height: 20,
     borderRadius: 9,
     borderWidth: 1,
     borderColor: '#30516F',
@@ -764,13 +827,13 @@ const arenaStyles = StyleSheet.create({
   },
   statCard: {
     flex: 1,
-    minHeight: 44,
+    minHeight: 40,
     borderRadius: 12,
     borderWidth: 1,
     borderColor: '#24405D',
     backgroundColor: '#0E1A28',
     paddingHorizontal: 10,
-    paddingVertical: 6,
+    paddingVertical: 4,
     alignItems: 'stretch',
     justifyContent: 'center',
   },
@@ -790,7 +853,7 @@ const arenaStyles = StyleSheet.create({
   },
   boardFrame: {
     flex: 1,
-    marginTop: 3,
+    marginTop: 8,
     position: 'relative',
   },
   board: {
@@ -1036,46 +1099,96 @@ const arenaStyles = StyleSheet.create({
   },
   playerShell: {
     position: 'absolute',
-    width: 56,
-    height: 40,
+    width: 60,
+    height: 42,
     alignItems: 'center',
   },
   playerShellHit: {
     opacity: 0.82,
   },
-  playerCore: {
-    width: 22,
-    height: 28,
+  playerThrusterGlow: {
+    position: 'absolute',
+    bottom: 1,
+    width: 42,
+    height: 12,
+    borderRadius: 999,
+    backgroundColor: 'rgba(110, 231, 255, 0.2)',
+  },
+  playerFuselage: {
+    width: 20,
+    height: 27,
     borderRadius: 10,
-    backgroundColor: '#77E9FF',
-    borderWidth: 1.5,
-    borderColor: '#EAFDFF',
+    backgroundColor: '#5BDDF9',
+    borderWidth: 1.4,
+    borderColor: '#E9FCFF',
     alignItems: 'center',
+    justifyContent: 'flex-start',
   },
-  playerCockpit: {
-    marginTop: 5,
-    width: 8,
-    height: 10,
-    borderRadius: 5,
-    backgroundColor: '#FFF5CC',
+  playerCanopy: {
+    marginTop: 4,
+    width: 9,
+    height: 11,
+    borderRadius: 6,
+    backgroundColor: '#FFF0CA',
+    borderWidth: 1,
+    borderColor: '#FFF9EA',
   },
-  playerWingLeft: {
+  playerSpine: {
+    marginTop: 2,
+    width: 4,
+    height: 8,
+    borderRadius: 3,
+    backgroundColor: '#218EC0',
+  },
+  playerNose: {
     position: 'absolute',
-    left: -12,
-    top: 16,
-    width: 12,
-    height: 6,
-    borderRadius: 999,
-    backgroundColor: '#2A74B7',
+    top: -3,
+    width: 0,
+    height: 0,
+    borderLeftWidth: 6,
+    borderRightWidth: 6,
+    borderBottomWidth: 10,
+    borderLeftColor: 'transparent',
+    borderRightColor: 'transparent',
+    borderBottomColor: '#FFE7B0',
   },
-  playerWingRight: {
+  playerWingBaseLeft: {
     position: 'absolute',
-    right: -12,
+    left: 3,
     top: 16,
-    width: 12,
-    height: 6,
-    borderRadius: 999,
-    backgroundColor: '#2A74B7',
+    width: 15,
+    height: 8,
+    borderRadius: 6,
+    backgroundColor: '#2D79BD',
+    transform: [{ rotate: '-14deg' }],
+  },
+  playerWingBaseRight: {
+    position: 'absolute',
+    right: 3,
+    top: 16,
+    width: 15,
+    height: 8,
+    borderRadius: 6,
+    backgroundColor: '#2D79BD',
+    transform: [{ rotate: '14deg' }],
+  },
+  playerEngineLeft: {
+    position: 'absolute',
+    left: 20,
+    bottom: 2,
+    width: 5,
+    height: 8,
+    borderRadius: 4,
+    backgroundColor: '#FFDCA1',
+  },
+  playerEngineRight: {
+    position: 'absolute',
+    right: 20,
+    bottom: 2,
+    width: 5,
+    height: 8,
+    borderRadius: 4,
+    backgroundColor: '#FFDCA1',
   },
   effectMuzzle: {
     position: 'absolute',
@@ -1191,6 +1304,35 @@ const arenaStyles = StyleSheet.create({
     flexDirection: 'row',
     gap: 8,
   },
+  menuBuildGrid: {
+    flexDirection: 'row',
+    flexWrap: 'wrap',
+    gap: 8,
+  },
+  menuBuildButton: {
+    width: '48%',
+    borderRadius: 10,
+    borderWidth: 1,
+    borderColor: '#355471',
+    backgroundColor: '#122132',
+    paddingHorizontal: 10,
+    paddingVertical: 8,
+    gap: 4,
+  },
+  menuBuildButtonActive: {
+    borderColor: '#8BC5FF',
+    backgroundColor: '#163049',
+  },
+  menuBuildTitle: {
+    color: '#EAF4FF',
+    fontSize: 12,
+    fontWeight: '800',
+  },
+  menuBuildText: {
+    color: '#9EB9D8',
+    fontSize: 10.5,
+    lineHeight: 14,
+  },
   menuButton: {
     flex: 1,
     borderRadius: 8,
@@ -1209,10 +1351,26 @@ const arenaStyles = StyleSheet.create({
     fontSize: 12,
     fontWeight: '700',
   },
-  menuHint: {
-    color: '#A9BEDA',
+  menuBuildDetails: {
+    gap: 8,
+  },
+  menuBuildDetailsCard: {
+    borderRadius: 10,
+    borderWidth: 1,
+    borderColor: '#304A66',
+    backgroundColor: '#0E1D2D',
+    paddingHorizontal: 10,
+    paddingVertical: 8,
+    gap: 3,
+  },
+  menuBuildDetailsTitle: {
     fontSize: 12,
-    lineHeight: 18,
+    fontWeight: '800',
+  },
+  menuBuildDetailsText: {
+    color: '#A9BEDA',
+    fontSize: 11.5,
+    lineHeight: 16,
   },
   menuActions: {
     flexDirection: 'row',

@@ -1,10 +1,29 @@
-export type ArenaEnemyKind = 'hover' | 'burst' | 'tank' | 'orbiter' | 'sniper' | 'interceptor' | 'prismBoss';
+export type ArenaEnemyKind =
+  | 'hover'
+  | 'burst'
+  | 'tank'
+  | 'orbiter'
+  | 'sniper'
+  | 'bomber'
+  | 'interceptor'
+  | 'prismBoss';
 
 export type ArenaEnemyShape = 'circle' | 'square' | 'diamond';
 
 export type ArenaProjectileOwner = 'player' | 'enemy';
+export type ArenaProjectileKind = 'primary' | 'missile' | 'shard' | 'enemy';
+export type ArenaBuildId = 'railFocus' | 'novaBloom' | 'missileCommand' | 'fractureCore';
 
-export type ArenaEffectKind = 'muzzle' | 'burst' | 'warning' | 'shield' | 'pickup';
+export type ArenaEffectKind =
+  | 'muzzle'
+  | 'burst'
+  | 'warning'
+  | 'shield'
+  | 'pickup'
+  | 'ultimateRail'
+  | 'ultimateNova'
+  | 'ultimateMissile'
+  | 'ultimateFracture';
 
 export type ArenaDropType = 'hullPatch' | 'shieldCell' | 'overclock' | 'salvageBurst';
 
@@ -32,10 +51,12 @@ export type ArenaWeapon = {
 export type ArenaProjectile = {
   id: string;
   owner: ArenaProjectileOwner;
+  kind: ArenaProjectileKind;
   x: number;
   y: number;
   vx: number;
   vy: number;
+  homing?: number;
   damage: number;
   size: number;
   color: string;
@@ -51,6 +72,7 @@ export type ArenaEnemy = {
   x: number;
   y: number;
   vx: number;
+  aimAngle: number;
   cruiseY: number;
   size: number;
   health: number;
@@ -58,6 +80,8 @@ export type ArenaEnemy = {
   attackCooldown: number;
   windupTimer: number;
   flash: number;
+  burnTimer: number;
+  burnDps: number;
   phase: number;
   color: string;
   reward: number;
@@ -109,6 +133,7 @@ export type ArenaGameState = {
   score: number;
   salvage: number;
   nextArmoryCost: number;
+  activeBuild: ArenaBuildId;
   playerX: number;
   hull: number;
   maxHull: number;
@@ -119,6 +144,7 @@ export type ArenaGameState = {
   overclockTimer: number;
   ultimateCharge: number;
   ultimateTimer: number;
+  ultimateBuild: ArenaBuildId | null;
   ultimateColumns: number[];
   weapon: ArenaWeapon;
   enemies: ArenaEnemy[];
@@ -127,6 +153,7 @@ export type ArenaGameState = {
   enemyBullets: ArenaProjectile[];
   effects: ArenaEffect[];
   fireCooldown: number;
+  missileCooldown: number;
   enemySpawnCooldown: number;
   nextBulletId: number;
   nextEnemyId: number;

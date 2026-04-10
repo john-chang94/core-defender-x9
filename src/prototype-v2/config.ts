@@ -15,7 +15,7 @@ export const ARENA_MIN_ENEMY_CRUISE_Y_RATIO = 0.15;
 export const ARENA_MAX_ENEMY_CRUISE_Y_RATIO = 0.41;
 export const ARENA_SHIELD_REGEN_DELAY_SECONDS = 2.2;
 export const ARENA_SHIELD_REGEN_PER_SECOND = 11;
-export const ARENA_VERSION_LABEL = 'v0.13';
+export const ARENA_VERSION_LABEL = 'v0.18';
 
 export const BASE_ARENA_WEAPON: ArenaWeapon = {
   damage: 12,
@@ -33,6 +33,7 @@ export const ARENA_ENEMY_COLORS: Record<ArenaEnemyKind, string> = {
   tank: '#FFC874',
   orbiter: '#7EFFF1',
   sniper: '#FFB6D8',
+  bomber: '#FFB88A',
   interceptor: '#B9A3FF',
   prismBoss: '#FF6EAE',
 };
@@ -43,6 +44,7 @@ export const ARENA_ENEMY_SHAPES: Record<ArenaEnemyKind, ArenaEnemyShape> = {
   tank: 'square',
   orbiter: 'circle',
   sniper: 'square',
+  bomber: 'square',
   interceptor: 'diamond',
   prismBoss: 'diamond',
 };
@@ -144,6 +146,22 @@ export const ARENA_ENEMY_CONFIG: Record<
     reward: 230,
     burstCount: 1,
     spreadAngle: 0,
+    bobAmplitude: 0,
+  },
+  bomber: {
+    size: 54,
+    baseHealth: 80,
+    healthPerTier: 14,
+    strafeSpeed: 34,
+    descendSpeed: 88,
+    fireInterval: 2.95,
+    windupDuration: 0.6,
+    bulletSpeed: 236,
+    bulletDamage: 15,
+    bulletSize: 11,
+    reward: 255,
+    burstCount: 3,
+    spreadAngle: 0.16,
     bobAmplitude: 0,
   },
   interceptor: {

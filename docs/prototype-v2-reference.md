@@ -1,8 +1,95 @@
 # Prototype V2 Reference
 
-Snapshot date: `2026-04-08`
+Snapshot date: `2026-04-10`
 
-This document defines the redesign direction for the next shooter prototype. It is the working reference for the new arena-combat model, separate from the current falling-enemy prototype.
+This document tracks the redesign direction and the implemented state of the arena-combat prototype (`prototypeV2`), separate from the original falling-enemy prototype.
+
+## Current Implementation Summary (`v0.17`)
+
+Prototype V2 is playable and active in the app today.
+
+- `prototypeV2` is integrated as a separate game mode and is currently the default mode on app launch.
+- The run is endless and tier-based (`T1+`) with upper-half enemy combat, player health/shield survival, and automatic player firing.
+- Build selection is live and switchable in-run (`Rail Focus`, `Nova Bloom`, `Missile Command`, `Fracture Core`).
+- Enemy roster currently in production:
+  - `hover`
+  - `burst`
+  - `tank`
+  - `orbiter`
+  - `sniper`
+  - `bomber`
+  - `interceptor` (mini-boss anchor)
+  - `prismBoss` (boss anchor)
+- Enemies spawn from above, descend into a bounded combat band, strafe, and fire pattern-based projectile attacks.
+- Encounter flow is live:
+  - mini-boss and boss checkpoints
+  - board-center encounter announcements
+  - encounter reward salvage and ultimate charge
+- Salvage and armory loop is live:
+  - salvage from kills and drops
+  - standard armory drafts (`1 of 3`)
+  - boss cache drafts (`1 of 4`, free)
+- Drop loop is live:
+  - health patch
+  - shield cell
+  - overclock
+  - salvage burst
+- Build-specific ultimates are live:
+  - `Rail Surge`
+  - `Solar Bloom`
+  - `Missile Barrage`
+  - `Cascade Break`
+- HUD/UI is live with:
+  - score + pressure
+  - health/shield/salvage bars with current and max values
+  - compact weapon stats
+  - center flash encounter callouts
+  - armory modal + in-game menu
+
+## Current Technical State
+
+- V2 simulation is fixed-step and runs through `tickArenaState`.
+- Board rendering is Skia-based (`ArenaCanvas`) for enemies, bullets, effects, and arena background layers.
+- Player ship rendering/input is decoupled from Skia and handled via:
+  - `react-native-gesture-handler` pan input
+  - `react-native-reanimated` shared-value visual movement
+- Recent stability/performance fixes:
+  - frame simulation now consumes per-frame delta via bounded substeps, reducing hold-then-jump motion on high-refresh devices
+  - enemy/drop overlay labels now use subpixel coordinates (removed integer rounding), eliminating visible shake
+  - ship movement path remains smooth after shared-value input migration
+
+## Changelog (V2)
+
+### 2026-04-09
+
+- Set `prototypeV2` as default mode on launch.
+- Added board version badge and advanced to `v0.15`.
+- Stabilized ship movement architecture using gesture + shared-value input and decoupled ship visual from Skia board entities.
+- Removed enemy movement jitter by:
+  - changing simulation step scheduling to real frame-delta substeps
+  - removing `Math.round` snapping on enemy/drop overlay positions
+- Verified build health with typecheck/lint/export after movement changes.
+- Added a new enemy family: `bomber` (high-impact burst volleys, heavier projectile profile).
+- Added formation-based regular spawns to reduce repetition:
+  - sniper crossfire sets
+  - orbiter escort screens
+  - wedge pressure packs
+  - late-tier bombard mixes
+- Added a second mini-boss variant, `Bombard Wing`, and cycle logic for mini-boss variety.
+- Added tier-phase atmosphere shifts in `ArenaCanvas` (theme cycling + pulse overlays) for clearer long-run progression feel.
+- Updated enemy readability/VFX:
+  - directional firing tips now track each enemy aim direction
+  - enemy silhouettes now include ship-like wing framing
+  - removed expanding enemy shoot ring telegraph
+- Refined player presentation:
+  - upgraded to a sleeker ship silhouette
+  - compressed top HUD vertical spacing to increase arena real estate
+- Started Phase 3 build conversion:
+  - introduced 4 selectable builds (`Rail Focus`, `Nova Bloom`, `Missile Command`, `Fracture Core`)
+  - added build-shaped weapon profiles and per-build combat passives
+  - added build-specific ultimate behavior and messaging
+  - added missile/shard projectile variants for build readability
+- Advanced board label to `v0.17`.
 
 ## Purpose
 

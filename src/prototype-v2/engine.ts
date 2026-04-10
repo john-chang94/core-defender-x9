@@ -13,7 +13,9 @@ import {
   ARENA_TIER_DURATION_SECONDS,
   BASE_ARENA_WEAPON,
 } from './config';
+import { ARENA_BUILD_META } from './builds';
 import type {
+  ArenaBuildId,
   ArenaArmoryUpgradeKey,
   ArenaDrop,
   ArenaDropType,
@@ -33,6 +35,7 @@ const ARENA_BOSS_TIER_INTERVAL = 6;
 const ARENA_ANNOUNCEMENT_DURATION_SECONDS = 1.75;
 const ARENA_MAX_ULTIMATE_CHARGE = 100;
 const ARENA_ULTIMATE_DURATION_SECONDS = 1.15;
+const ARENA_BUILD_DEFAULT: ArenaBuildId = 'railFocus';
 
 function clamp(value: number, min: number, max: number) {
   return Math.max(min, Math.min(max, value));
@@ -55,7 +58,23 @@ function createArenaEffect(
   nextEffectId: number
 ): ArenaEffect {
   const duration =
-    kind === 'muzzle' ? 0.12 : kind === 'warning' ? 0.42 : kind === 'shield' ? 0.34 : kind === 'pickup' ? 0.4 : 0.24;
+    kind === 'muzzle'
+      ? 0.12
+      : kind === 'warning'
+        ? 0.42
+        : kind === 'shield'
+          ? 0.34
+          : kind === 'pickup'
+            ? 0.4
+            : kind === 'ultimateRail'
+              ? 0.92
+              : kind === 'ultimateNova'
+                ? 1.45
+                : kind === 'ultimateMissile'
+                  ? 1.2
+                  : kind === 'ultimateFracture'
+                    ? 1.25
+                    : 0.24;
   return {
     id: `FX${nextEffectId}`,
     kind,
@@ -133,6 +152,57 @@ export function getArenaActiveWeapon(state: ArenaGameState): ArenaWeapon {
     fireInterval: Math.max(0.055, state.weapon.fireInterval - Math.min(0.012, (displayTier - 1) * 0.0008)),
   };
 
+  switch (state.activeBuild) {
+    case 'railFocus':
+      nextWeapon = {
+        ...nextWeapon,
+        damage: Math.round(nextWeapon.damage * 1.38),
+        fireInterval: Math.min(0.2, nextWeapon.fireInterval * 1.06),
+        shotCount: Math.max(1, Math.min(2, nextWeapon.shotCount)),
+        pierce: Math.min(6, nextWeapon.pierce + 2),
+        bulletSpeed: Math.min(1700, nextWeapon.bulletSpeed + 140),
+        bulletSize: Math.min(12.8, nextWeapon.bulletSize + 0.7),
+        spread: Math.max(10, Math.round(nextWeapon.spread * 0.62)),
+      };
+      break;
+    case 'novaBloom':
+      nextWeapon = {
+        ...nextWeapon,
+        damage: Math.round(nextWeapon.damage * 0.86),
+        fireInterval: Math.max(0.045, nextWeapon.fireInterval * 0.78),
+        shotCount: Math.min(5, nextWeapon.shotCount + 1),
+        pierce: Math.max(0, nextWeapon.pierce),
+        bulletSpeed: Math.min(1600, nextWeapon.bulletSpeed + 40),
+        bulletSize: Math.min(11.8, nextWeapon.bulletSize + 0.2),
+        spread: Math.min(36, nextWeapon.spread + 7),
+      };
+      break;
+    case 'missileCommand':
+      nextWeapon = {
+        ...nextWeapon,
+        damage: Math.round(nextWeapon.damage * 0.94),
+        fireInterval: Math.max(0.052, nextWeapon.fireInterval * 0.88),
+        shotCount: Math.min(2, nextWeapon.shotCount),
+        pierce: Math.min(4, nextWeapon.pierce + 1),
+        bulletSpeed: Math.min(1700, nextWeapon.bulletSpeed + 90),
+        bulletSize: Math.min(12.2, nextWeapon.bulletSize + 0.3),
+        spread: Math.max(12, Math.round(nextWeapon.spread * 0.82)),
+      };
+      break;
+    case 'fractureCore':
+      nextWeapon = {
+        ...nextWeapon,
+        damage: Math.round(nextWeapon.damage * 1.08),
+        fireInterval: Math.max(0.05, nextWeapon.fireInterval * 0.84),
+        shotCount: Math.min(3, nextWeapon.shotCount + 1),
+        pierce: Math.min(5, nextWeapon.pierce + 1),
+        bulletSpeed: Math.min(1650, nextWeapon.bulletSpeed + 70),
+        bulletSize: Math.min(12.4, nextWeapon.bulletSize + 0.5),
+        spread: Math.min(32, nextWeapon.spread + 3),
+      };
+      break;
+  }
+
   if (state.overclockTimer > 0) {
     nextWeapon = {
       ...nextWeapon,
@@ -147,6 +217,13 @@ export function getArenaActiveWeapon(state: ArenaGameState): ArenaWeapon {
   }
 
   return nextWeapon;
+}
+
+function getMissileIntervalSeconds(state: ArenaGameState) {
+  const displayTier = getArenaDisplayTier(state.elapsed);
+  const tierBonus = Math.min(0.18, Math.max(0, displayTier - 1) * 0.008);
+  const overclockBonus = state.overclockTimer > 0 ? 0.12 : 0;
+  return Math.max(0.34, 0.74 - tierBonus - overclockBonus);
 }
 
 export function getArenaActiveEnemyCap(displayTier: number) {
@@ -176,7 +253,89 @@ function getEnemyKindPool(displayTier: number): ArenaEnemyKind[] {
   if (displayTier >= 8) {
     pool.push('sniper');
   }
+  if (displayTier >= 10) {
+    pool.push('bomber');
+  }
   return pool;
+}
+
+function spawnFormationGroup(state: ArenaGameState, boardWidth: number, boardHeight: number, displayTier: number) {
+  const activeEnemyCap = getArenaActiveEnemyCap(displayTier);
+  const remainingCapacity = activeEnemyCap - state.enemies.length;
+  if (remainingCapacity <= 0 || displayTier < 5) {
+    return false;
+  }
+
+  const lanes = getSpawnLanes(boardWidth);
+  const trySpawn = (kind: ArenaEnemyKind, options?: Parameters<typeof spawnEnemy>[4]) => {
+    if (state.enemies.length >= activeEnemyCap) {
+      return false;
+    }
+    spawnEnemy(state, boardWidth, boardHeight, kind, options);
+    return true;
+  };
+  const randomInnerLane = () => Math.floor(Math.random() * (lanes.length - 2)) + 1;
+  const roll = Math.random();
+
+  if (displayTier >= 12 && remainingCapacity >= 2 && roll < 0.2) {
+    const centerLane = randomInnerLane();
+    const flankLane = clamp(centerLane + (Math.random() < 0.5 ? -1 : 1), 0, lanes.length - 1);
+    trySpawn('bomber', {
+      laneIndex: centerLane,
+      healthMultiplier: 1.1,
+      attackCooldownMultiplier: 0.92,
+    });
+    trySpawn('burst', {
+      laneIndex: flankLane,
+      healthMultiplier: 1.06,
+      attackCooldownMultiplier: 0.94,
+    });
+    if (Math.random() < 0.55) {
+      trySpawn('hover', { laneIndex: clamp(centerLane + (flankLane > centerLane ? -1 : 1), 0, lanes.length - 1) });
+    }
+    return true;
+  }
+
+  if (displayTier >= 8 && remainingCapacity >= 2 && roll < 0.42) {
+    trySpawn('sniper', {
+      laneIndex: 0,
+      cruiseY: boardHeight * 0.18,
+      attackCooldownMultiplier: 0.95,
+    });
+    trySpawn('sniper', {
+      laneIndex: lanes.length - 1,
+      cruiseY: boardHeight * 0.18,
+      attackCooldownMultiplier: 0.95,
+    });
+    if (Math.random() < 0.6) {
+      trySpawn('hover', { laneIndex: randomInnerLane() });
+    }
+    return true;
+  }
+
+  if (displayTier >= 6 && remainingCapacity >= 3 && roll < 0.64) {
+    const centerLane = randomInnerLane();
+    trySpawn('orbiter', {
+      laneIndex: centerLane,
+      healthMultiplier: 1.05,
+    });
+    trySpawn('hover', { laneIndex: clamp(centerLane - 1, 0, lanes.length - 1) });
+    trySpawn('hover', { laneIndex: clamp(centerLane + 1, 0, lanes.length - 1) });
+    return true;
+  }
+
+  if (remainingCapacity >= 3 && roll < 0.82) {
+    const laneIndex = randomInnerLane();
+    trySpawn('burst', {
+      laneIndex,
+      attackCooldownMultiplier: 0.94,
+    });
+    trySpawn('hover', { laneIndex: clamp(laneIndex - 1, 0, lanes.length - 1) });
+    trySpawn('hover', { laneIndex: clamp(laneIndex + 1, 0, lanes.length - 1) });
+    return true;
+  }
+
+  return false;
 }
 
 function createEncounterForTier(displayTier: number): ArenaEncounter | null {
@@ -192,12 +351,13 @@ function createEncounterForTier(displayTier: number): ArenaEncounter | null {
   }
 
   if (displayTier >= ARENA_MINI_BOSS_TIER_INTERVAL && displayTier % ARENA_MINI_BOSS_TIER_INTERVAL === 0) {
+    const useBombardWing = displayTier >= 9 && Math.floor(displayTier / (ARENA_MINI_BOSS_TIER_INTERVAL * 2)) % 2 === 1;
     return {
       type: 'miniBoss',
-      label: 'Interceptor Sweep',
-      accentColor: '#C3B5FF',
-      anchorKind: 'interceptor',
-      rewardSalvage: 80,
+      label: useBombardWing ? 'Bombard Wing' : 'Interceptor Sweep',
+      accentColor: useBombardWing ? '#FFC99F' : '#C3B5FF',
+      anchorKind: useBombardWing ? 'bomber' : 'interceptor',
+      rewardSalvage: useBombardWing ? 92 : 80,
       startedAtTier: displayTier,
     };
   }
@@ -207,6 +367,18 @@ function createEncounterForTier(displayTier: number): ArenaEncounter | null {
 
 function getPlayerShipTop(boardHeight: number) {
   return Math.max(0, boardHeight - ARENA_PLAYER_HEIGHT - ARENA_PLAYER_FLOOR_OFFSET);
+}
+
+function getEnemyAimAngle(enemy: ArenaEnemy, playerX: number, boardHeight: number) {
+  const targetY = getPlayerShipTop(boardHeight) + ARENA_PLAYER_HEIGHT * 0.22;
+  let angle = Math.atan2(playerX - enemy.x, targetY - enemy.y);
+  if (enemy.kind === 'orbiter') {
+    angle += Math.sin(enemy.phase) * 0.18;
+  }
+  if (enemy.kind === 'sniper') {
+    angle *= 0.9;
+  }
+  return angle;
 }
 
 function createEnemyProjectile(
@@ -224,6 +396,8 @@ function createEnemyProjectile(
       ? '#FFE6B8'
       : enemy.kind === 'sniper'
         ? '#FFD8EF'
+        : enemy.kind === 'bomber'
+          ? '#FFD7B6'
         : enemy.kind === 'orbiter'
           ? '#CFFFF9'
       : enemy.kind === 'interceptor'
@@ -234,6 +408,7 @@ function createEnemyProjectile(
   const projectile: ArenaProjectile = {
     id: `B${state.nextBulletId}`,
     owner: 'enemy',
+    kind: 'enemy',
     x: enemy.x,
     y: originY,
     vx: Math.sin(angle) * speed,
@@ -251,11 +426,7 @@ function createEnemyProjectile(
 
 function fireEnemyPattern(state: ArenaGameState, enemy: ArenaEnemy, boardHeight: number) {
   const config = ARENA_ENEMY_CONFIG[enemy.kind];
-  const targetY = getPlayerShipTop(boardHeight) + ARENA_PLAYER_HEIGHT * 0.22;
-  let desiredAngle = Math.atan2(state.playerX - enemy.x, targetY - enemy.y);
-  if (enemy.kind === 'orbiter') {
-    desiredAngle += Math.sin(enemy.phase) * 0.22;
-  }
+  const desiredAngle = enemy.aimAngle;
   const cappedEnemyBulletCap = getArenaEnemyBulletCap(getArenaDisplayTier(state.elapsed));
   const remainingBulletBudget = Math.max(0, cappedEnemyBulletCap - state.enemyBullets.length);
   if (remainingBulletBudget <= 0) {
@@ -326,6 +497,7 @@ function spawnEnemy(
     vx:
       options?.vx ??
       config.strafeSpeed * (Math.random() < 0.5 ? -1 : 1) * (1 + Math.min(0.18, displayTier * 0.012)),
+    aimAngle: 0,
     cruiseY,
     size: config.size,
     health,
@@ -334,6 +506,8 @@ function spawnEnemy(
       Math.max(0.62, config.fireInterval - Math.min(0.6, (displayTier - 1) * 0.035)) * (options?.attackCooldownMultiplier ?? 1),
     windupTimer: 0,
     flash: 0,
+    burnTimer: 0,
+    burnDps: 0,
     phase: Math.random() * Math.PI * 2,
     color: ARENA_ENEMY_COLORS[kind],
     reward: Math.round((config.reward + displayTier * 10) * (options?.rewardMultiplier ?? 1)),
@@ -350,6 +524,10 @@ function spawnEnemyGroup(state: ArenaGameState, boardWidth: number, boardHeight:
     return;
   }
 
+  if (spawnFormationGroup(state, boardWidth, boardHeight, displayTier)) {
+    return;
+  }
+
   const lanes = getSpawnLanes(boardWidth);
   const laneIndex = Math.floor(Math.random() * lanes.length);
   const kindPool = getEnemyKindPool(displayTier);
@@ -360,7 +538,7 @@ function spawnEnemyGroup(state: ArenaGameState, boardWidth: number, boardHeight:
   const shouldAddWingman =
     remainingCapacity > 0 &&
     displayTier >= 4 &&
-    (primaryKind === 'hover' || primaryKind === 'burst' || primaryKind === 'orbiter') &&
+    (primaryKind === 'hover' || primaryKind === 'burst' || primaryKind === 'orbiter' || primaryKind === 'bomber') &&
     Math.random() < (displayTier >= 8 ? 0.38 : 0.22);
 
   if (shouldAddWingman) {
@@ -373,7 +551,12 @@ function spawnEnemyGroup(state: ArenaGameState, boardWidth: number, boardHeight:
 function startEncounter(state: ArenaGameState, boardWidth: number, boardHeight: number, encounter: ArenaEncounter) {
   state.activeEncounter = encounter;
   queueEncounterAnnouncement(state, encounter.label, encounter.accentColor);
-  state.pickupMessage = encounter.type === 'boss' ? 'Boss intercept. Break the prism core.' : 'Mini-boss breach detected.';
+  state.pickupMessage =
+    encounter.type === 'boss'
+      ? 'Boss intercept. Break the prism core.'
+      : encounter.anchorKind === 'bomber'
+        ? 'Bombard wing breaching the upper lane.'
+        : 'Mini-boss breach detected.';
   state.pickupTimer = 1.9;
 
   if (encounter.type === 'boss') {
@@ -404,6 +587,38 @@ function startEncounter(state: ArenaGameState, boardWidth: number, boardHeight: 
       });
     }
     state.enemySpawnCooldown = Math.max(state.enemySpawnCooldown, 3.8);
+    return;
+  }
+
+  if (encounter.anchorKind === 'bomber') {
+    spawnEnemy(state, boardWidth, boardHeight, 'bomber', {
+      x: boardWidth / 2,
+      cruiseY: boardHeight * 0.24,
+      healthMultiplier: 1 + Math.max(0, encounter.startedAtTier - ARENA_MINI_BOSS_TIER_INTERVAL) * 0.05,
+      rewardMultiplier: 1.28,
+      attackCooldownMultiplier: 0.9,
+      vx: ARENA_ENEMY_CONFIG.bomber.strafeSpeed,
+    });
+    spawnEnemy(state, boardWidth, boardHeight, 'burst', {
+      laneIndex: 1,
+      healthMultiplier: 1.1,
+      rewardMultiplier: 0.86,
+      attackCooldownMultiplier: 0.95,
+    });
+    spawnEnemy(state, boardWidth, boardHeight, 'burst', {
+      laneIndex: 4,
+      healthMultiplier: 1.1,
+      rewardMultiplier: 0.86,
+      attackCooldownMultiplier: 0.95,
+    });
+    if (encounter.startedAtTier >= 12) {
+      spawnEnemy(state, boardWidth, boardHeight, 'sniper', {
+        laneIndex: Math.random() < 0.5 ? 0 : 5,
+        healthMultiplier: 1.08,
+        rewardMultiplier: 0.9,
+      });
+    }
+    state.enemySpawnCooldown = Math.max(state.enemySpawnCooldown, 2.8);
     return;
   }
 
@@ -461,7 +676,14 @@ function createDrop(state: ArenaGameState, x: number, y: number, type: ArenaDrop
 }
 
 function maybeSpawnEnemyDrop(state: ArenaGameState, enemy: ArenaEnemy) {
-  const chance = enemy.kind === 'tank' ? 0.42 : enemy.kind === 'burst' ? 0.26 : 0.18;
+  const chance =
+    enemy.kind === 'tank'
+      ? 0.42
+      : enemy.kind === 'bomber'
+        ? 0.32
+        : enemy.kind === 'burst'
+          ? 0.26
+          : 0.18;
   if (Math.random() > chance) {
     return;
   }
@@ -476,6 +698,14 @@ function maybeSpawnEnemyDrop(state: ArenaGameState, enemy: ArenaEnemy) {
           : roll < 0.9
             ? 'salvageBurst'
             : 'overclock'
+      : enemy.kind === 'bomber'
+        ? roll < 0.34
+          ? 'overclock'
+          : roll < 0.64
+            ? 'salvageBurst'
+            : roll < 0.84
+              ? 'shieldCell'
+              : 'hullPatch'
       : roll < 0.38
         ? 'shieldCell'
         : roll < 0.65
@@ -519,6 +749,7 @@ function applyDamageToEnemy(
     grantCharge?: boolean;
     effectScale?: number;
     effectColor?: string;
+    silentEffect?: boolean;
   }
 ) {
   if (enemy.health <= 0) {
@@ -527,14 +758,16 @@ function applyDamageToEnemy(
 
   enemy.health = Math.max(0, enemy.health - damage);
   enemy.flash = 1;
-  queueEffect(
-    state,
-    'burst',
-    enemy.x,
-    enemy.y,
-    enemy.size * (options?.effectScale ?? 0.8),
-    options?.effectColor ?? '#FFE5B3'
-  );
+  if (!options?.silentEffect) {
+    queueEffect(
+      state,
+      'burst',
+      enemy.x,
+      enemy.y,
+      enemy.size * (options?.effectScale ?? 0.8),
+      options?.effectColor ?? '#FFE5B3'
+    );
+  }
 
   if (options?.grantCharge !== false) {
     addUltimateCharge(state, Math.min(4.8, damage * 0.05));
@@ -579,11 +812,78 @@ function applyPlayerDamage(state: ArenaGameState, damage: number, boardHeight: n
   }
 }
 
+function createPlayerMissileVolley(state: ArenaGameState, boardHeight: number) {
+  const weapon = getArenaActiveWeapon(state);
+  const muzzleY = boardHeight - ARENA_PLAYER_HEIGHT - 16;
+  const launchOffsets = [-18, 18];
+  const missiles = [...state.playerBullets];
+  for (const offset of launchOffsets) {
+    missiles.push({
+      id: `B${state.nextBulletId}`,
+      owner: 'player',
+      kind: 'missile',
+      x: state.playerX + offset,
+      y: muzzleY + 5,
+      vx: offset < 0 ? -120 : 120,
+      vy: -560,
+      homing: 5.8,
+      damage: Math.max(10, Math.round(weapon.damage * 1.9)),
+      size: Math.min(13, weapon.bulletSize + 2),
+      color: '#FFD8A6',
+      age: 0,
+      maxAge: 3.4,
+      pierce: 1,
+    });
+    state.nextBulletId += 1;
+  }
+  state.playerBullets = missiles;
+  queueEffect(state, 'muzzle', state.playerX, muzzleY, 24, '#FFD9A6');
+}
+
+function createFractureShards(state: ArenaGameState, x: number, y: number, baseDamage: number) {
+  if (state.playerBullets.length >= 160) {
+    return;
+  }
+  const shardCount = 4;
+  const shardSpeed = 900;
+  const bullets = [...state.playerBullets];
+  for (let index = 0; index < shardCount; index += 1) {
+    const ratio = shardCount <= 1 ? 0 : index / (shardCount - 1);
+    const angle = -0.42 + ratio * 0.84;
+    bullets.push({
+      id: `B${state.nextBulletId}`,
+      owner: 'player',
+      kind: 'shard',
+      x,
+      y,
+      vx: Math.sin(angle) * shardSpeed,
+      vy: -Math.cos(angle) * shardSpeed,
+      damage: Math.max(4, Math.round(baseDamage * 0.44)),
+      size: 5.2,
+      color: '#D7EBFF',
+      age: 0,
+      maxAge: 0.95,
+      pierce: 0,
+    });
+    state.nextBulletId += 1;
+  }
+  state.playerBullets = bullets;
+  queueEffect(state, 'burst', x, y, 20, '#CDE5FF');
+}
+
 function createPlayerVolley(state: ArenaGameState, boardHeight: number) {
   const weapon = getArenaActiveWeapon(state);
   const bullets = [...state.playerBullets];
   const muzzleY = boardHeight - ARENA_PLAYER_HEIGHT - 18;
   const centerIndex = (weapon.shotCount - 1) / 2;
+  const bulletColor =
+    state.activeBuild === 'railFocus'
+      ? '#D7E9FF'
+      : state.activeBuild === 'novaBloom'
+        ? '#FFD2E8'
+        : state.activeBuild === 'missileCommand'
+          ? '#FFE2B8'
+          : '#D8E7FF';
 
   for (let index = 0; index < weapon.shotCount; index += 1) {
     const lane = index - centerIndex;
@@ -591,13 +891,15 @@ function createPlayerVolley(state: ArenaGameState, boardHeight: number) {
     bullets.push({
       id: `B${state.nextBulletId}`,
       owner: 'player',
+      kind: 'primary',
       x,
       y: muzzleY,
       vx: 0,
       vy: -weapon.bulletSpeed,
+      homing: 0,
       damage: weapon.damage,
       size: weapon.bulletSize,
-      color: '#FFF1C9',
+      color: bulletColor,
       age: 0,
       maxAge: 2,
       pierce: weapon.pierce,
@@ -627,6 +929,7 @@ export function createInitialArenaState(boardWidth: number): ArenaGameState {
     score: 0,
     salvage: 0,
     nextArmoryCost: 120,
+    activeBuild: ARENA_BUILD_DEFAULT,
     playerX: boardWidth / 2,
     hull: 100,
     maxHull: 100,
@@ -637,6 +940,7 @@ export function createInitialArenaState(boardWidth: number): ArenaGameState {
     overclockTimer: 0,
     ultimateCharge: 0,
     ultimateTimer: 0,
+    ultimateBuild: null,
     ultimateColumns: [],
     weapon: BASE_ARENA_WEAPON,
     enemies: [],
@@ -645,6 +949,7 @@ export function createInitialArenaState(boardWidth: number): ArenaGameState {
     enemyBullets: [],
     effects: [],
     fireCooldown: 0.06,
+    missileCooldown: 0.45,
     enemySpawnCooldown: 1.3,
     nextBulletId: 1,
     nextEnemyId: 1,
@@ -676,25 +981,96 @@ export function activateArenaUltimate(
     enemyBullets: [],
     ultimateCharge: 0,
     ultimateTimer: ARENA_ULTIMATE_DURATION_SECONDS,
+    ultimateBuild: previousState.activeBuild,
     ultimateColumns: buildUltimateColumns(previousState.enemies, boardWidth),
-    pickupMessage: 'Skybreak unleashed',
+    pickupMessage: `${ARENA_BUILD_META[previousState.activeBuild].ultimateLabel} unleashed`,
     pickupTimer: 1.2,
     effects: previousState.effects,
   };
 
-  for (const enemy of nextState.enemies) {
-    const damage =
-      enemy.kind === 'prismBoss'
-        ? enemy.maxHealth * 0.34 + 140
-        : enemy.kind === 'interceptor'
-          ? enemy.maxHealth * 0.52 + 90
-          : enemy.maxHealth * 0.6 + 70;
-    applyDamageToEnemy(nextState, enemy, damage, {
-      allowDrafts: false,
-      grantCharge: false,
-      effectScale: enemy.kind === 'prismBoss' ? 1.85 : 1.4,
-      effectColor: '#FFE7B8',
-    });
+  if (previousState.activeBuild === 'railFocus') {
+    const targets = nextState.enemies.slice().sort((left, right) => right.maxHealth - left.maxHealth).slice(0, 6);
+    nextState.ultimateColumns = targets.map((target) => target.x);
+    nextState.ultimateTimer = 0.98;
+    for (const enemy of targets) {
+      const damage =
+        enemy.kind === 'prismBoss'
+          ? enemy.maxHealth * 0.58 + 240
+          : enemy.kind === 'interceptor'
+            ? enemy.maxHealth * 0.78 + 162
+            : enemy.maxHealth * 0.96 + 112;
+      applyDamageToEnemy(nextState, enemy, damage, {
+        allowDrafts: false,
+        grantCharge: false,
+        effectScale: enemy.kind === 'prismBoss' ? 2.15 : 1.65,
+        effectColor: '#CFE2FF',
+      });
+    }
+    for (const columnX of nextState.ultimateColumns) {
+      queueEffect(nextState, 'ultimateRail', columnX, boardHeight * 0.44, boardHeight * 0.96, '#CEE4FF');
+    }
+  } else if (previousState.activeBuild === 'novaBloom') {
+    nextState.ultimateTimer = 1.56;
+    nextState.overclockTimer = Math.max(nextState.overclockTimer, 8.4);
+    queueEffect(nextState, 'ultimateNova', previousState.playerX, boardHeight - 26, Math.max(boardWidth, boardHeight) * 1.04, '#FFD0E7');
+    for (const enemy of nextState.enemies) {
+      const damage = enemy.maxHealth * 0.22 + 52;
+      applyDamageToEnemy(nextState, enemy, damage, {
+        allowDrafts: false,
+        grantCharge: false,
+        effectScale: enemy.kind === 'prismBoss' ? 1.95 : 1.48,
+        effectColor: '#FFD0E7',
+      });
+      enemy.burnTimer = Math.max(enemy.burnTimer, 6.6);
+      enemy.burnDps = Math.max(enemy.burnDps, Math.max(28, enemy.maxHealth * 0.035));
+    }
+  } else if (previousState.activeBuild === 'missileCommand') {
+    nextState.ultimateTimer = 1.34;
+    nextState.missileCooldown = Math.min(nextState.missileCooldown, 0.08);
+    const strikeColumns = buildUltimateColumns(nextState.enemies, boardWidth);
+    nextState.ultimateColumns = strikeColumns;
+    for (let volleyIndex = 0; volleyIndex < 3; volleyIndex += 1) {
+      createPlayerMissileVolley(nextState, boardHeight);
+    }
+    for (const columnX of strikeColumns) {
+      queueEffect(nextState, 'ultimateMissile', columnX, boardHeight - 10, boardHeight * 0.92, '#FFD8AD');
+    }
+    for (const enemy of nextState.enemies) {
+      const damage =
+        enemy.kind === 'prismBoss'
+          ? enemy.maxHealth * 0.36 + 168
+          : enemy.kind === 'interceptor'
+            ? enemy.maxHealth * 0.54 + 104
+            : enemy.maxHealth * 0.58 + 70;
+      applyDamageToEnemy(nextState, enemy, damage, {
+        allowDrafts: false,
+        grantCharge: false,
+        effectScale: enemy.kind === 'prismBoss' ? 2.0 : 1.5,
+        effectColor: '#FFD8AD',
+      });
+    }
+  } else {
+    nextState.ultimateTimer = 1.38;
+    queueEffect(nextState, 'ultimateFracture', boardWidth * 0.5, boardHeight * 0.44, Math.max(boardWidth, boardHeight) * 0.9, '#C7DCFF');
+    let shatterBursts = 0;
+    for (const enemy of nextState.enemies) {
+      const damage =
+        enemy.kind === 'prismBoss'
+          ? enemy.maxHealth * 0.42 + 172
+          : enemy.kind === 'interceptor'
+            ? enemy.maxHealth * 0.62 + 116
+            : enemy.maxHealth * 0.68 + 86;
+      applyDamageToEnemy(nextState, enemy, damage, {
+        allowDrafts: false,
+        grantCharge: false,
+        effectScale: enemy.kind === 'prismBoss' ? 2.04 : 1.64,
+        effectColor: '#BFD8FF',
+      });
+      if (enemy.health > 0 && shatterBursts < 12) {
+        createFractureShards(nextState, enemy.x, enemy.y, damage * 0.34);
+        shatterBursts += 1;
+      }
+    }
   }
 
   nextState.enemies = nextState.enemies.filter((enemy) => enemy.health > 0);
@@ -725,6 +1101,19 @@ export function applyArenaArmoryUpgrade(
   };
 }
 
+export function setArenaBuild(previousState: ArenaGameState, nextBuild: ArenaBuildId): ArenaGameState {
+  if (previousState.activeBuild === nextBuild) {
+    return previousState;
+  }
+  return {
+    ...previousState,
+    activeBuild: nextBuild,
+    missileCooldown: nextBuild === 'missileCommand' ? 0.22 : previousState.missileCooldown,
+    pickupMessage: `${ARENA_BUILD_META[nextBuild].label} online`,
+    pickupTimer: 1.8,
+  };
+}
+
 export function tickArenaState(
   previousState: ArenaGameState,
   deltaSeconds: number,
@@ -742,6 +1131,7 @@ export function tickArenaState(
     overclockTimer: Math.max(0, previousState.overclockTimer - deltaSeconds),
     ultimateCharge: previousState.ultimateCharge,
     ultimateTimer: Math.max(0, previousState.ultimateTimer - deltaSeconds),
+    ultimateBuild: previousState.ultimateTimer > deltaSeconds ? previousState.ultimateBuild : null,
     ultimateColumns: previousState.ultimateTimer > deltaSeconds ? previousState.ultimateColumns : [],
     encounterAnnouncementTimer: Math.max(0, previousState.encounterAnnouncementTimer - deltaSeconds),
     effects: previousState.effects
@@ -755,6 +1145,7 @@ export function tickArenaState(
       }))
       .filter((drop) => drop.y - drop.size / 2 < boardHeight + 24),
     fireCooldown: previousState.fireCooldown - deltaSeconds,
+    missileCooldown: Math.max(0, previousState.missileCooldown - deltaSeconds),
     enemySpawnCooldown: previousState.enemySpawnCooldown - deltaSeconds,
     playerBullets: [],
     enemyBullets: [],
@@ -787,6 +1178,13 @@ export function tickArenaState(
   }
 
   const displayTier = getArenaDisplayTier(nextState.elapsed);
+  if (nextState.activeBuild === 'missileCommand') {
+    while (nextState.missileCooldown <= 0) {
+      createPlayerMissileVolley(nextState, boardHeight);
+      nextState.missileCooldown += getMissileIntervalSeconds(nextState);
+    }
+  }
+
   if (displayTier > previousState.lastProcessedDisplayTier) {
     for (let tier = previousState.lastProcessedDisplayTier + 1; tier <= displayTier; tier += 1) {
       nextState.lastProcessedDisplayTier = tier;
@@ -853,6 +1251,26 @@ export function tickArenaState(
           ? clamp(nextEnemy.cruiseY + Math.sin(nextEnemy.phase) * config.bobAmplitude, enemy.size / 2 + 10, getEnemyZoneMaxY(boardHeight) - enemy.size / 2 - 10)
           : nextEnemy.cruiseY;
     }
+    nextEnemy.aimAngle = getEnemyAimAngle(nextEnemy, nextState.playerX, boardHeight);
+
+    if (nextEnemy.burnTimer > 0) {
+      const burnDamage = nextEnemy.burnDps * deltaSeconds;
+      nextEnemy.burnTimer = Math.max(0, nextEnemy.burnTimer - deltaSeconds);
+      if (nextEnemy.burnTimer <= 0) {
+        nextEnemy.burnDps = 0;
+      }
+      if (burnDamage > 0.01) {
+        applyDamageToEnemy(nextState, nextEnemy, burnDamage, {
+          allowDrafts: false,
+          grantCharge: false,
+          silentEffect: true,
+        });
+      }
+    }
+    if (nextEnemy.health <= 0) {
+      movedEnemies.push(nextEnemy);
+      continue;
+    }
 
     if (previousWindup > 0 && nextEnemy.windupTimer <= 0) {
       fireEnemyPattern(nextState, nextEnemy, boardHeight);
@@ -860,7 +1278,6 @@ export function tickArenaState(
     } else if (previousWindup <= 0 && nextEnemy.attackCooldown <= 0) {
       nextEnemy.windupTimer = config.windupDuration;
       nextEnemy.attackCooldown = Math.max(0.65, config.fireInterval - Math.min(0.7, (displayTier - 1) * 0.035));
-      queueEffect(nextState, 'warning', nextEnemy.x, nextEnemy.y, nextEnemy.size * 1.25, nextEnemy.color);
     }
 
     movedEnemies.push(nextEnemy);
@@ -870,12 +1287,46 @@ export function tickArenaState(
   const survivingPlayerBullets: ArenaProjectile[] = [];
 
   for (const bullet of playerWeaponBullets) {
+    let nextVx = bullet.vx;
+    let nextVy = bullet.vy;
+    if (bullet.kind === 'missile' && survivingEnemies.length > 0) {
+      let bestTarget: ArenaEnemy | null = null;
+      let bestDistance = Number.POSITIVE_INFINITY;
+      for (const enemy of survivingEnemies) {
+        if (enemy.health <= 0) {
+          continue;
+        }
+        const dx = enemy.x - bullet.x;
+        const dy = enemy.y - bullet.y;
+        const distanceSq = dx * dx + dy * dy;
+        if (distanceSq < bestDistance) {
+          bestDistance = distanceSq;
+          bestTarget = enemy;
+        }
+      }
+      if (bestTarget) {
+        const currentSpeed = Math.max(320, Math.hypot(nextVx, nextVy));
+        const dx = bestTarget.x - bullet.x;
+        const dy = bestTarget.y - bullet.y;
+        const distance = Math.max(1, Math.hypot(dx, dy));
+        const desiredVx = (dx / distance) * currentSpeed;
+        const desiredVy = (dy / distance) * currentSpeed;
+        const turnRate = Math.max(0, bullet.homing ?? 0);
+        const blend = Math.min(1, turnRate * deltaSeconds);
+        nextVx += (desiredVx - nextVx) * blend;
+        nextVy += (desiredVy - nextVy) * blend;
+      }
+    }
+
     let activeBullet: ArenaProjectile | null = {
       ...bullet,
-      x: bullet.x + bullet.vx * deltaSeconds,
-      y: bullet.y + bullet.vy * deltaSeconds,
+      x: bullet.x + nextVx * deltaSeconds,
+      y: bullet.y + nextVy * deltaSeconds,
+      vx: nextVx,
+      vy: nextVy,
       age: bullet.age + deltaSeconds,
     };
+    let triggeredFracture = false;
 
     if (activeBullet.age >= activeBullet.maxAge || activeBullet.y < -40) {
       continue;
@@ -890,11 +1341,51 @@ export function tickArenaState(
         continue;
       }
 
-      applyDamageToEnemy(nextState, enemy, activeBullet.damage, {
+      let hitDamage = activeBullet.damage;
+      if (
+        nextState.activeBuild === 'railFocus' &&
+        activeBullet.kind === 'primary' &&
+        (enemy.kind === 'interceptor' || enemy.kind === 'prismBoss' || enemy.windupTimer > 0)
+      ) {
+        hitDamage *= 1.42;
+      }
+
+      applyDamageToEnemy(nextState, enemy, hitDamage, {
         allowDrafts: !nextState.activeEncounter,
       });
 
-      if (activeBullet.pierce > 0) {
+      if (nextState.activeBuild === 'novaBloom' && activeBullet.kind === 'primary' && enemy.health > 0) {
+        enemy.burnTimer = Math.max(enemy.burnTimer, 1.9);
+        enemy.burnDps = Math.max(enemy.burnDps, Math.max(8, hitDamage * 0.72));
+      }
+
+      if (nextState.activeBuild === 'fractureCore' && activeBullet.kind === 'primary' && !triggeredFracture) {
+        triggeredFracture = true;
+        createFractureShards(nextState, activeBullet.x, activeBullet.y, hitDamage);
+      }
+
+      if (activeBullet.kind === 'missile') {
+        const splashRadius = 52;
+        for (const splashTarget of survivingEnemies) {
+          if (splashTarget === enemy || splashTarget.health <= 0) {
+            continue;
+          }
+          if (!hitTestCircle(activeBullet.x, activeBullet.y, splashRadius, splashTarget.x, splashTarget.y, splashTarget.size * 0.44)) {
+            continue;
+          }
+          applyDamageToEnemy(nextState, splashTarget, hitDamage * 0.44, {
+            allowDrafts: !nextState.activeEncounter,
+            grantCharge: false,
+            effectScale: 0.65,
+            effectColor: '#FFD9AE',
+          });
+        }
+        queueEffect(nextState, 'burst', activeBullet.x, activeBullet.y, 44, '#FFD9AE');
+      }
+
+      if (activeBullet.kind === 'missile') {
+        activeBullet = null;
+      } else if (activeBullet.pierce > 0) {
         activeBullet = { ...activeBullet, pierce: activeBullet.pierce - 1 };
       } else {
         activeBullet = null;
