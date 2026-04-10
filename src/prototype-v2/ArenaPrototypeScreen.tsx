@@ -8,6 +8,7 @@ import {
   ARENA_MAX_FRAME_DELTA_SECONDS,
   ARENA_PLAYER_HALF_WIDTH,
   ARENA_PLAYER_MARGIN,
+  ARENA_VERSION_LABEL,
 } from './config';
 import {
   activateArenaUltimate,
@@ -426,6 +427,10 @@ export function ArenaPrototypeScreen({ onSwitchGame }: ArenaPrototypeScreenProps
           style={arenaStyles.board}>
           <ArenaCanvas boardWidth={boardSize.width} boardHeight={boardSize.height} state={gameState} />
 
+          <View pointerEvents="none" style={arenaStyles.versionBadge}>
+            <Text style={arenaStyles.versionBadgeText}>{ARENA_VERSION_LABEL}</Text>
+          </View>
+
           {hasEncounterAnnouncement ? (
             <View pointerEvents="none" style={arenaStyles.boardAnnouncementWrap}>
               <View
@@ -798,6 +803,24 @@ const arenaStyles = StyleSheet.create({
     alignItems: 'center',
     justifyContent: 'center',
     zIndex: 4,
+  },
+  versionBadge: {
+    position: 'absolute',
+    top: 10,
+    left: 10,
+    zIndex: 4,
+    borderRadius: 8,
+    borderWidth: 1,
+    borderColor: '#284764',
+    backgroundColor: 'rgba(8, 19, 31, 0.84)',
+    paddingHorizontal: 8,
+    paddingVertical: 4,
+  },
+  versionBadgeText: {
+    color: '#8BA9CB',
+    fontSize: 10,
+    fontWeight: '800',
+    letterSpacing: 0.4,
   },
   boardAnnouncementGlow: {
     position: 'absolute',
