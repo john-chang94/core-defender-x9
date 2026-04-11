@@ -52,6 +52,7 @@ export type ArenaProjectile = {
   id: string;
   owner: ArenaProjectileOwner;
   kind: ArenaProjectileKind;
+  buildFlavor?: ArenaBuildId;
   x: number;
   y: number;
   vx: number;

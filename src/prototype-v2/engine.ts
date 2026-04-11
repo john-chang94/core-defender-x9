@@ -36,6 +36,7 @@ const ARENA_ANNOUNCEMENT_DURATION_SECONDS = 1.75;
 const ARENA_MAX_ULTIMATE_CHARGE = 100;
 const ARENA_ULTIMATE_DURATION_SECONDS = 1.15;
 const ARENA_BUILD_DEFAULT: ArenaBuildId = 'railFocus';
+const ARENA_GLOBAL_HEALTH_MULTIPLIER = 1.08;
 
 function clamp(value: number, min: number, max: number) {
   return Math.max(min, Math.min(max, value));
@@ -192,13 +193,13 @@ export function getArenaActiveWeapon(state: ArenaGameState): ArenaWeapon {
     case 'fractureCore':
       nextWeapon = {
         ...nextWeapon,
-        damage: Math.round(nextWeapon.damage * 1.08),
-        fireInterval: Math.max(0.05, nextWeapon.fireInterval * 0.84),
-        shotCount: Math.min(3, nextWeapon.shotCount + 1),
-        pierce: Math.min(5, nextWeapon.pierce + 1),
+        damage: Math.round(nextWeapon.damage * 1.24),
+        fireInterval: Math.max(0.055, nextWeapon.fireInterval * 0.92),
+        shotCount: Math.min(2, nextWeapon.shotCount + 1),
+        pierce: Math.min(4, nextWeapon.pierce + 1),
         bulletSpeed: Math.min(1650, nextWeapon.bulletSpeed + 70),
-        bulletSize: Math.min(12.4, nextWeapon.bulletSize + 0.5),
-        spread: Math.min(32, nextWeapon.spread + 3),
+        bulletSize: Math.min(14.8, nextWeapon.bulletSize + 1.6),
+        spread: Math.min(30, nextWeapon.spread + 2),
       };
       break;
   }
@@ -486,7 +487,8 @@ function spawnEnemy(
   );
   const health = Math.round(
     (config.baseHealth + (displayTier - 1) * config.healthPerTier + Math.random() * config.healthPerTier * 0.35) *
-      (options?.healthMultiplier ?? 1)
+      (options?.healthMultiplier ?? 1) *
+      ARENA_GLOBAL_HEALTH_MULTIPLIER
   );
   const enemy: ArenaEnemy = {
     id: `E${state.nextEnemyId}`,
@@ -822,6 +824,7 @@ function createPlayerMissileVolley(state: ArenaGameState, boardHeight: number) {
       id: `B${state.nextBulletId}`,
       owner: 'player',
       kind: 'missile',
+      buildFlavor: 'missileCommand',
       x: state.playerX + offset,
       y: muzzleY + 5,
       vx: offset < 0 ? -120 : 120,
@@ -844,31 +847,32 @@ function createFractureShards(state: ArenaGameState, x: number, y: number, baseD
   if (state.playerBullets.length >= 160) {
     return;
   }
-  const shardCount = 4;
-  const shardSpeed = 900;
+  const shardCount = 6;
+  const shardSpeed = 760;
   const bullets = [...state.playerBullets];
   for (let index = 0; index < shardCount; index += 1) {
     const ratio = shardCount <= 1 ? 0 : index / (shardCount - 1);
-    const angle = -0.42 + ratio * 0.84;
+    const angle = -0.64 + ratio * 1.28;
     bullets.push({
       id: `B${state.nextBulletId}`,
       owner: 'player',
       kind: 'shard',
+      buildFlavor: 'fractureCore',
       x,
       y,
       vx: Math.sin(angle) * shardSpeed,
       vy: -Math.cos(angle) * shardSpeed,
-      damage: Math.max(4, Math.round(baseDamage * 0.44)),
-      size: 5.2,
-      color: '#D7EBFF',
+      damage: Math.max(5, Math.round(baseDamage * 0.5)),
+      size: 7.1,
+      color: '#DDEBFF',
       age: 0,
-      maxAge: 0.95,
+      maxAge: 1.05,
       pierce: 0,
     });
     state.nextBulletId += 1;
   }
   state.playerBullets = bullets;
-  queueEffect(state, 'burst', x, y, 20, '#CDE5FF');
+  queueEffect(state, 'burst', x, y, 36, '#CDE5FF');
 }
 
 function createPlayerVolley(state: ArenaGameState, boardHeight: number) {
@@ -892,6 +896,7 @@ function createPlayerVolley(state: ArenaGameState, boardHeight: number) {
       id: `B${state.nextBulletId}`,
       owner: 'player',
       kind: 'primary',
+      buildFlavor: state.activeBuild,
       x,
       y: muzzleY,
       vx: 0,
@@ -1349,10 +1354,45 @@ export function tickArenaState(
       ) {
         hitDamage *= 1.42;
       }
+      if (nextState.activeBuild === 'fractureCore' && activeBullet.kind === 'primary') {
+        hitDamage *= 1.16;
+      }
 
       applyDamageToEnemy(nextState, enemy, hitDamage, {
         allowDrafts: !nextState.activeEncounter,
+        effectScale: activeBullet.kind === 'primary' ? 0.9 : 0.84,
+        effectColor:
+          activeBullet.buildFlavor === 'fractureCore'
+            ? '#D6E8FF'
+            : activeBullet.buildFlavor === 'novaBloom'
+              ? '#FFD1E7'
+              : activeBullet.buildFlavor === 'railFocus'
+                ? '#D8E9FF'
+                : '#FFE5B3',
       });
+
+      if (activeBullet.kind !== 'missile') {
+        const impactSize =
+          activeBullet.buildFlavor === 'fractureCore'
+            ? activeBullet.size * 4.5
+            : activeBullet.kind === 'shard'
+              ? activeBullet.size * 3.7
+              : activeBullet.size * 3.1;
+        queueEffect(
+          nextState,
+          'burst',
+          activeBullet.x,
+          activeBullet.y,
+          impactSize,
+          activeBullet.buildFlavor === 'fractureCore'
+            ? '#D4E7FF'
+            : activeBullet.buildFlavor === 'novaBloom'
+              ? '#FFD3E8'
+              : activeBullet.kind === 'shard'
+                ? '#DCEBFF'
+                : '#FFE4B1'
+        );
+      }
 
       if (nextState.activeBuild === 'novaBloom' && activeBullet.kind === 'primary' && enemy.health > 0) {
         enemy.burnTimer = Math.max(enemy.burnTimer, 1.9);
@@ -1361,7 +1401,7 @@ export function tickArenaState(
 
       if (nextState.activeBuild === 'fractureCore' && activeBullet.kind === 'primary' && !triggeredFracture) {
         triggeredFracture = true;
-        createFractureShards(nextState, activeBullet.x, activeBullet.y, hitDamage);
+        createFractureShards(nextState, activeBullet.x, activeBullet.y, hitDamage * 1.1);
       }
 
       if (activeBullet.kind === 'missile') {

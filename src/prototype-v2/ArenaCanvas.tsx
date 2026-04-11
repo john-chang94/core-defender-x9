@@ -150,6 +150,25 @@ function createOrientedDiamondPath(
   return path;
 }
 
+function createOrientedRectPath(
+  x: number,
+  y: number,
+  forwardX: number,
+  forwardY: number,
+  rightX: number,
+  rightY: number,
+  halfLength: number,
+  halfWidth: number
+) {
+  const path = Skia.Path.Make();
+  path.moveTo(x + forwardX * halfLength + rightX * halfWidth, y + forwardY * halfLength + rightY * halfWidth);
+  path.lineTo(x + forwardX * halfLength - rightX * halfWidth, y + forwardY * halfLength - rightY * halfWidth);
+  path.lineTo(x - forwardX * halfLength - rightX * halfWidth, y - forwardY * halfLength - rightY * halfWidth);
+  path.lineTo(x - forwardX * halfLength + rightX * halfWidth, y - forwardY * halfLength + rightY * halfWidth);
+  path.close();
+  return path;
+}
+
 function createOrientedShardPath(
   x: number,
   y: number,
@@ -179,33 +198,55 @@ function createMissileBodyPath(
   rightY: number,
   size: number
 ) {
-  const tipLength = size * 1.62;
-  const bodyHalfWidth = size * 0.42;
-  const shoulderDistance = size * 0.66;
-  const tailDistance = size * 0.96;
-  const finDistance = size * 0.24;
-  const finWidth = size * 0.72;
+  return createOrientedRectPath(x, y, forwardX, forwardY, rightX, rightY, size * 0.9, size * 0.45);
+}
 
-  const tipX = x + forwardX * tipLength;
-  const tipY = y + forwardY * tipLength;
-  const shoulderX = x + forwardX * shoulderDistance;
-  const shoulderY = y + forwardY * shoulderDistance;
-  const tailX = x - forwardX * tailDistance;
-  const tailY = y - forwardY * tailDistance;
-  const finX = x - forwardX * finDistance;
-  const finY = y - forwardY * finDistance;
+function createMissileNosePath(
+  x: number,
+  y: number,
+  forwardX: number,
+  forwardY: number,
+  rightX: number,
+  rightY: number,
+  size: number
+) {
+  const tipX = x + forwardX * (size * 1.7);
+  const tipY = y + forwardY * (size * 1.7);
+  const baseX = x + forwardX * (size * 0.9);
+  const baseY = y + forwardY * (size * 0.9);
+  const halfWidth = size * 0.43;
 
-  const bodyPath = Skia.Path.Make();
-  bodyPath.moveTo(tipX, tipY);
-  bodyPath.lineTo(shoulderX + rightX * bodyHalfWidth, shoulderY + rightY * bodyHalfWidth);
-  bodyPath.lineTo(finX + rightX * finWidth, finY + rightY * finWidth);
-  bodyPath.lineTo(tailX + rightX * bodyHalfWidth * 0.52, tailY + rightY * bodyHalfWidth * 0.52);
-  bodyPath.lineTo(tailX - rightX * bodyHalfWidth * 0.52, tailY - rightY * bodyHalfWidth * 0.52);
-  bodyPath.lineTo(finX - rightX * finWidth, finY - rightY * finWidth);
-  bodyPath.lineTo(shoulderX - rightX * bodyHalfWidth, shoulderY - rightY * bodyHalfWidth);
-  bodyPath.close();
+  const path = Skia.Path.Make();
+  path.moveTo(tipX, tipY);
+  path.lineTo(baseX + rightX * halfWidth, baseY + rightY * halfWidth);
+  path.lineTo(baseX - rightX * halfWidth, baseY - rightY * halfWidth);
+  path.close();
+  return path;
+}
 
-  return bodyPath;
+function createMissileFinPath(
+  x: number,
+  y: number,
+  forwardX: number,
+  forwardY: number,
+  rightX: number,
+  rightY: number,
+  size: number,
+  side: -1 | 1
+) {
+  const rootX = x + forwardX * (size * 0.26) + rightX * side * (size * 0.44);
+  const rootY = y + forwardY * (size * 0.26) + rightY * side * (size * 0.44);
+  const outerX = x + forwardX * (size * 0.1) + rightX * side * (size * 0.82);
+  const outerY = y + forwardY * (size * 0.1) + rightY * side * (size * 0.82);
+  const tipX = x + forwardX * (size * 0.7) + rightX * side * (size * 0.5);
+  const tipY = y + forwardY * (size * 0.7) + rightY * side * (size * 0.5);
+
+  const path = Skia.Path.Make();
+  path.moveTo(rootX, rootY);
+  path.lineTo(outerX, outerY);
+  path.lineTo(tipX, tipY);
+  path.close();
+  return path;
 }
 
 function createNovaSweepPath(centerX: number, boardWidth: number, boardHeight: number) {
@@ -793,55 +834,90 @@ export function ArenaCanvas({ boardWidth, boardHeight, state }: ArenaCanvasProps
         <Group key={`player-bullet-${bullet.id}`}>
           {(() => {
             const basis = getProjectileBasis(bullet.vx, bullet.vy);
-            const trailLength = bullet.kind === 'missile' ? bullet.size * 4.8 : bullet.kind === 'shard' ? bullet.size * 2.4 : bullet.size * 3.7;
+            const launchScale = 1 + Math.max(0, 0.18 - bullet.age) * 1.15;
+            const renderSize = bullet.size * launchScale;
+            const trailLength = bullet.kind === 'missile' ? renderSize * 4.9 : bullet.kind === 'shard' ? renderSize * 2.8 : renderSize * 3.9;
             const trailTailX = bullet.x - basis.forwardX * trailLength;
             const trailTailY = bullet.y - basis.forwardY * trailLength;
 
             if (bullet.kind === 'missile') {
-              const missilePath = createMissileBodyPath(
+              const missileBodyPath = createMissileBodyPath(
                 bullet.x,
                 bullet.y,
                 basis.forwardX,
                 basis.forwardY,
                 basis.rightX,
                 basis.rightY,
-                bullet.size
+                renderSize
               );
-              const missileCorePath = createOrientedDiamondPath(
-                bullet.x + basis.forwardX * bullet.size * 0.16,
-                bullet.y + basis.forwardY * bullet.size * 0.16,
+              const missileNosePath = createMissileNosePath(
+                bullet.x,
+                bullet.y,
                 basis.forwardX,
                 basis.forwardY,
                 basis.rightX,
                 basis.rightY,
-                bullet.size * 0.62,
-                bullet.size * 0.2
+                renderSize
+              );
+              const missileFinLeftPath = createMissileFinPath(
+                bullet.x,
+                bullet.y,
+                basis.forwardX,
+                basis.forwardY,
+                basis.rightX,
+                basis.rightY,
+                renderSize,
+                -1
+              );
+              const missileFinRightPath = createMissileFinPath(
+                bullet.x,
+                bullet.y,
+                basis.forwardX,
+                basis.forwardY,
+                basis.rightX,
+                basis.rightY,
+                renderSize,
+                1
+              );
+              const missileCorePath = createOrientedRectPath(
+                bullet.x + basis.forwardX * renderSize * 0.08,
+                bullet.y + basis.forwardY * renderSize * 0.08,
+                basis.forwardX,
+                basis.forwardY,
+                basis.rightX,
+                basis.rightY,
+                renderSize * 0.42,
+                renderSize * 0.16
               );
 
               return (
                 <>
                   <Line
                     p1={vec(trailTailX, trailTailY)}
-                    p2={vec(bullet.x - basis.forwardX * bullet.size * 0.8, bullet.y - basis.forwardY * bullet.size * 0.8)}
+                    p2={vec(bullet.x - basis.forwardX * renderSize * 0.84, bullet.y - basis.forwardY * renderSize * 0.84)}
                     color={withAlpha('#FFD4A2', 0.32)}
-                    strokeWidth={bullet.size * 0.96}
+                    strokeWidth={renderSize * 0.98}
                     strokeCap="round"
                   />
                   <Line
                     p1={vec(trailTailX, trailTailY)}
-                    p2={vec(bullet.x - basis.forwardX * bullet.size * 0.9, bullet.y - basis.forwardY * bullet.size * 0.9)}
-                    color={withAlpha('#FFF2D5', 0.42)}
-                    strokeWidth={bullet.size * 0.38}
+                    p2={vec(bullet.x - basis.forwardX * renderSize * 0.9, bullet.y - basis.forwardY * renderSize * 0.9)}
+                    color={withAlpha('#FFF6E3', 0.5)}
+                    strokeWidth={renderSize * 0.4}
                     strokeCap="round"
                   />
-                  <Path path={missilePath} color={bullet.color} />
-                  <Path path={missilePath} style="stroke" strokeWidth={1.2} color={withAlpha('#FFF2DA', 0.88)} />
-                  <Path path={missileCorePath} color={withAlpha('#FFF4DA', 0.76)} />
+                  <Path path={missileBodyPath} color={bullet.color} />
+                  <Path path={missileBodyPath} style="stroke" strokeWidth={1.25} color={withAlpha('#FFEED5', 0.92)} />
+                  <Path path={missileNosePath} color={withAlpha('#FFF4E1', 0.96)} />
+                  <Path path={missileNosePath} style="stroke" strokeWidth={1.1} color={withAlpha('#FFFDF6', 0.9)} />
+                  <Path path={missileFinLeftPath} color={withAlpha('#FFD9B3', 0.92)} />
+                  <Path path={missileFinRightPath} color={withAlpha('#FFD9B3', 0.92)} />
+                  <Path path={missileCorePath} color={withAlpha('#FFF0D2', 0.74)} />
                   <Circle
-                    cx={bullet.x - basis.forwardX * bullet.size * 1.05}
-                    cy={bullet.y - basis.forwardY * bullet.size * 1.05}
-                    r={bullet.size * 0.26}
-                    color={withAlpha('#FFE8BD', 0.75)}
+                    cx={bullet.x - basis.forwardX * renderSize * 1.04}
+                    cy={bullet.y - basis.forwardY * renderSize * 1.04}
+                    r={renderSize * 0.27}
+                    color={withAlpha('#FFE8BD', 0.78)}
                   />
                 </>
               );
@@ -855,20 +931,54 @@ export function ArenaCanvas({ boardWidth, boardHeight, state }: ArenaCanvasProps
                 basis.forwardY,
                 basis.rightX,
                 basis.rightY,
-                bullet.size * 1.25,
-                bullet.size * 0.55
+                renderSize * 1.36,
+                renderSize * 0.62
               );
               return (
                 <>
                   <Line
                     p1={vec(trailTailX, trailTailY)}
-                    p2={vec(bullet.x - basis.forwardX * bullet.size * 0.7, bullet.y - basis.forwardY * bullet.size * 0.7)}
-                    color={withAlpha('#CCE4FF', 0.32)}
-                    strokeWidth={bullet.size * 0.5}
+                    p2={vec(bullet.x - basis.forwardX * renderSize * 0.72, bullet.y - basis.forwardY * renderSize * 0.72)}
+                    color={withAlpha('#CCE4FF', 0.36)}
+                    strokeWidth={renderSize * 0.58}
                     strokeCap="round"
                   />
                   <Path path={shardPath} color={bullet.color} />
                   <Path path={shardPath} style="stroke" strokeWidth={1.1} color={withAlpha('#F2F8FF', 0.86)} />
+                </>
+              );
+            }
+
+            if (bullet.buildFlavor === 'fractureCore') {
+              const fracturePath = createOrientedDiamondPath(
+                bullet.x,
+                bullet.y,
+                basis.forwardX,
+                basis.forwardY,
+                basis.rightX,
+                basis.rightY,
+                renderSize * 1.34,
+                renderSize * 0.54
+              );
+              return (
+                <>
+                  <Line
+                    p1={vec(trailTailX, trailTailY)}
+                    p2={vec(bullet.x - basis.forwardX * renderSize * 0.74, bullet.y - basis.forwardY * renderSize * 0.74)}
+                    color={withAlpha('#DCEBFF', 0.36)}
+                    strokeWidth={renderSize * 0.88}
+                    strokeCap="round"
+                  />
+                  <Line
+                    p1={vec(trailTailX, trailTailY)}
+                    p2={vec(bullet.x - basis.forwardX * renderSize * 0.78, bullet.y - basis.forwardY * renderSize * 0.78)}
+                    color={withAlpha('#F7FCFF', 0.5)}
+                    strokeWidth={renderSize * 0.34}
+                    strokeCap="round"
+                  />
+                  <Path path={fracturePath} color={withAlpha(bullet.color, 0.94)} />
+                  <Path path={fracturePath} style="stroke" strokeWidth={1.25} color={withAlpha('#F5FAFF', 0.92)} />
+                  <Circle cx={bullet.x} cy={bullet.y} r={renderSize * 0.22} color={withAlpha('#F8FDFF', 0.62)} />
                 </>
               );
             }
@@ -880,23 +990,23 @@ export function ArenaCanvas({ boardWidth, boardHeight, state }: ArenaCanvasProps
               basis.forwardY,
               basis.rightX,
               basis.rightY,
-              bullet.size * 1.06,
-              bullet.size * 0.34
+              renderSize * 1.1,
+              renderSize * 0.36
             );
             return (
               <>
                 <Line
                   p1={vec(trailTailX, trailTailY)}
-                  p2={vec(bullet.x - basis.forwardX * bullet.size * 0.7, bullet.y - basis.forwardY * bullet.size * 0.7)}
+                  p2={vec(bullet.x - basis.forwardX * renderSize * 0.72, bullet.y - basis.forwardY * renderSize * 0.72)}
                   color={withAlpha('#FFE6A8', 0.34)}
-                  strokeWidth={bullet.size * 0.86}
+                  strokeWidth={renderSize * 0.86}
                   strokeCap="round"
                 />
                 <Line
                   p1={vec(trailTailX, trailTailY)}
-                  p2={vec(bullet.x - basis.forwardX * bullet.size * 0.7, bullet.y - basis.forwardY * bullet.size * 0.7)}
+                  p2={vec(bullet.x - basis.forwardX * renderSize * 0.7, bullet.y - basis.forwardY * renderSize * 0.7)}
                   color={withAlpha('#FFF8DE', 0.46)}
-                  strokeWidth={bullet.size * 0.32}
+                  strokeWidth={renderSize * 0.32}
                   strokeCap="round"
                 />
                 <Path path={boltPath} color={bullet.color} />

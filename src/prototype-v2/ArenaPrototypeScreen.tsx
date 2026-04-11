@@ -620,22 +620,15 @@ export function ArenaPrototypeScreen({ onSwitchGame }: ArenaPrototypeScreenProps
               })}
             </View>
 
-            <Text style={arenaStyles.menuLabel}>Build Details</Text>
-            <View style={arenaStyles.menuBuildDetails}>
-              {ARENA_BUILD_ORDER.map((buildId) => {
-                const buildMeta = ARENA_BUILD_META[buildId];
-                return (
-                  <View key={`build-details-${buildId}`} style={arenaStyles.menuBuildDetailsCard}>
-                    <Text style={[arenaStyles.menuBuildDetailsTitle, { color: buildMeta.accent }]}>
-                      {buildMeta.label}
-                    </Text>
-                    <Text style={arenaStyles.menuBuildDetailsText}>{buildMeta.description}</Text>
-                    <Text style={arenaStyles.menuBuildDetailsText}>
-                      Ultimate: {buildMeta.ultimateLabel}. {buildMeta.ultimateDescription}
-                    </Text>
-                  </View>
-                );
-              })}
+            <Text style={arenaStyles.menuLabel}>Notes</Text>
+            <View style={arenaStyles.menuBuildDetailsCard}>
+              <Text style={[arenaStyles.menuBuildDetailsTitle, { color: activeBuildMeta.accent }]}>
+                {activeBuildMeta.label}
+              </Text>
+              <Text style={arenaStyles.menuBuildDetailsText}>{activeBuildMeta.description}</Text>
+              <Text style={arenaStyles.menuBuildDetailsText}>
+                Ultimate: {activeBuildMeta.ultimateLabel}. {activeBuildMeta.ultimateDescription}
+              </Text>
             </View>
 
             <View style={arenaStyles.menuActions}>
