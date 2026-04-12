@@ -29,7 +29,12 @@ import type {
   ArenaProjectile,
   ArenaWeapon,
 } from './types';
-import { ARENA_ARMORY_UPGRADES, createArenaArmoryChoice, createArenaBossArmoryChoice } from './upgrades';
+import {
+  ARENA_ARMORY_UPGRADES,
+  createArenaArmoryChoice,
+  createArenaBossArmoryChoice,
+  isArenaArmoryUpgradeMaxed,
+} from './upgrades';
 
 const ARENA_MINI_BOSS_TIER_INTERVAL = 3;
 const ARENA_BOSS_TIER_INTERVAL = 6;
@@ -37,7 +42,7 @@ const ARENA_ANNOUNCEMENT_DURATION_SECONDS = 1.75;
 const ARENA_MAX_ULTIMATE_CHARGE = 100;
 const ARENA_ULTIMATE_DURATION_SECONDS = 1.15;
 const ARENA_BUILD_DEFAULT: ArenaBuildId = 'railFocus';
-const ARENA_GLOBAL_HEALTH_MULTIPLIER = 1.16;
+const ARENA_GLOBAL_HEALTH_MULTIPLIER = 1.38;
 
 function clamp(value: number, min: number, max: number) {
   return Math.max(min, Math.min(max, value));
@@ -527,9 +532,12 @@ function spawnEnemy(
     config.size / 2 + 18,
     zoneMaxY - config.size / 2 - 10
   );
+  const archetypeHealthMultiplier =
+    kind === 'prismBoss' ? 2.3 : kind === 'interceptor' ? 1.4 : 1;
   const health = Math.round(
     (config.baseHealth + (displayTier - 1) * config.healthPerTier + Math.random() * config.healthPerTier * 0.35) *
       (options?.healthMultiplier ?? 1) *
+      archetypeHealthMultiplier *
       (displayTier <= 10 ? 1.24 - (displayTier - 1) * 0.02 : 1) *
       ARENA_GLOBAL_HEALTH_MULTIPLIER
   );
@@ -723,12 +731,12 @@ function createDrop(state: ArenaGameState, x: number, y: number, type: ArenaDrop
 function maybeSpawnEnemyDrop(state: ArenaGameState, enemy: ArenaEnemy) {
   const chance =
     enemy.kind === 'tank'
-      ? 0.28
+      ? 0.14
       : enemy.kind === 'bomber'
-        ? 0.2
+        ? 0.1
         : enemy.kind === 'burst'
-          ? 0.14
-          : 0.09;
+          ? 0.07
+          : 0.045;
   if (Math.random() > chance) {
     return;
   }
@@ -829,7 +837,7 @@ function applyDamageToEnemy(
   }
 
   state.score += enemy.reward;
-  state.salvage += Math.max(12, Math.round(enemy.reward / 6));
+  state.salvage += Math.max(7, Math.round(enemy.reward / 9.5));
   queueEffect(state, 'burst', enemy.x, enemy.y, enemy.size * 1.24, enemy.color, {
     flavor: 'enemy',
     intensity: 1.2,
@@ -1226,6 +1234,10 @@ export function applyArenaArmoryUpgrade(
   previousState: ArenaGameState,
   key: ArenaArmoryUpgradeKey
 ): ArenaGameState {
+  if (isArenaArmoryUpgradeMaxed(key, previousState.weapon)) {
+    return previousState;
+  }
+
   const definition = ARENA_ARMORY_UPGRADES[key];
   const hullBonus = definition.applyMeta?.hullBonus ?? 0;
   const shieldBonus = definition.applyMeta?.shieldBonus ?? 0;

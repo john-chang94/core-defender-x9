@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
 import type { LayoutChangeEvent } from 'react-native';
-import { Pressable, SafeAreaView, StyleSheet, Text, View, useWindowDimensions } from 'react-native';
+import { Pressable, SafeAreaView, ScrollView, StyleSheet, Text, View, useWindowDimensions } from 'react-native';
 import { Gesture, GestureDetector } from 'react-native-gesture-handler';
 import Animated, { useAnimatedStyle, useSharedValue } from 'react-native-reanimated';
 
@@ -27,7 +27,7 @@ import {
 } from './engine';
 import { ArenaCanvas } from './ArenaCanvas';
 import { ARENA_BUILD_META, ARENA_BUILD_ORDER } from './builds';
-import { ARENA_ARMORY_UPGRADES } from './upgrades';
+import { ARENA_ARMORY_UPGRADES, ARENA_ARMORY_UPGRADE_ORDER, isArenaArmoryUpgradeMaxed } from './upgrades';
 import type { ArenaBuildId, ArenaDrop, ArenaEnemy, ArenaVfxQuality } from './types';
 
 type AppGameId = 'defender' | 'prototype' | 'prototypeV2';
@@ -279,6 +279,15 @@ export function ArenaPrototypeScreen({ onSwitchGame }: ArenaPrototypeScreenProps
     gameState.pendingArmoryChoice?.source === 'boss'
       ? 'Boss cache unlocked. Pick one premium install.'
       : `Salvage spent ${gameState.pendingArmoryChoice?.cost}. Next draft ${gameState.nextArmoryCost}.`;
+  const armoryUpgrades = ARENA_ARMORY_UPGRADE_ORDER.map((key) => {
+    const definition = ARENA_ARMORY_UPGRADES[key];
+    const isMaxed = isArenaArmoryUpgradeMaxed(key, gameState.weapon);
+    return {
+      key,
+      definition,
+      isMaxed,
+    };
+  });
 
   const canControlShip = boardSize.width > 0 && boardSize.height > 0 && !isMenuOpen && !isArmoryOpen && hasStarted && !isPaused && gameState.status === 'running';
   const panGesture = useMemo(
@@ -330,6 +339,13 @@ export function ArenaPrototypeScreen({ onSwitchGame }: ArenaPrototypeScreenProps
   };
 
   const handleSelectArmoryUpgrade = (key: keyof typeof ARENA_ARMORY_UPGRADES) => {
+    if (!gameState.pendingArmoryChoice) {
+      return;
+    }
+    if (isArenaArmoryUpgradeMaxed(key, gameState.weapon)) {
+      return;
+    }
+
     setGameState((previousState) => {
       if (!previousState.pendingArmoryChoice) {
         return previousState;
@@ -589,20 +605,33 @@ export function ArenaPrototypeScreen({ onSwitchGame }: ArenaPrototypeScreenProps
               <Text style={arenaStyles.armorySubtitle}>{armorySubtitle}</Text>
               <Text style={arenaStyles.armoryPrompt}>{gameState.pendingArmoryChoice?.prompt}</Text>
 
-              <View style={arenaStyles.armoryOptions}>
-                {gameState.pendingArmoryChoice?.options.map((key) => {
-                  const definition = ARENA_ARMORY_UPGRADES[key];
-                  return (
-                    <Pressable
-                      key={key}
-                      onPress={() => handleSelectArmoryUpgrade(key)}
-                      style={arenaStyles.armoryCard}>
-                      <Text style={arenaStyles.armoryCardLabel}>{definition.label}</Text>
-                      <Text style={arenaStyles.armoryCardText}>{definition.summary}</Text>
-                    </Pressable>
-                  );
-                })}
-              </View>
+              <ScrollView style={arenaStyles.armoryOptionsScroll} contentContainerStyle={arenaStyles.armoryOptions}>
+                {armoryUpgrades.map(({ key, definition, isMaxed }) => (
+                  <Pressable
+                    key={key}
+                    disabled={isMaxed}
+                    onPress={() => handleSelectArmoryUpgrade(key)}
+                    style={[arenaStyles.armoryCard, isMaxed && arenaStyles.armoryCardDisabled]}>
+                    {isMaxed ? (
+                      <View style={arenaStyles.armoryCardMaxBadge}>
+                        <Text style={arenaStyles.armoryCardMaxBadgeText}>MAX</Text>
+                      </View>
+                    ) : null}
+                    <View style={arenaStyles.armoryCardTopRow}>
+                      <Text style={arenaStyles.armoryCardIcon}>{definition.icon}</Text>
+                      <Text style={[arenaStyles.armoryCardStat, isMaxed && arenaStyles.armoryCardStatDisabled]}>
+                        {definition.statLine}
+                      </Text>
+                    </View>
+                    <Text numberOfLines={1} style={[arenaStyles.armoryCardLabel, isMaxed && arenaStyles.armoryCardLabelDisabled]}>
+                      {definition.label}
+                    </Text>
+                    <Text numberOfLines={1} style={[arenaStyles.armoryCardText, isMaxed && arenaStyles.armoryCardTextDisabled]}>
+                      {definition.compactHint}
+                    </Text>
+                  </Pressable>
+                ))}
+              </ScrollView>
             </View>
           </View>
         ) : null}
@@ -1334,50 +1363,108 @@ const arenaStyles = StyleSheet.create({
   armoryPanel: {
     width: '100%',
     maxWidth: 380,
+    maxHeight: '86%',
     borderRadius: 18,
     borderWidth: 1,
     borderColor: '#37536F',
     backgroundColor: '#0E1826',
-    paddingHorizontal: 18,
-    paddingVertical: 18,
-    gap: 10,
+    paddingHorizontal: 14,
+    paddingVertical: 14,
+    gap: 8,
   },
   armoryTitle: {
     color: '#F5FAFF',
-    fontSize: 18,
+    fontSize: 17,
     fontWeight: '900',
   },
   armorySubtitle: {
     color: '#8FB2D4',
-    fontSize: 12,
+    fontSize: 11,
     fontWeight: '700',
   },
   armoryPrompt: {
     color: '#B9CCDF',
-    fontSize: 13,
-    lineHeight: 18,
+    fontSize: 11.5,
+    lineHeight: 16,
+  },
+  armoryOptionsScroll: {
+    maxHeight: 360,
   },
   armoryOptions: {
-    gap: 10,
+    flexDirection: 'row',
+    flexWrap: 'wrap',
+    gap: 8,
+    paddingBottom: 4,
   },
   armoryCard: {
+    width: '48%',
+    minHeight: 86,
     borderRadius: 12,
     borderWidth: 1,
     borderColor: '#385470',
     backgroundColor: '#132131',
-    paddingHorizontal: 14,
-    paddingVertical: 12,
+    paddingHorizontal: 10,
+    paddingVertical: 8,
     gap: 4,
+    position: 'relative',
+  },
+  armoryCardDisabled: {
+    borderColor: '#29415B',
+    backgroundColor: '#101B2A',
+    opacity: 0.85,
+  },
+  armoryCardTopRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 6,
+  },
+  armoryCardIcon: {
+    color: '#BFD6F2',
+    fontSize: 12,
+    fontWeight: '900',
+  },
+  armoryCardStat: {
+    color: '#DFF1FF',
+    fontSize: 11,
+    fontWeight: '900',
+    letterSpacing: 0.2,
+  },
+  armoryCardStatDisabled: {
+    color: '#8FA7C1',
   },
   armoryCardLabel: {
     color: '#F3F8FF',
-    fontSize: 15,
+    fontSize: 12,
     fontWeight: '800',
+  },
+  armoryCardLabelDisabled: {
+    color: '#A8BAD0',
   },
   armoryCardText: {
     color: '#B4C7DB',
-    fontSize: 12,
-    lineHeight: 17,
+    fontSize: 10.5,
+    lineHeight: 14,
+  },
+  armoryCardTextDisabled: {
+    color: '#7F96AF',
+  },
+  armoryCardMaxBadge: {
+    position: 'absolute',
+    top: 6,
+    right: 6,
+    borderRadius: 6,
+    borderWidth: 1,
+    borderColor: '#6C8AA8',
+    backgroundColor: 'rgba(15, 30, 47, 0.92)',
+    paddingHorizontal: 4,
+    paddingVertical: 1,
+    zIndex: 2,
+  },
+  armoryCardMaxBadgeText: {
+    color: '#D2E5FA',
+    fontSize: 8.5,
+    fontWeight: '900',
+    letterSpacing: 0.4,
   },
   menuPanel: {
     position: 'absolute',
