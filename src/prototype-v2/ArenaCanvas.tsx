@@ -18,12 +18,13 @@ import {
   ARENA_ENEMY_ZONE_RATIO,
   ARENA_TIER_DURATION_SECONDS,
 } from './config';
-import type { ArenaEnemy, ArenaGameState } from './types';
+import type { ArenaEnemy, ArenaGameState, ArenaVfxQuality } from './types';
 
 type ArenaCanvasProps = {
   boardWidth: number;
   boardHeight: number;
   state: ArenaGameState;
+  vfxQuality: ArenaVfxQuality;
 };
 
 const MAX_RENDERED_EFFECTS = 48;
@@ -164,6 +165,42 @@ function getBuildProjectilePalette(buildFlavor: ArenaGameState['activeBuild'] | 
     trailOuter: withAlpha('#FFD8A9', 0.35),
     trailInner: withAlpha('#FFF4E1', 0.52),
     halo: '#FFE5BF',
+  };
+}
+
+function getUltimateScreenPalette(build: ArenaGameState['ultimateBuild']) {
+  if (build === 'railFocus') {
+    return {
+      flash: '#CFE3FF',
+      ring: '#EAF4FF',
+      line: '#D2E4FF',
+    };
+  }
+  if (build === 'novaBloom') {
+    return {
+      flash: '#FFD3E8',
+      ring: '#FFE6F2',
+      line: '#FFC2E0',
+    };
+  }
+  if (build === 'missileCommand') {
+    return {
+      flash: '#FFD9B0',
+      ring: '#FFEED8',
+      line: '#FFC48D',
+    };
+  }
+  if (build === 'fractureCore') {
+    return {
+      flash: '#D4E4FF',
+      ring: '#EDF4FF',
+      line: '#C4D7F6',
+    };
+  }
+  return {
+    flash: '#DCE8F8',
+    ring: '#F0F5FF',
+    line: '#D0DDF0',
   };
 }
 
@@ -521,11 +558,15 @@ function PathOrFallback({
   );
 }
 
-export function ArenaCanvas({ boardWidth, boardHeight, state }: ArenaCanvasProps) {
+export function ArenaCanvas({ boardWidth, boardHeight, state, vfxQuality }: ArenaCanvasProps) {
   const displayTier = Math.floor(state.elapsed / ARENA_TIER_DURATION_SECONDS) + 1;
   const themeIndex = Math.floor((displayTier - 1) / 5) % ARENA_THEMES.length;
   const theme = ARENA_THEMES[themeIndex];
   const themePulse = 0.5 + Math.sin(state.elapsed * 0.45) * 0.5;
+  const isHighVfx = vfxQuality === 'high';
+  const maxRenderedEffects = isHighVfx ? MAX_RENDERED_EFFECTS : 34;
+  const maxRenderedPlayerBullets = isHighVfx ? MAX_RENDERED_PLAYER_BULLETS : 74;
+  const maxRenderedEnemyBullets = isHighVfx ? MAX_RENDERED_ENEMY_BULLETS : 40;
 
   const verticalGridLines = useMemo(() => {
     const lineCount = Math.max(6, Math.floor(boardWidth / 62));
@@ -572,11 +613,12 @@ export function ArenaCanvas({ boardWidth, boardHeight, state }: ArenaCanvasProps
     };
   }, [boardHeight, boardWidth, horizontalGridLines, theme, verticalGridLines]);
 
-  const sampledEffects = useMemo(() => sampleForRender(state.effects, MAX_RENDERED_EFFECTS), [state.effects]);
-  const sampledPlayerBullets = useMemo(() => sampleForRender(state.playerBullets, MAX_RENDERED_PLAYER_BULLETS), [state.playerBullets]);
-  const sampledEnemyBullets = useMemo(() => sampleForRender(state.enemyBullets, MAX_RENDERED_ENEMY_BULLETS), [state.enemyBullets]);
+  const sampledEffects = useMemo(() => sampleForRender(state.effects, maxRenderedEffects), [maxRenderedEffects, state.effects]);
+  const sampledPlayerBullets = useMemo(() => sampleForRender(state.playerBullets, maxRenderedPlayerBullets), [maxRenderedPlayerBullets, state.playerBullets]);
+  const sampledEnemyBullets = useMemo(() => sampleForRender(state.enemyBullets, maxRenderedEnemyBullets), [maxRenderedEnemyBullets, state.enemyBullets]);
   const ultimateStrength = Math.max(0, Math.min(1, state.ultimateTimer / 1.6));
   const ultimatePulse = 0.5 + Math.sin(state.elapsed * 16) * 0.5;
+  const ultimateScreenPalette = getUltimateScreenPalette(state.ultimateBuild);
 
   return (
     <Canvas pointerEvents="none" style={{ width: boardWidth, height: boardHeight }}>
@@ -588,37 +630,41 @@ export function ArenaCanvas({ boardWidth, boardHeight, state }: ArenaCanvasProps
 
       <Rect x={0} y={0} width={boardWidth} height={boardHeight} color={withAlpha(theme.overlay, 0.06 + themePulse * 0.05)} />
 
-      {ATMOSPHERE_ORBS.map((orb, index) => {
-        const travel = boardHeight + orb.radius * 2 + 220;
-        const orbY = ((orb.y + state.elapsed * orb.speed) % travel) - orb.radius - 100;
-        const orbX = boardWidth * orb.x + Math.sin(state.elapsed * 0.42 + index * 1.3) * 18;
-        return (
-          <Circle
-            key={`orb-${index}`}
-            cx={orbX}
-            cy={orbY}
-            r={orb.radius}
-            color={withAlpha(orb.color, orb.opacity)}
-          />
-        );
-      })}
+      {isHighVfx
+        ? ATMOSPHERE_ORBS.map((orb, index) => {
+            const travel = boardHeight + orb.radius * 2 + 220;
+            const orbY = ((orb.y + state.elapsed * orb.speed) % travel) - orb.radius - 100;
+            const orbX = boardWidth * orb.x + Math.sin(state.elapsed * 0.42 + index * 1.3) * 18;
+            return (
+              <Circle
+                key={`orb-${index}`}
+                cx={orbX}
+                cy={orbY}
+                r={orb.radius}
+                color={withAlpha(orb.color, orb.opacity)}
+              />
+            );
+          })
+        : null}
 
-      {ENERGY_SWEEPS.map((sweep, index) => {
-        const travel = boardHeight + sweep.height + 180;
-        const sweepY = ((state.elapsed * sweep.speed + index * 170) % travel) - sweep.height - 90;
-        const sweepX = boardWidth * sweep.x + Math.cos(state.elapsed * 0.31 + index * 0.9) * 14;
-        return (
-          <RoundedRect
-            key={`sweep-${index}`}
-            x={sweepX - sweep.width * 0.5}
-            y={sweepY}
-            width={sweep.width}
-            height={sweep.height}
-            r={sweep.width * 0.5}
-            color={withAlpha(sweep.color, 0.05)}
-          />
-        );
-      })}
+      {isHighVfx
+        ? ENERGY_SWEEPS.map((sweep, index) => {
+            const travel = boardHeight + sweep.height + 180;
+            const sweepY = ((state.elapsed * sweep.speed + index * 170) % travel) - sweep.height - 90;
+            const sweepX = boardWidth * sweep.x + Math.cos(state.elapsed * 0.31 + index * 0.9) * 14;
+            return (
+              <RoundedRect
+                key={`sweep-${index}`}
+                x={sweepX - sweep.width * 0.5}
+                y={sweepY}
+                width={sweep.width}
+                height={sweep.height}
+                r={sweep.width * 0.5}
+                color={withAlpha(sweep.color, 0.05)}
+              />
+            );
+          })
+        : null}
 
       {BACKGROUND_PLATES.map((plate, index) => {
         const travel = boardHeight + plate.height + 180;
@@ -648,17 +694,53 @@ export function ArenaCanvas({ boardWidth, boardHeight, state }: ArenaCanvasProps
         );
       })}
 
-      <RoundedRect
-        x={boardWidth * 0.5 - Math.min(90, boardWidth * 0.18)}
-        y={boardHeight - 70}
-        width={Math.min(180, boardWidth * 0.36)}
-        height={62}
-        r={999}
-        color={withAlpha(theme.pulse, 0.06 + themePulse * 0.05)}
-      />
+      {isHighVfx ? (
+        <RoundedRect
+          x={boardWidth * 0.5 - Math.min(90, boardWidth * 0.18)}
+          y={boardHeight - 70}
+          width={Math.min(180, boardWidth * 0.36)}
+          height={62}
+          r={999}
+          color={withAlpha(theme.pulse, 0.06 + themePulse * 0.05)}
+        />
+      ) : null}
 
       {state.ultimateTimer > 0 ? (
         <Group opacity={0.24 + ultimateStrength * 0.76}>
+          <Rect
+            x={0}
+            y={0}
+            width={boardWidth}
+            height={boardHeight}
+            color={withAlpha(ultimateScreenPalette.flash, 0.04 + ultimateStrength * 0.08)}
+          />
+          <Circle
+            cx={state.playerX}
+            cy={boardHeight - 22}
+            r={boardWidth * (0.08 + ultimateStrength * 0.24)}
+            color={withAlpha(ultimateScreenPalette.ring, 0.08 + ultimatePulse * 0.08)}
+          />
+          <Circle
+            cx={state.playerX}
+            cy={boardHeight - 22}
+            r={boardWidth * (0.06 + ultimateStrength * 0.2)}
+            style="stroke"
+            strokeWidth={isHighVfx ? 2.6 : 1.7}
+            color={withAlpha(ultimateScreenPalette.ring, 0.34 + ultimatePulse * 0.16)}
+          />
+          {(isHighVfx ? [0.14, 0.32, 0.5, 0.68, 0.86] : [0.2, 0.5, 0.8]).map((lane, index) => {
+            const sway = Math.sin(state.elapsed * 3 + index * 0.8) * 8;
+            return (
+              <Line
+                key={`ultimate-screen-lane-${index}`}
+                p1={vec(boardWidth * lane + sway, 0)}
+                p2={vec(boardWidth * lane - sway * 0.35, boardHeight)}
+                color={withAlpha(ultimateScreenPalette.line, isHighVfx ? 0.12 : 0.08)}
+                strokeWidth={isHighVfx ? 1.5 : 1}
+              />
+            );
+          })}
+
           {state.ultimateBuild === 'railFocus' ? (
             <>
               <Rect
@@ -919,18 +1001,78 @@ export function ArenaCanvas({ boardWidth, boardHeight, state }: ArenaCanvasProps
         }
 
         if (effect.kind === 'burst') {
-          const ringRadius = size * (0.26 + progress * 0.48);
-          const innerRadius = size * (0.08 + progress * 0.16);
-          const sparkCount = 6;
+          const intensity = clamp(effect.intensity ?? 1, 0.72, 1.8);
+          const ringRadius = size * (0.24 + progress * 0.5) * (0.92 + intensity * 0.22);
+          const innerRadius = size * (0.08 + progress * 0.16) * (0.9 + intensity * 0.16);
+          const flavor = effect.flavor ?? 'neutral';
+          const sparkCount =
+            flavor === 'missileCommand'
+              ? isHighVfx
+                ? 10
+                : 7
+              : flavor === 'fractureCore'
+                ? isHighVfx
+                  ? 9
+                  : 6
+                : flavor === 'novaBloom'
+                  ? isHighVfx
+                    ? 8
+                    : 6
+                  : isHighVfx
+                    ? 7
+                    : 5;
+          const ringColor =
+            flavor === 'railFocus'
+              ? '#D6E7FF'
+              : flavor === 'novaBloom'
+                ? '#FFD5EA'
+                : flavor === 'missileCommand'
+                  ? '#FFDDB2'
+                  : flavor === 'fractureCore'
+                    ? '#D8E7FA'
+                    : flavor === 'enemy'
+                      ? '#FF9E94'
+                      : effect.color;
+          const sparkPrimary =
+            flavor === 'missileCommand'
+              ? '#FFE5C4'
+              : flavor === 'novaBloom'
+                ? '#FFE7F4'
+                : flavor === 'fractureCore'
+                  ? '#F1F7FF'
+                  : '#FFF5DE';
+          const sparkSecondary =
+            flavor === 'enemy'
+              ? '#FF8C82'
+              : flavor === 'missileCommand'
+                ? '#FFC48C'
+                : flavor === 'novaBloom'
+                  ? '#FFB8DB'
+                  : flavor === 'fractureCore'
+                    ? '#CFE0F5'
+                    : ringColor;
           return (
             <Group key={effect.id}>
-              <Circle cx={effect.x} cy={effect.y} r={size * 0.56} color={withAlpha(effect.color, 0.05 + opacity * 0.09)} />
-              <Circle cx={effect.x} cy={effect.y} r={ringRadius} style="stroke" strokeWidth={2.2 - progress * 0.8} color={withAlpha(effect.color, 0.42 + opacity * 0.38)} />
-              <Circle cx={effect.x} cy={effect.y} r={innerRadius} color={withAlpha('#FFF3DA', 0.52 + opacity * 0.32)} />
+              <Circle cx={effect.x} cy={effect.y} r={size * 0.56 * (0.9 + intensity * 0.2)} color={withAlpha(ringColor, 0.05 + opacity * 0.1)} />
+              <Circle cx={effect.x} cy={effect.y} r={ringRadius} style="stroke" strokeWidth={(2.2 - progress * 0.8) * (0.92 + intensity * 0.16)} color={withAlpha(ringColor, 0.42 + opacity * 0.4)} />
+              <Circle cx={effect.x} cy={effect.y} r={innerRadius} color={withAlpha('#FFF3DA', 0.48 + opacity * 0.34)} />
+              {flavor === 'missileCommand' ? (
+                <Circle
+                  cx={effect.x + Math.sin(progress * Math.PI * 2 + effect.x * 0.01) * 4}
+                  cy={effect.y + Math.cos(progress * Math.PI * 2 + effect.y * 0.01) * 4}
+                  r={size * (0.16 + progress * 0.08)}
+                  color={withAlpha('#FFB988', 0.2 + opacity * 0.24)}
+                />
+              ) : null}
               {Array.from({ length: sparkCount }, (_, index) => {
                 const angle = (Math.PI * 2 * index) / sparkCount + effect.x * 0.013 + effect.y * 0.009;
                 const sparkStart = size * (0.12 + progress * 0.2);
-                const sparkEnd = size * (0.28 + progress * 0.5);
+                const sparkEnd =
+                  flavor === 'railFocus'
+                    ? size * (0.34 + progress * 0.62)
+                    : flavor === 'missileCommand'
+                      ? size * (0.32 + progress * 0.56)
+                      : size * (0.28 + progress * 0.5);
                 const startX = effect.x + Math.cos(angle) * sparkStart;
                 const startY = effect.y + Math.sin(angle) * sparkStart;
                 const endX = effect.x + Math.cos(angle) * sparkEnd;
@@ -940,12 +1082,28 @@ export function ArenaCanvas({ boardWidth, boardHeight, state }: ArenaCanvasProps
                     key={`${effect.id}-spark-${index}`}
                     p1={vec(startX, startY)}
                     p2={vec(endX, endY)}
-                    color={withAlpha(index % 2 === 0 ? '#FFF5DE' : effect.color, 0.42 + opacity * 0.32)}
-                    strokeWidth={index % 2 === 0 ? 1.9 : 1.3}
+                    color={withAlpha(index % 2 === 0 ? sparkPrimary : sparkSecondary, 0.42 + opacity * 0.34)}
+                    strokeWidth={index % 2 === 0 ? 1.9 + intensity * 0.16 : 1.2 + intensity * 0.14}
                     strokeCap="round"
                   />
                 );
               })}
+              {flavor === 'novaBloom'
+                ? Array.from({ length: isHighVfx ? 6 : 4 }, (_, index) => {
+                    const angle = (Math.PI * 2 * index) / (isHighVfx ? 6 : 4) + progress * 0.8;
+                    const petalX = effect.x + Math.cos(angle) * size * (0.18 + progress * 0.18);
+                    const petalY = effect.y + Math.sin(angle) * size * (0.18 + progress * 0.18);
+                    return (
+                      <Circle
+                        key={`${effect.id}-petal-${index}`}
+                        cx={petalX}
+                        cy={petalY}
+                        r={size * 0.06}
+                        color={withAlpha('#FFE1F0', 0.35 + opacity * 0.28)}
+                      />
+                    );
+                  })
+                : null}
             </Group>
           );
         }
@@ -961,6 +1119,20 @@ export function ArenaCanvas({ boardWidth, boardHeight, state }: ArenaCanvasProps
         }
 
         if (effect.kind === 'muzzle') {
+          const flavor = effect.flavor ?? 'neutral';
+          const intensity = clamp(effect.intensity ?? 1, 0.75, 1.6);
+          const flareColor =
+            flavor === 'railFocus'
+              ? '#D9E8FF'
+              : flavor === 'novaBloom'
+                ? '#FFD1E8'
+                : flavor === 'missileCommand'
+                  ? '#FFDDB1'
+                  : flavor === 'fractureCore'
+                    ? '#DCE9FA'
+                    : flavor === 'enemy'
+                      ? '#FFD9C5'
+                      : effect.color;
           const flareHeight = effect.size * (0.92 + progress * 0.42);
           const coreHeight = effect.size * (0.52 + progress * 0.18);
           return (
@@ -971,7 +1143,7 @@ export function ArenaCanvas({ boardWidth, boardHeight, state }: ArenaCanvasProps
                 width={effect.size * 0.56}
                 height={flareHeight}
                 r={999}
-                color={withAlpha(effect.color, 0.28 + opacity * 0.34)}
+                color={withAlpha(flareColor, 0.24 + opacity * (0.32 + intensity * 0.08))}
               />
               <RoundedRect
                 x={effect.x - effect.size * 0.14}
@@ -981,7 +1153,7 @@ export function ArenaCanvas({ boardWidth, boardHeight, state }: ArenaCanvasProps
                 r={999}
                 color={withAlpha('#FFF7E8', 0.48 + opacity * 0.4)}
               />
-              <Circle cx={effect.x} cy={effect.y - flareHeight * 0.85} r={effect.size * 0.17} color={withAlpha('#FFEED2', 0.66 + opacity * 0.2)} />
+              <Circle cx={effect.x} cy={effect.y - flareHeight * 0.85} r={effect.size * 0.17 * (0.9 + intensity * 0.15)} color={withAlpha('#FFEED2', 0.62 + opacity * 0.26)} />
             </Group>
           );
         }

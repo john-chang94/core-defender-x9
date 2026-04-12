@@ -13,6 +13,8 @@ export type ArenaEnemyShape = 'circle' | 'square' | 'diamond';
 export type ArenaProjectileOwner = 'player' | 'enemy';
 export type ArenaProjectileKind = 'primary' | 'missile' | 'shard' | 'enemy';
 export type ArenaBuildId = 'railFocus' | 'novaBloom' | 'missileCommand' | 'fractureCore';
+export type ArenaVfxQuality = 'balanced' | 'high';
+export type ArenaEffectFlavor = ArenaBuildId | 'enemy' | 'neutral';
 
 export type ArenaEffectKind =
   | 'muzzle'
@@ -101,6 +103,8 @@ export type ArenaEncounter = {
 export type ArenaEffect = {
   id: string;
   kind: ArenaEffectKind;
+  flavor?: ArenaEffectFlavor;
+  intensity?: number;
   x: number;
   y: number;
   size: number;

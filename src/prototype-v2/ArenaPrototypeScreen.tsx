@@ -28,7 +28,7 @@ import {
 import { ArenaCanvas } from './ArenaCanvas';
 import { ARENA_BUILD_META, ARENA_BUILD_ORDER } from './builds';
 import { ARENA_ARMORY_UPGRADES } from './upgrades';
-import type { ArenaBuildId, ArenaDrop, ArenaEnemy } from './types';
+import type { ArenaBuildId, ArenaDrop, ArenaEnemy, ArenaVfxQuality } from './types';
 
 type AppGameId = 'defender' | 'prototype' | 'prototypeV2';
 
@@ -110,6 +110,7 @@ export function ArenaPrototypeScreen({ onSwitchGame }: ArenaPrototypeScreenProps
   const [hasStarted, setHasStarted] = useState(false);
   const [isPaused, setIsPaused] = useState(true);
   const [isMenuOpen, setIsMenuOpen] = useState(false);
+  const [vfxQuality, setVfxQuality] = useState<ArenaVfxQuality>('high');
   const hasInitializedBoardRef = useRef(false);
   const playerVisualX = useSharedValue(900 / 2);
   const isArmoryOpen = gameState.pendingArmoryChoice !== null;
@@ -239,26 +240,13 @@ export function ArenaPrototypeScreen({ onSwitchGame }: ArenaPrototypeScreenProps
   const healthProgress = clamp(gameState.hull / Math.max(1, gameState.maxHull), 0, 1);
   const shieldProgress = clamp(gameState.shield / Math.max(1, gameState.maxShield), 0, 1);
   const salvageProgress = clamp(gameState.salvage / Math.max(1, gameState.nextArmoryCost), 0, 1);
-  const impactEffectCount = gameState.effects.reduce((count, effect) => {
-    if (
-      effect.kind === 'burst' ||
-      effect.kind === 'fractureBits' ||
-      effect.kind === 'ultimateRail' ||
-      effect.kind === 'ultimateNova' ||
-      effect.kind === 'ultimateMissile' ||
-      effect.kind === 'ultimateFracture'
-    ) {
-      return count + 1;
-    }
-    return count;
-  }, 0);
-  const boardShakeStrength = clamp(
-    gameState.playerFlash * 0.96 +
-      Math.min(1, impactEffectCount / 12) * 0.42 +
-      (gameState.ultimateTimer > 0 ? 0.4 : 0),
-    0,
-    1
-  );
+  const shakeEnabled =
+    hasStarted && !isPaused && !isArmoryOpen && !isMenuOpen && gameState.status === 'running';
+  const overdriveShake =
+    gameState.overclockTimer > 0 ? 0.18 + Math.min(1, gameState.overclockTimer / 6) * 0.34 : 0;
+  const ultimateShake =
+    gameState.ultimateTimer > 0 ? 0.36 + Math.min(1, gameState.ultimateTimer / 1.6) * 0.46 : 0;
+  const boardShakeStrength = shakeEnabled ? clamp(Math.max(overdriveShake, ultimateShake), 0, 1) : 0;
   const boardShakeX = Math.sin(gameState.elapsed * 76) * boardShakeStrength * 1.5;
   const boardShakeY = Math.cos(gameState.elapsed * 63) * boardShakeStrength * 1.05;
   const hasEncounterAnnouncement = gameState.encounterAnnouncement !== null && gameState.encounterAnnouncementTimer > 0;
@@ -516,7 +504,7 @@ export function ArenaPrototypeScreen({ onSwitchGame }: ArenaPrototypeScreenProps
               transform: [{ translateX: boardShakeX }, { translateY: boardShakeY }],
             },
           ]}>
-          <ArenaCanvas boardWidth={boardSize.width} boardHeight={boardSize.height} state={gameState} />
+          <ArenaCanvas boardWidth={boardSize.width} boardHeight={boardSize.height} state={gameState} vfxQuality={vfxQuality} />
 
           <GestureDetector gesture={panGesture}>
             <View style={arenaStyles.gestureLayer} />
@@ -633,6 +621,20 @@ export function ArenaPrototypeScreen({ onSwitchGame }: ArenaPrototypeScreenProps
               </Pressable>
               <Pressable onPress={() => onSwitchGame('defender')} style={arenaStyles.menuButton}>
                 <Text style={arenaStyles.menuButtonText}>Defender</Text>
+              </Pressable>
+            </View>
+
+            <Text style={arenaStyles.menuLabel}>VFX</Text>
+            <View style={arenaStyles.menuRow}>
+              <Pressable
+                onPress={() => setVfxQuality('balanced')}
+                style={[arenaStyles.menuButton, vfxQuality === 'balanced' && arenaStyles.menuButtonActive]}>
+                <Text style={arenaStyles.menuButtonText}>Balanced</Text>
+              </Pressable>
+              <Pressable
+                onPress={() => setVfxQuality('high')}
+                style={[arenaStyles.menuButton, vfxQuality === 'high' && arenaStyles.menuButtonActive]}>
+                <Text style={arenaStyles.menuButtonText}>High</Text>
               </Pressable>
             </View>
 

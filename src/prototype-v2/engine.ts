@@ -21,6 +21,7 @@ import type {
   ArenaDropType,
   ArenaEncounter,
   ArenaEffect,
+  ArenaEffectFlavor,
   ArenaEffectKind,
   ArenaEnemy,
   ArenaEnemyKind,
@@ -69,7 +70,11 @@ function createArenaEffect(
   y: number,
   size: number,
   color: string,
-  nextEffectId: number
+  nextEffectId: number,
+  options?: {
+    flavor?: ArenaEffectFlavor;
+    intensity?: number;
+  }
 ): ArenaEffect {
   const duration =
     kind === 'muzzle'
@@ -94,6 +99,8 @@ function createArenaEffect(
   return {
     id: `FX${nextEffectId}`,
     kind,
+    flavor: options?.flavor,
+    intensity: options?.intensity,
     x,
     y,
     size,
@@ -119,8 +126,19 @@ function getEnemyZoneMaxY(boardHeight: number) {
   return boardHeight * ARENA_ENEMY_ZONE_RATIO;
 }
 
-function queueEffect(state: ArenaGameState, kind: ArenaEffectKind, x: number, y: number, size: number, color: string) {
-  state.effects = trimEffects([...state.effects, createArenaEffect(kind, x, y, size, color, state.nextEffectId)]);
+function queueEffect(
+  state: ArenaGameState,
+  kind: ArenaEffectKind,
+  x: number,
+  y: number,
+  size: number,
+  color: string,
+  options?: {
+    flavor?: ArenaEffectFlavor;
+    intensity?: number;
+  }
+) {
+  state.effects = trimEffects([...state.effects, createArenaEffect(kind, x, y, size, color, state.nextEffectId, options)]);
   state.nextEffectId += 1;
 }
 
@@ -776,6 +794,8 @@ function applyDamageToEnemy(
     grantCharge?: boolean;
     effectScale?: number;
     effectColor?: string;
+    effectFlavor?: ArenaEffectFlavor;
+    effectIntensity?: number;
     silentEffect?: boolean;
   }
 ) {
@@ -792,7 +812,11 @@ function applyDamageToEnemy(
       enemy.x,
       enemy.y,
       enemy.size * (options?.effectScale ?? 0.8),
-      options?.effectColor ?? '#FFE5B3'
+      options?.effectColor ?? '#FFE5B3',
+      {
+        flavor: options?.effectFlavor ?? 'neutral',
+        intensity: options?.effectIntensity ?? 1,
+      }
     );
   }
 
@@ -806,7 +830,10 @@ function applyDamageToEnemy(
 
   state.score += enemy.reward;
   state.salvage += Math.max(12, Math.round(enemy.reward / 6));
-  queueEffect(state, 'burst', enemy.x, enemy.y, enemy.size * 1.24, enemy.color);
+  queueEffect(state, 'burst', enemy.x, enemy.y, enemy.size * 1.24, enemy.color, {
+    flavor: 'enemy',
+    intensity: 1.2,
+  });
   maybeSpawnEnemyDrop(state, enemy);
 
   if (options?.grantCharge !== false) {
@@ -824,12 +851,18 @@ function applyPlayerDamage(state: ArenaGameState, damage: number, boardHeight: n
     const absorbed = Math.min(state.shield, remainingDamage);
     state.shield -= absorbed;
     remainingDamage -= absorbed;
-    queueEffect(state, 'shield', state.playerX, getPlayerShipTop(boardHeight) + ARENA_PLAYER_HEIGHT * 0.35, 54, '#9EEBFF');
+    queueEffect(state, 'shield', state.playerX, getPlayerShipTop(boardHeight) + ARENA_PLAYER_HEIGHT * 0.35, 54, '#9EEBFF', {
+      flavor: 'neutral',
+      intensity: 1,
+    });
   }
 
   if (remainingDamage > 0) {
     state.hull = Math.max(0, state.hull - remainingDamage);
-    queueEffect(state, 'burst', state.playerX, getPlayerShipTop(boardHeight) + ARENA_PLAYER_HEIGHT * 0.3, 68, '#FF8A7D');
+    queueEffect(state, 'burst', state.playerX, getPlayerShipTop(boardHeight) + ARENA_PLAYER_HEIGHT * 0.3, 68, '#FF8A7D', {
+      flavor: 'enemy',
+      intensity: 1.4,
+    });
   }
 
   state.playerFlash = 1;
@@ -887,7 +920,10 @@ function createPlayerMissileVolley(state: ArenaGameState, boardHeight: number) {
     state.nextBulletId += 1;
   }
   state.playerBullets = missiles;
-  queueEffect(state, 'muzzle', state.playerX, muzzleY, 24, '#FFD9A6');
+  queueEffect(state, 'muzzle', state.playerX, muzzleY, 24, '#FFD9A6', {
+    flavor: 'missileCommand',
+    intensity: 1.2,
+  });
 }
 
 function createFractureShards(state: ArenaGameState, x: number, y: number, baseDamage: number) {
@@ -919,7 +955,10 @@ function createFractureShards(state: ArenaGameState, x: number, y: number, baseD
     state.nextBulletId += 1;
   }
   state.playerBullets = bullets;
-  queueEffect(state, 'burst', x, y, 28, '#CDE5FF');
+  queueEffect(state, 'burst', x, y, 28, '#CDE5FF', {
+    flavor: 'fractureCore',
+    intensity: 1.08,
+  });
 }
 
 function createPlayerVolley(state: ArenaGameState, boardHeight: number) {
@@ -972,7 +1011,10 @@ function createPlayerVolley(state: ArenaGameState, boardHeight: number) {
 
   state.playerBullets = bullets;
   state.fireCooldown += weapon.fireInterval;
-  queueEffect(state, 'muzzle', state.playerX, muzzleY, 24 + weapon.shotCount * 6, '#FFE4A8');
+  queueEffect(state, 'muzzle', state.playerX, muzzleY, 24 + weapon.shotCount * 6, '#FFE4A8', {
+    flavor: state.activeBuild,
+    intensity: state.activeBuild === 'novaBloom' ? 1.16 : state.activeBuild === 'railFocus' ? 1.1 : 1,
+  });
 }
 
 function getPlayerHitbox(state: ArenaGameState, boardHeight: number) {
@@ -1067,15 +1109,31 @@ export function activateArenaUltimate(
         grantCharge: false,
         effectScale: enemy.kind === 'prismBoss' ? 2.15 : 1.65,
         effectColor: '#CFE2FF',
+        effectFlavor: 'railFocus',
+        effectIntensity: 1.24,
       });
     }
     for (const columnX of nextState.ultimateColumns) {
-      queueEffect(nextState, 'ultimateRail', columnX, boardHeight * 0.44, boardHeight * 0.96, '#CEE4FF');
+      queueEffect(nextState, 'ultimateRail', columnX, boardHeight * 0.44, boardHeight * 0.96, '#CEE4FF', {
+        flavor: 'railFocus',
+        intensity: 1.5,
+      });
     }
   } else if (previousState.activeBuild === 'novaBloom') {
     nextState.ultimateTimer = 1.56;
     nextState.overclockTimer = Math.max(nextState.overclockTimer, 8.4);
-    queueEffect(nextState, 'ultimateNova', previousState.playerX, boardHeight - 26, Math.max(boardWidth, boardHeight) * 1.04, '#FFD0E7');
+    queueEffect(
+      nextState,
+      'ultimateNova',
+      previousState.playerX,
+      boardHeight - 26,
+      Math.max(boardWidth, boardHeight) * 1.04,
+      '#FFD0E7',
+      {
+        flavor: 'novaBloom',
+        intensity: 1.52,
+      }
+    );
     for (const enemy of nextState.enemies) {
       const damage = enemy.maxHealth * 0.22 + 52;
       applyDamageToEnemy(nextState, enemy, damage, {
@@ -1083,6 +1141,8 @@ export function activateArenaUltimate(
         grantCharge: false,
         effectScale: enemy.kind === 'prismBoss' ? 1.95 : 1.48,
         effectColor: '#FFD0E7',
+        effectFlavor: 'novaBloom',
+        effectIntensity: 1.3,
       });
       enemy.burnTimer = Math.max(enemy.burnTimer, 6.6);
       enemy.burnDps = Math.max(enemy.burnDps, Math.max(28, enemy.maxHealth * 0.035));
@@ -1096,7 +1156,10 @@ export function activateArenaUltimate(
       createPlayerMissileVolley(nextState, boardHeight);
     }
     for (const columnX of strikeColumns) {
-      queueEffect(nextState, 'ultimateMissile', columnX, boardHeight - 10, boardHeight * 0.92, '#FFD8AD');
+      queueEffect(nextState, 'ultimateMissile', columnX, boardHeight - 10, boardHeight * 0.92, '#FFD8AD', {
+        flavor: 'missileCommand',
+        intensity: 1.48,
+      });
     }
     for (const enemy of nextState.enemies) {
       const damage =
@@ -1110,11 +1173,24 @@ export function activateArenaUltimate(
         grantCharge: false,
         effectScale: enemy.kind === 'prismBoss' ? 2.0 : 1.5,
         effectColor: '#FFD8AD',
+        effectFlavor: 'missileCommand',
+        effectIntensity: 1.28,
       });
     }
   } else {
     nextState.ultimateTimer = 1.38;
-    queueEffect(nextState, 'ultimateFracture', boardWidth * 0.5, boardHeight * 0.44, Math.max(boardWidth, boardHeight) * 0.9, '#C7DCFF');
+    queueEffect(
+      nextState,
+      'ultimateFracture',
+      boardWidth * 0.5,
+      boardHeight * 0.44,
+      Math.max(boardWidth, boardHeight) * 0.9,
+      '#C7DCFF',
+      {
+        flavor: 'fractureCore',
+        intensity: 1.5,
+      }
+    );
     let shatterBursts = 0;
     for (const enemy of nextState.enemies) {
       const damage =
@@ -1128,6 +1204,8 @@ export function activateArenaUltimate(
         grantCharge: false,
         effectScale: enemy.kind === 'prismBoss' ? 2.04 : 1.64,
         effectColor: '#BFD8FF',
+        effectFlavor: 'fractureCore',
+        effectIntensity: 1.3,
       });
       if (enemy.health > 0 && shatterBursts < 12) {
         createFractureShards(nextState, enemy.x, enemy.y, damage * 0.34);
@@ -1137,7 +1215,10 @@ export function activateArenaUltimate(
   }
 
   nextState.enemies = nextState.enemies.filter((enemy) => enemy.health > 0);
-  queueEffect(nextState, 'shield', previousState.playerX, getPlayerShipTop(boardHeight) + ARENA_PLAYER_HEIGHT * 0.35, 92, '#9EEBFF');
+  queueEffect(nextState, 'shield', previousState.playerX, getPlayerShipTop(boardHeight) + ARENA_PLAYER_HEIGHT * 0.35, 92, '#9EEBFF', {
+    flavor: 'neutral',
+    intensity: 1.2,
+  });
   return nextState;
 }
 
@@ -1343,7 +1424,10 @@ export function tickArenaState(
 
     if (previousWindup > 0 && nextEnemy.windupTimer <= 0) {
       fireEnemyPattern(nextState, nextEnemy, boardHeight);
-      queueEffect(nextState, 'muzzle', nextEnemy.x, nextEnemy.y + nextEnemy.size * 0.34, 20 + nextEnemy.size * 0.22, '#FFEED2');
+      queueEffect(nextState, 'muzzle', nextEnemy.x, nextEnemy.y + nextEnemy.size * 0.34, 20 + nextEnemy.size * 0.22, '#FFEED2', {
+        flavor: 'enemy',
+        intensity: nextEnemy.kind === 'prismBoss' ? 1.28 : 1,
+      });
     } else if (previousWindup <= 0 && nextEnemy.attackCooldown <= 0) {
       nextEnemy.windupTimer = config.windupDuration;
       nextEnemy.attackCooldown = Math.max(0.65, config.fireInterval - Math.min(0.7, (displayTier - 1) * 0.035));
@@ -1435,6 +1519,8 @@ export function tickArenaState(
               : activeBullet.buildFlavor === 'railFocus'
                 ? '#D8E9FF'
                 : '#FFE5B3',
+        effectFlavor: activeBullet.buildFlavor ?? 'neutral',
+        effectIntensity: activeBullet.kind === 'missile' ? 1.12 : activeBullet.kind === 'shard' ? 0.92 : 1,
       });
 
       if (activeBullet.kind !== 'missile') {
@@ -1456,7 +1542,18 @@ export function tickArenaState(
               ? '#FFD3E8'
               : activeBullet.kind === 'shard'
                 ? '#DCEBFF'
-                : '#FFE4B1'
+                : '#FFE4B1',
+          {
+            flavor: activeBullet.buildFlavor ?? 'neutral',
+            intensity:
+              activeBullet.buildFlavor === 'railFocus'
+                ? 1.06
+                : activeBullet.buildFlavor === 'novaBloom'
+                  ? 1.12
+                  : activeBullet.buildFlavor === 'fractureCore'
+                    ? 1.2
+                    : 1,
+          }
         );
       }
 
@@ -1482,7 +1579,10 @@ export function tickArenaState(
 
       if (nextState.activeBuild === 'fractureCore' && activeBullet.kind === 'primary' && !triggeredFracture) {
         triggeredFracture = true;
-        queueEffect(nextState, 'fractureBits', activeBullet.x, activeBullet.y, activeBullet.size * 4.2, '#D4E8FF');
+        queueEffect(nextState, 'fractureBits', activeBullet.x, activeBullet.y, activeBullet.size * 4.2, '#D4E8FF', {
+          flavor: 'fractureCore',
+          intensity: 1.26,
+        });
         createFractureShards(nextState, activeBullet.x, activeBullet.y, hitDamage * 1.1);
         const fracturePulseRadius = 48;
         for (const pulseTarget of survivingEnemies) {
@@ -1497,9 +1597,14 @@ export function tickArenaState(
             grantCharge: false,
             effectScale: 0.7,
             effectColor: '#D4E8FF',
+            effectFlavor: 'fractureCore',
+            effectIntensity: 1.08,
           });
         }
-        queueEffect(nextState, 'burst', activeBullet.x, activeBullet.y, 58, '#CCE4FF');
+        queueEffect(nextState, 'burst', activeBullet.x, activeBullet.y, 58, '#CCE4FF', {
+          flavor: 'fractureCore',
+          intensity: 1.24,
+        });
       }
 
       if (activeBullet.kind === 'shard') {
@@ -1525,9 +1630,14 @@ export function tickArenaState(
             grantCharge: false,
             effectScale: 0.52,
             effectColor: '#D8EAFF',
+            effectFlavor: 'fractureCore',
+            effectIntensity: 0.96,
           });
         }
-        queueEffect(nextState, 'fractureBits', activeBullet.x, activeBullet.y, activeBullet.size * 3.2, '#D8EAFF');
+        queueEffect(nextState, 'fractureBits', activeBullet.x, activeBullet.y, activeBullet.size * 3.2, '#D8EAFF', {
+          flavor: 'fractureCore',
+          intensity: 1.08,
+        });
       }
 
       if (activeBullet.kind === 'missile') {
@@ -1545,9 +1655,14 @@ export function tickArenaState(
             grantCharge: false,
             effectScale: 0.65,
             effectColor: '#FFD9AE',
+            effectFlavor: 'missileCommand',
+            effectIntensity: 1.08,
           });
         }
-        queueEffect(nextState, 'burst', activeBullet.x, activeBullet.y, 44, '#FFD9AE');
+        queueEffect(nextState, 'burst', activeBullet.x, activeBullet.y, 44, '#FFD9AE', {
+          flavor: 'missileCommand',
+          intensity: 1.2,
+        });
       }
 
       if (activeBullet.kind === 'missile') {
@@ -1628,7 +1743,10 @@ export function tickArenaState(
         }
       }
       nextState.pickupTimer = 1.6;
-      queueEffect(nextState, 'pickup', drop.x, drop.y, drop.size * 1.1, drop.color);
+      queueEffect(nextState, 'pickup', drop.x, drop.y, drop.size * 1.1, drop.color, {
+        flavor: 'neutral',
+        intensity: 1,
+      });
       continue;
     }
 
