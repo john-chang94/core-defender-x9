@@ -17,7 +17,6 @@ export type ArenaVfxQuality = 'balanced' | 'high';
 export type ArenaEffectFlavor = ArenaBuildId | 'enemy' | 'neutral';
 
 export type ArenaEffectKind =
-  | 'muzzle'
   | 'burst'
   | 'warning'
   | 'shield'
@@ -90,6 +89,7 @@ export type ArenaEnemy = {
   flash: number;
   burnTimer: number;
   burnDps: number;
+  inFormation: boolean;
   phase: number;
   color: string;
   reward: number;
@@ -166,6 +166,10 @@ export type ArenaGameState = {
   effects: ArenaEffect[];
   fireCooldown: number;
   missileCooldown: number;
+  missileBurstTimer: number;
+  missileBurstInterval: number;
+  pendingMissileOffsets: number[];
+  pendingMissileDamageScale: number;
   enemySpawnCooldown: number;
   nextBulletId: number;
   nextEnemyId: number;

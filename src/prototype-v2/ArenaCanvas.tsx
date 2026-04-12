@@ -63,6 +63,54 @@ const ENERGY_SWEEPS = [
   { x: 0.8, width: 58, height: 260, speed: 47, color: '#B6E7FF' },
 ] as const;
 
+type OverdriveCrackSegment = {
+  x1: number;
+  y1: number;
+  x2: number;
+  y2: number;
+  width: number;
+  neonMix: number;
+};
+
+function createDeterministicRandom(seedValue: number) {
+  let seed = seedValue >>> 0;
+  return () => {
+    seed = (seed * 1664525 + 1013904223) >>> 0;
+    return seed / 4294967296;
+  };
+}
+
+function createOverdriveCrackSegments(boardWidth: number, boardHeight: number, highVfx: boolean) {
+  const random = createDeterministicRandom(Math.floor(boardWidth * 31 + boardHeight * 17 + (highVfx ? 97 : 53)));
+  const segments: OverdriveCrackSegment[] = [];
+  const chainCount = highVfx ? 10 : 7;
+  const maxStep = Math.min(boardWidth, boardHeight) * (highVfx ? 0.22 : 0.18);
+
+  for (let chainIndex = 0; chainIndex < chainCount; chainIndex += 1) {
+    let x = random() * boardWidth;
+    let y = random() * boardHeight * 0.96;
+    const branchSteps = (highVfx ? 4 : 3) + Math.floor(random() * 2);
+    for (let step = 0; step < branchSteps; step += 1) {
+      const angle = -Math.PI * 0.5 + (random() - 0.5) * 2.1;
+      const length = maxStep * (0.35 + random() * 0.65);
+      const nextX = clamp(x + Math.cos(angle) * length, 0, boardWidth);
+      const nextY = clamp(y + Math.sin(angle) * length, 0, boardHeight);
+      segments.push({
+        x1: x,
+        y1: y,
+        x2: nextX,
+        y2: nextY,
+        width: 1 + random() * 1.8,
+        neonMix: random(),
+      });
+      x = nextX;
+      y = nextY;
+    }
+  }
+
+  return segments;
+}
+
 type ArenaTheme = {
   base: string;
   auraA: string;
@@ -728,6 +776,10 @@ export function ArenaCanvas({ boardWidth, boardHeight, state, vfxQuality }: Aren
     const lineCount = Math.max(5, Math.floor(boardHeight / 62));
     return Array.from({ length: lineCount }, (_, index) => ((index + 1) * boardHeight) / (lineCount + 1));
   }, [boardHeight]);
+  const overdriveCrackSegments = useMemo(
+    () => createOverdriveCrackSegments(boardWidth, boardHeight, isHighVfx),
+    [boardHeight, boardWidth, isHighVfx]
+  );
 
   const [backgroundImage, setBackgroundImage] = useState<SkImage | null>(null);
 
@@ -788,19 +840,19 @@ export function ArenaCanvas({ boardWidth, boardHeight, state, vfxQuality }: Aren
             y={0}
             width={boardWidth}
             height={boardHeight}
-            color={withAlpha('#32150B', 0.07 + overdrivePulse * 0.03)}
+            color={withAlpha('#4B1808', 0.13 + overdrivePulse * 0.06)}
           />
           <Circle
             cx={boardWidth * 0.86}
             cy={boardHeight * 0.16}
-            r={boardWidth * 0.3}
-            color={withAlpha('#FFAE67', 0.08 + overdrivePulse * 0.04)}
+            r={boardWidth * 0.34}
+            color={withAlpha('#FF9347', 0.12 + overdrivePulse * 0.08)}
           />
           <Circle
             cx={boardWidth * 0.24}
             cy={boardHeight * 0.85}
-            r={boardWidth * 0.36}
-            color={withAlpha('#FF7A38', 0.06 + overdrivePulse * 0.025)}
+            r={boardWidth * 0.38}
+            color={withAlpha('#FF6B2F', 0.1 + overdrivePulse * 0.06)}
           />
           <RoundedRect
             x={14}
@@ -808,8 +860,43 @@ export function ArenaCanvas({ boardWidth, boardHeight, state, vfxQuality }: Aren
             width={Math.max(0, boardWidth - 28)}
             height={2}
             r={999}
-            color={withAlpha('#FFB36B', 0.34 + overdrivePulse * 0.12)}
+            color={withAlpha('#FFC47A', 0.46 + overdrivePulse * 0.16)}
           />
+          {overdriveCrackSegments.map((segment, index) => {
+            const neonColor =
+              segment.neonMix > 0.86
+                ? '#6FFFFA'
+                : segment.neonMix > 0.72
+                  ? '#F8FF8C'
+                  : segment.neonMix > 0.55
+                    ? '#FFCC7A'
+                    : '#FF7B42';
+            return (
+              <Group key={`overdrive-crack-${index}`}>
+                <Line
+                  p1={vec(segment.x1, segment.y1)}
+                  p2={vec(segment.x2, segment.y2)}
+                  color={withAlpha('#200A05', 0.64)}
+                  strokeWidth={segment.width + 2.2}
+                  strokeCap="round"
+                />
+                <Line
+                  p1={vec(segment.x1, segment.y1)}
+                  p2={vec(segment.x2, segment.y2)}
+                  color={withAlpha('#FF7A3B', 0.22 + overdrivePulse * 0.1)}
+                  strokeWidth={segment.width + 0.8}
+                  strokeCap="round"
+                />
+                <Line
+                  p1={vec(segment.x1, segment.y1)}
+                  p2={vec(segment.x2, segment.y2)}
+                  color={withAlpha(neonColor, 0.28 + overdrivePulse * 0.16)}
+                  strokeWidth={Math.max(0.9, segment.width * 0.5)}
+                  strokeCap="round"
+                />
+              </Group>
+            );
+          })}
           {(isHighVfx ? [0.14, 0.3, 0.5, 0.68, 0.84] : [0.22, 0.5, 0.78]).map((lane, index) => {
             const sway = Math.sin(state.elapsed * 2.9 + index * 0.8) * 7;
             return (
@@ -817,8 +904,8 @@ export function ArenaCanvas({ boardWidth, boardHeight, state, vfxQuality }: Aren
                 key={`overdrive-lane-${index}`}
                 p1={vec(boardWidth * lane + sway, 0)}
                 p2={vec(boardWidth * lane - sway * 0.35, boardHeight)}
-                color={withAlpha('#FFBD82', isHighVfx ? 0.11 : 0.08)}
-                strokeWidth={isHighVfx ? 1.4 : 1}
+                color={withAlpha('#FFD38F', isHighVfx ? 0.18 : 0.12)}
+                strokeWidth={isHighVfx ? 1.6 : 1.2}
               />
             );
           })}
@@ -1309,72 +1396,6 @@ export function ArenaCanvas({ boardWidth, boardHeight, state, vfxQuality }: Aren
               <Circle cx={effect.x} cy={effect.y} r={size * 0.46} color={withAlpha(effect.color, 0.12 + opacity * 0.14)} />
               <Circle cx={effect.x} cy={effect.y} r={size * (0.18 + progress * 0.42)} style="stroke" strokeWidth={2} color={withAlpha('#F4FAFF', 0.42 + opacity * 0.34)} />
               <Circle cx={effect.x} cy={effect.y} r={size * 0.1} color={withAlpha('#FFF3E0', 0.68 + opacity * 0.2)} />
-            </Group>
-          );
-        }
-
-        if (effect.kind === 'muzzle') {
-          const flavor = effect.flavor ?? 'neutral';
-          const intensity = clamp(effect.intensity ?? 1, 0.75, 1.6);
-          const muzzleAngle = effect.angle ?? (flavor === 'enemy' ? 0 : Math.PI);
-          const basis = getProjectileBasis(Math.sin(muzzleAngle), Math.cos(muzzleAngle));
-          const flareColor =
-            flavor === 'railFocus'
-              ? '#D9E8FF'
-              : flavor === 'novaBloom'
-                ? '#FFD1E8'
-                : flavor === 'missileCommand'
-                  ? '#FFDDB1'
-                  : flavor === 'fractureCore'
-                    ? '#DCE9FA'
-                    : flavor === 'enemy'
-                      ? '#FFD9C5'
-                      : effect.color;
-          const flareLength = effect.size * (0.92 + progress * 0.42);
-          const coreLength = effect.size * (0.52 + progress * 0.18);
-          const flarePath = createOrientedRectPath(
-            effect.x + basis.forwardX * flareLength * 0.24,
-            effect.y + basis.forwardY * flareLength * 0.24,
-            basis.forwardX,
-            basis.forwardY,
-            basis.rightX,
-            basis.rightY,
-            flareLength * 0.5,
-            effect.size * 0.18
-          );
-          const corePath = createOrientedRectPath(
-            effect.x + basis.forwardX * coreLength * 0.24,
-            effect.y + basis.forwardY * coreLength * 0.24,
-            basis.forwardX,
-            basis.forwardY,
-            basis.rightX,
-            basis.rightY,
-            coreLength * 0.5,
-            effect.size * 0.09
-          );
-          const tipPath = createOrientedDiamondPath(
-            effect.x + basis.forwardX * flareLength * 0.78,
-            effect.y + basis.forwardY * flareLength * 0.78,
-            basis.forwardX,
-            basis.forwardY,
-            basis.rightX,
-            basis.rightY,
-            effect.size * (flavor === 'enemy' ? 0.22 : 0.2),
-            effect.size * (flavor === 'enemy' ? 0.11 : 0.13)
-          );
-          return (
-            <Group key={effect.id}>
-              <Path path={flarePath} color={withAlpha(flareColor, 0.24 + opacity * (0.32 + intensity * 0.08))} />
-              <Path path={corePath} color={withAlpha('#FFF7E8', 0.48 + opacity * 0.4)} />
-              <Path path={tipPath} color={withAlpha('#FFEED2', flavor === 'enemy' ? 0.72 + opacity * 0.2 : 0.62 + opacity * 0.26)} />
-              {flavor === 'enemy' ? null : (
-                <Circle
-                  cx={effect.x + basis.forwardX * flareLength * 0.92}
-                  cy={effect.y + basis.forwardY * flareLength * 0.92}
-                  r={effect.size * 0.16 * (0.9 + intensity * 0.15)}
-                  color={withAlpha('#FFEED2', 0.58 + opacity * 0.24)}
-                />
-              )}
             </Group>
           );
         }

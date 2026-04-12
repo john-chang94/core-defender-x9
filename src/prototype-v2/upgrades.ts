@@ -34,13 +34,13 @@ export const ARENA_ARMORY_UPGRADES: Record<
   },
   rapidCycle: {
     label: "Rapid Cycle",
-    summary: "Increase rate of fire by 16% and tighten spread.",
+    summary: "Increase rate of fire by 12% and tighten spread.",
     icon: "⏱",
-    statLine: "RoF +16%",
+    statLine: "RoF +12%",
     compactHint: "Faster loop",
     apply: (weapon) => ({
       ...weapon,
-      fireInterval: Math.max(0.05, weapon.fireInterval * 0.84),
+      fireInterval: Math.max(0.065, weapon.fireInterval * 0.88),
       spread: Math.max(8, Math.round(weapon.spread * 0.94)),
     }),
   },
@@ -117,7 +117,7 @@ export function isArenaArmoryUpgradeMaxed(
     case "damageMatrix":
       return false;
     case "rapidCycle":
-      return weapon.fireInterval <= 0.05 + epsilon;
+      return weapon.fireInterval <= 0.065 + epsilon;
     case "twinArray":
       return weapon.shotCount >= 4;
     case "phasePierce":
