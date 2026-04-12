@@ -787,9 +787,16 @@ export function ArenaCanvas({ boardWidth, boardHeight, state, vfxQuality }: Aren
     }
     wasOverdriveActiveRef.current = isOverdriveActive;
   }, [overdriveBlend]);
+  const overdriveCrackPhase = overdriveBlend > 0.08 ? Math.floor(state.elapsed * 2) : 0;
   const overdriveCrackSegments = useMemo(
-    () => createOverdriveCrackSegments(boardWidth, boardHeight, isHighVfx, overdriveCrackSeed),
-    [boardHeight, boardWidth, isHighVfx, overdriveCrackSeed]
+    () =>
+      createOverdriveCrackSegments(
+        boardWidth,
+        boardHeight,
+        isHighVfx,
+        overdriveCrackSeed + overdriveCrackPhase * 7919
+      ),
+    [boardHeight, boardWidth, isHighVfx, overdriveCrackSeed, overdriveCrackPhase]
   );
 
   const [backgroundImage, setBackgroundImage] = useState<SkImage | null>(null);

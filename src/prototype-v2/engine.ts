@@ -64,7 +64,7 @@ function getBuildProjectileCap(build: ArenaBuildId, overdrive = false) {
       case 'novaBloom':
         return 5;
       case 'missileCommand':
-        return 7;
+        return 8;
       case 'fractureCore':
         return 4;
     }
@@ -223,7 +223,7 @@ export function getArenaActiveWeapon(state: ArenaGameState): ArenaWeapon {
       nextWeapon = {
         ...nextWeapon,
         damage: Math.round(nextWeapon.damage * 0.82),
-        fireInterval: Math.max(0.072, nextWeapon.fireInterval * 0.86),
+        fireInterval: Math.max(0.085, nextWeapon.fireInterval * 0.93),
         shotCount: Math.min(4, Math.max(2, nextWeapon.shotCount + 1)),
         pierce: Math.max(0, nextWeapon.pierce),
         bulletSpeed: Math.min(1600, nextWeapon.bulletSpeed + 40),
@@ -247,7 +247,7 @@ export function getArenaActiveWeapon(state: ArenaGameState): ArenaWeapon {
       nextWeapon = {
         ...nextWeapon,
         damage: Math.round(nextWeapon.damage * 1.64),
-        fireInterval: Math.max(0.235, nextWeapon.fireInterval * 2.05),
+        fireInterval: Math.max(0.32, nextWeapon.fireInterval * 2.45),
         shotCount: Math.min(3, Math.max(1, nextWeapon.shotCount)),
         pierce: Math.min(4, nextWeapon.pierce + 1),
         bulletSpeed: Math.min(1500, nextWeapon.bulletSpeed + 20),
@@ -260,7 +260,7 @@ export function getArenaActiveWeapon(state: ArenaGameState): ArenaWeapon {
   if (overdriveActive) {
     const projectileCap = getBuildProjectileCap(state.activeBuild, true);
     const overdriveFireMultiplier = state.activeBuild === 'fractureCore' ? 0.9 : 0.74;
-    const overdriveFireFloor = state.activeBuild === 'fractureCore' ? 0.205 : 0.065;
+    const overdriveFireFloor = state.activeBuild === 'fractureCore' ? 0.26 : 0.065;
     const overdriveBulletSizeCap = state.activeBuild === 'fractureCore' ? 26.5 : 14.2;
     nextWeapon = {
       ...nextWeapon,
@@ -283,10 +283,17 @@ export function getArenaActiveWeapon(state: ArenaGameState): ArenaWeapon {
 }
 
 function getMissileIntervalSeconds(state: ArenaGameState) {
-  const displayTier = getArenaDisplayTier(state.elapsed);
-  const tierBonus = Math.min(0.16, Math.max(0, displayTier - 1) * 0.008);
-  const overclockBonus = state.overclockTimer > 0 ? 0.08 : 0;
-  return Math.max(0.38, 0.78 - tierBonus - overclockBonus);
+  return getMissileBurstWindowSeconds(state);
+}
+
+function getRapidCycleUpgradeCount(weapon: ArenaWeapon) {
+  let count = 0;
+  let probeFireInterval = BASE_ARENA_WEAPON.fireInterval;
+  while (count < 12 && probeFireInterval > weapon.fireInterval + 0.0001) {
+    probeFireInterval = Math.max(0.065, probeFireInterval * 0.88);
+    count += 1;
+  }
+  return count;
 }
 
 export function getArenaActiveEnemyCap(displayTier: number) {
@@ -1203,12 +1210,10 @@ function applyPlayerDamage(state: ArenaGameState, damage: number, boardHeight: n
 
 function getMissileLaunchOffsets(state: ArenaGameState, weapon: ArenaWeapon) {
   if (state.overclockTimer > 0) {
-    return [-40, -26, -13, 0, 13, 26, 40];
+    return [-46, -34, -22, -10, 10, 22, 34, 46];
   }
 
-  const displayTier = getArenaDisplayTier(state.elapsed);
-  const tierBonus = displayTier >= 16 ? 2 : displayTier >= 9 ? 1 : 0;
-  const volleyCount = Math.max(2, Math.min(6, weapon.shotCount + tierBonus));
+  const volleyCount = Math.max(1, Math.min(6, weapon.shotCount));
 
   switch (volleyCount) {
     case 6:
@@ -1219,19 +1224,19 @@ function getMissileLaunchOffsets(state: ArenaGameState, weapon: ArenaWeapon) {
       return [-28, -10, 10, 28];
     case 3:
       return [-22, 0, 22];
+    case 1:
+      return [0];
     default:
       return [-18, 18];
   }
 }
 
-function getMissileBurstWindowSeconds(volleyCount: number) {
-  if (volleyCount <= 3) {
-    return 1;
+function getMissileBurstWindowSeconds(state: ArenaGameState) {
+  if (state.overclockTimer > 0) {
+    return 0.5;
   }
-  if (volleyCount <= 5) {
-    return 1.25;
-  }
-  return 1.5;
+  const rapidCycleCount = getRapidCycleUpgradeCount(state.weapon);
+  return Math.max(0.6, 1.3 - rapidCycleCount * 0.1);
 }
 
 function orderMissileOffsetsForBurst(offsets: number[]) {
@@ -1278,7 +1283,7 @@ function queuePlayerMissileVolley(state: ArenaGameState) {
   const launchOffsets = orderMissileOffsetsForBurst(getMissileLaunchOffsets(state, weapon));
   const salvoCount = launchOffsets.length;
   const salvoDamageScale = salvoCount >= 6 ? 0.8 : salvoCount >= 4 ? 0.88 : salvoCount === 3 ? 0.94 : 1;
-  const burstWindow = getMissileBurstWindowSeconds(salvoCount);
+  const burstWindow = getMissileBurstWindowSeconds(state);
   const burstInterval = salvoCount <= 1 ? 0 : burstWindow / (salvoCount - 1);
 
   state.pendingMissileOffsets = launchOffsets;
