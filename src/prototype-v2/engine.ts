@@ -79,6 +79,7 @@ function createArenaEffect(
   options?: {
     flavor?: ArenaEffectFlavor;
     intensity?: number;
+    angle?: number;
   }
 ): ArenaEffect {
   const duration =
@@ -106,6 +107,7 @@ function createArenaEffect(
     kind,
     flavor: options?.flavor,
     intensity: options?.intensity,
+    angle: options?.angle,
     x,
     y,
     size,
@@ -141,6 +143,7 @@ function queueEffect(
   options?: {
     flavor?: ArenaEffectFlavor;
     intensity?: number;
+    angle?: number;
   }
 ) {
   state.effects = trimEffects([...state.effects, createArenaEffect(kind, x, y, size, color, state.nextEffectId, options)]);
@@ -275,36 +278,118 @@ function getMissileIntervalSeconds(state: ArenaGameState) {
 }
 
 export function getArenaActiveEnemyCap(displayTier: number) {
-  return Math.min(10, 5 + Math.floor((displayTier - 1) / 4));
+  if (displayTier <= 4) {
+    return 5;
+  }
+  if (displayTier <= 9) {
+    return 6;
+  }
+  if (displayTier <= 14) {
+    return 7;
+  }
+  if (displayTier <= 20) {
+    return 8;
+  }
+  if (displayTier <= 28) {
+    return 9;
+  }
+  return 10;
 }
 
 function getArenaEnemyBulletCap(displayTier: number) {
-  return Math.min(20, 10 + Math.floor((displayTier - 1) / 2));
+  if (displayTier <= 5) {
+    return 10;
+  }
+  if (displayTier <= 10) {
+    return 12;
+  }
+  if (displayTier <= 16) {
+    return 14;
+  }
+  if (displayTier <= 24) {
+    return 16;
+  }
+  return 18;
 }
 
-function getArenaSpawnCooldown(displayTier: number, activeEnemyCount: number) {
-  const tierPressure = Math.min(1.1, (displayTier - 1) * 0.05);
-  return Math.max(0.86, 1.95 - tierPressure + activeEnemyCount * 0.08);
+function getArenaSpawnCooldown(displayTier: number, activeEnemyCount: number, activeEnemyBulletCount: number) {
+  const baseCooldown =
+    displayTier <= 4
+      ? 2.32
+      : displayTier <= 9
+        ? 2.12
+        : displayTier <= 14
+          ? 1.96
+          : displayTier <= 20
+            ? 1.86
+            : 1.78;
+  const tierAcceleration = Math.min(0.6, Math.max(0, displayTier - 1) * 0.034);
+  const densityPenalty = activeEnemyCount * 0.12;
+  const bulletPenalty = Math.min(0.52, activeEnemyBulletCount * 0.024);
+  return Math.max(0.98, baseCooldown - tierAcceleration + densityPenalty + bulletPenalty);
 }
 
 function getEnemyKindPool(displayTier: number): ArenaEnemyKind[] {
-  const pool: ArenaEnemyKind[] = ['hover', 'hover', 'hover', 'hover'];
+  const pool: ArenaEnemyKind[] = [];
+  const addWeighted = (kind: ArenaEnemyKind, weight: number) => {
+    for (let index = 0; index < weight; index += 1) {
+      pool.push(kind);
+    }
+  };
+
+  addWeighted(
+    'hover',
+    displayTier <= 4 ? 7 : displayTier <= 10 ? 8 : displayTier <= 18 ? 9 : displayTier <= 28 ? 10 : 11
+  );
+  addWeighted('burst', displayTier <= 3 ? 2 : displayTier <= 12 ? 3 : 4);
   if (displayTier >= 3) {
-    pool.push('burst', 'burst');
-  }
-  if (displayTier >= 4) {
-    pool.push('orbiter', 'orbiter');
+    addWeighted('orbiter', displayTier <= 12 ? 2 : 3);
   }
   if (displayTier >= 6) {
-    pool.push('tank');
+    addWeighted('tank', displayTier <= 14 ? 1 : 2);
   }
   if (displayTier >= 8) {
-    pool.push('sniper');
+    addWeighted('sniper', displayTier <= 18 ? 1 : 2);
   }
   if (displayTier >= 10) {
-    pool.push('bomber');
+    addWeighted('bomber', displayTier <= 20 ? 1 : 2);
+  }
+  if (displayTier >= 15) {
+    addWeighted('interceptor', 1);
   }
   return pool;
+}
+
+function getEnemyAttackCooldown(
+  kind: ArenaEnemyKind,
+  displayTier: number,
+  baseFireInterval: number,
+  activeEnemyBulletCount: number,
+  multiplier = 1
+) {
+  const tierReductionPerTier: Record<ArenaEnemyKind, number> = {
+    hover: 0.018,
+    burst: 0.02,
+    tank: 0.016,
+    orbiter: 0.018,
+    sniper: 0.017,
+    bomber: 0.016,
+    interceptor: 0.024,
+    prismBoss: 0.014,
+  };
+  const floorByKind: Record<ArenaEnemyKind, number> = {
+    hover: 0.92,
+    burst: 1.06,
+    tank: 1.32,
+    orbiter: 1.02,
+    sniper: 1.28,
+    bomber: 1.24,
+    interceptor: 0.9,
+    prismBoss: 1.15,
+  };
+  const tierReduction = Math.min(0.75, Math.max(0, displayTier - 1) * tierReductionPerTier[kind]);
+  const bulletBackPressure = Math.min(0.44, Math.max(0, activeEnemyBulletCount - 8) * 0.025);
+  return Math.max(floorByKind[kind], baseFireInterval - tierReduction + bulletBackPressure) * multiplier;
 }
 
 function spawnFormationGroup(state: ArenaGameState, boardWidth: number, boardHeight: number, displayTier: number) {
@@ -315,6 +400,7 @@ function spawnFormationGroup(state: ArenaGameState, boardWidth: number, boardHei
   }
 
   const lanes = getSpawnLanes(boardWidth);
+  const bulletPressure = clamp(state.enemyBullets.length / Math.max(1, getArenaEnemyBulletCap(displayTier)), 0, 1);
   const trySpawn = (kind: ArenaEnemyKind, options?: Parameters<typeof spawnEnemy>[4]) => {
     if (state.enemies.length >= activeEnemyCap) {
       return false;
@@ -325,58 +411,75 @@ function spawnFormationGroup(state: ArenaGameState, boardWidth: number, boardHei
   const randomInnerLane = () => Math.floor(Math.random() * (lanes.length - 2)) + 1;
   const roll = Math.random();
 
-  if (displayTier >= 12 && remainingCapacity >= 2 && roll < 0.2) {
+  if (displayTier >= 10 && remainingCapacity >= 4 && roll < 0.2 - bulletPressure * 0.08) {
+    const centerLane = randomInnerLane();
+    trySpawn('burst', {
+      laneIndex: centerLane,
+      attackCooldownMultiplier: 1.04,
+    });
+    trySpawn('hover', { laneIndex: clamp(centerLane - 1, 0, lanes.length - 1) });
+    trySpawn('hover', { laneIndex: clamp(centerLane + 1, 0, lanes.length - 1) });
+    if (Math.random() < 0.65) {
+      trySpawn('hover', {
+        laneIndex: clamp(centerLane + (Math.random() < 0.5 ? -2 : 2), 0, lanes.length - 1),
+      });
+    }
+    return true;
+  }
+
+  if (displayTier >= 12 && remainingCapacity >= 2 && roll < 0.34 - bulletPressure * 0.1) {
     const centerLane = randomInnerLane();
     const flankLane = clamp(centerLane + (Math.random() < 0.5 ? -1 : 1), 0, lanes.length - 1);
     trySpawn('bomber', {
       laneIndex: centerLane,
       healthMultiplier: 1.1,
-      attackCooldownMultiplier: 0.92,
+      attackCooldownMultiplier: 0.96,
     });
     trySpawn('burst', {
       laneIndex: flankLane,
       healthMultiplier: 1.06,
-      attackCooldownMultiplier: 0.94,
+      attackCooldownMultiplier: 0.98,
     });
-    if (Math.random() < 0.55) {
+    if (Math.random() < 0.45) {
       trySpawn('hover', { laneIndex: clamp(centerLane + (flankLane > centerLane ? -1 : 1), 0, lanes.length - 1) });
     }
     return true;
   }
 
-  if (displayTier >= 8 && remainingCapacity >= 2 && roll < 0.42) {
+  if (displayTier >= 8 && remainingCapacity >= 2 && roll < 0.5 - bulletPressure * 0.14) {
     trySpawn('sniper', {
       laneIndex: 0,
       cruiseY: boardHeight * 0.18,
-      attackCooldownMultiplier: 0.95,
+      attackCooldownMultiplier: 1.05,
     });
     trySpawn('sniper', {
       laneIndex: lanes.length - 1,
       cruiseY: boardHeight * 0.18,
-      attackCooldownMultiplier: 0.95,
+      attackCooldownMultiplier: 1.05,
     });
-    if (Math.random() < 0.6) {
+    if (Math.random() < 0.55) {
       trySpawn('hover', { laneIndex: randomInnerLane() });
     }
     return true;
   }
 
-  if (displayTier >= 6 && remainingCapacity >= 3 && roll < 0.64) {
+  if (displayTier >= 6 && remainingCapacity >= 3 && roll < 0.72 - bulletPressure * 0.12) {
     const centerLane = randomInnerLane();
     trySpawn('orbiter', {
       laneIndex: centerLane,
       healthMultiplier: 1.05,
+      attackCooldownMultiplier: 1.02,
     });
     trySpawn('hover', { laneIndex: clamp(centerLane - 1, 0, lanes.length - 1) });
     trySpawn('hover', { laneIndex: clamp(centerLane + 1, 0, lanes.length - 1) });
     return true;
   }
 
-  if (remainingCapacity >= 3 && roll < 0.82) {
+  if (remainingCapacity >= 3 && roll < 0.88 - bulletPressure * 0.1) {
     const laneIndex = randomInnerLane();
     trySpawn('burst', {
       laneIndex,
-      attackCooldownMultiplier: 0.94,
+      attackCooldownMultiplier: 1.02,
     });
     trySpawn('hover', { laneIndex: clamp(laneIndex - 1, 0, lanes.length - 1) });
     trySpawn('hover', { laneIndex: clamp(laneIndex + 1, 0, lanes.length - 1) });
@@ -419,12 +522,30 @@ function getPlayerShipTop(boardHeight: number) {
 
 function getEnemyAimAngle(enemy: ArenaEnemy, playerX: number, boardHeight: number) {
   const targetY = getPlayerShipTop(boardHeight) + ARENA_PLAYER_HEIGHT * 0.22;
-  let angle = Math.atan2(playerX - enemy.x, targetY - enemy.y);
+  const leadFactor =
+    enemy.kind === 'sniper'
+      ? 0.18
+      : enemy.kind === 'interceptor'
+        ? 0.24
+        : enemy.kind === 'prismBoss'
+          ? 0.22
+          : 0.08;
+  const leadX = playerX + enemy.vx * leadFactor;
+  let angle = Math.atan2(leadX - enemy.x, targetY - enemy.y);
   if (enemy.kind === 'orbiter') {
     angle += Math.sin(enemy.phase) * 0.18;
   }
   if (enemy.kind === 'sniper') {
     angle *= 0.9;
+  }
+  if (enemy.kind === 'interceptor') {
+    angle += Math.sin(enemy.phase * 2.6) * 0.1;
+  }
+  if (enemy.kind === 'prismBoss') {
+    angle += Math.sin(enemy.phase * 0.9) * 0.16;
+  }
+  if (enemy.kind === 'bomber') {
+    angle += Math.sin(enemy.phase * 0.8) * 0.06;
   }
   return angle;
 }
@@ -436,31 +557,55 @@ function createEnemyProjectile(
   angle: number,
   damage: number,
   speed: number,
-  size: number
+  size: number,
+  options?: {
+    style?: ArenaProjectile['enemyStyle'];
+    driftAmp?: number;
+    driftFreq?: number;
+    driftPhase?: number;
+  }
 ) {
-  const originY = enemy.y + enemy.size * 0.46;
+  const forwardX = Math.sin(angle);
+  const forwardY = Math.cos(angle);
+  const originX = enemy.x + forwardX * enemy.size * 0.58;
+  const originY = enemy.y + forwardY * enemy.size * 0.58;
   const projectileColor =
-    enemy.kind === 'tank'
-      ? '#FFE6B8'
+    enemy.kind === 'tank' || enemy.kind === 'bomber'
+      ? '#FFD6AB'
       : enemy.kind === 'sniper'
-        ? '#FFD8EF'
-        : enemy.kind === 'bomber'
-          ? '#FFD7B6'
+        ? '#F3D4FF'
+        : enemy.kind === 'burst'
+          ? '#FFB8E2'
         : enemy.kind === 'orbiter'
-          ? '#CFFFF9'
+          ? '#B5FFF5'
       : enemy.kind === 'interceptor'
-        ? '#E3D7FF'
+        ? '#C7D1FF'
         : enemy.kind === 'prismBoss'
-          ? '#FFD5EA'
+          ? '#FFC2DF'
           : '#FFD9F2';
+  const projectileStyle =
+    options?.style ??
+    (enemy.kind === 'sniper'
+      ? 'needle'
+      : enemy.kind === 'tank' || enemy.kind === 'bomber'
+        ? 'bomb'
+        : enemy.kind === 'orbiter'
+          ? 'wave'
+          : enemy.kind === 'hover'
+            ? 'orb'
+            : 'bolt');
   const projectile: ArenaProjectile = {
     id: `B${state.nextBulletId}`,
     owner: 'enemy',
     kind: 'enemy',
-    x: enemy.x,
+    enemyStyle: projectileStyle,
+    driftAmp: options?.driftAmp,
+    driftFreq: options?.driftFreq,
+    driftPhase: options?.driftPhase ?? enemy.phase,
+    x: originX,
     y: originY,
-    vx: Math.sin(angle) * speed,
-    vy: Math.cos(angle) * speed,
+    vx: forwardX * speed,
+    vy: forwardY * speed,
     damage,
     size,
     color: projectileColor,
@@ -475,29 +620,141 @@ function createEnemyProjectile(
 function fireEnemyPattern(state: ArenaGameState, enemy: ArenaEnemy, boardHeight: number) {
   const config = ARENA_ENEMY_CONFIG[enemy.kind];
   const desiredAngle = enemy.aimAngle;
-  const cappedEnemyBulletCap = getArenaEnemyBulletCap(getArenaDisplayTier(state.elapsed));
+  const displayTier = getArenaDisplayTier(state.elapsed);
+  const cappedEnemyBulletCap = getArenaEnemyBulletCap(displayTier);
   const remainingBulletBudget = Math.max(0, cappedEnemyBulletCap - state.enemyBullets.length);
   if (remainingBulletBudget <= 0) {
     return;
   }
+  const pressureRatio = clamp(state.enemyBullets.length / Math.max(1, cappedEnemyBulletCap), 0, 1);
+  const pressureCountScale = pressureRatio > 0.82 ? 0.68 : pressureRatio > 0.66 ? 0.82 : 1;
+  const scaledCount = (count: number, minimum = 1) =>
+    Math.max(minimum, Math.min(count, Math.round(count * pressureCountScale)));
 
-  if (config.burstCount <= 1) {
-    createEnemyProjectile(state, enemy, boardHeight, desiredAngle, config.bulletDamage, config.bulletSpeed, config.bulletSize);
-    return;
-  }
-
-  const burstCount = Math.min(config.burstCount, remainingBulletBudget);
-  for (let index = 0; index < burstCount; index += 1) {
-    const lane = index - (burstCount - 1) / 2;
+  let budget = remainingBulletBudget;
+  const fireShot = (
+    angle: number,
+    damageScale: number,
+    speedScale: number,
+    sizeScale: number,
+    options?: Parameters<typeof createEnemyProjectile>[7]
+  ) => {
+    if (budget <= 0) {
+      return;
+    }
     createEnemyProjectile(
       state,
       enemy,
       boardHeight,
-      desiredAngle + lane * config.spreadAngle,
-      config.bulletDamage,
-      config.bulletSpeed,
-      config.bulletSize
+      angle,
+      config.bulletDamage * damageScale,
+      config.bulletSpeed * speedScale,
+      config.bulletSize * sizeScale,
+      options
     );
+    budget -= 1;
+  };
+  const fireFan = (
+    count: number,
+    spreadAngle: number,
+    damageScale: number,
+    speedScale: number,
+    sizeScale: number,
+    options?: Parameters<typeof createEnemyProjectile>[7]
+  ) => {
+    const fanCount = Math.min(count, budget);
+    for (let index = 0; index < fanCount; index += 1) {
+      const lane = index - (fanCount - 1) / 2;
+      fireShot(desiredAngle + lane * spreadAngle, damageScale, speedScale, sizeScale, options);
+    }
+  };
+
+  switch (enemy.kind) {
+    case 'hover':
+      fireFan(displayTier >= 10 ? scaledCount(2) : 1, 0.12, 0.92, 1.04, 0.86, {
+        style: 'orb',
+        driftAmp: 10,
+        driftFreq: 8,
+      });
+      break;
+    case 'burst':
+      fireFan(displayTier >= 14 ? scaledCount(4, 2) : scaledCount(3, 2), Math.max(0.14, config.spreadAngle * 0.78), 0.84, 1.1, 0.9, {
+        style: 'bolt',
+      });
+      if (displayTier >= 7 && pressureRatio < 0.9) {
+        fireShot(desiredAngle, 1.06, 1.12, 0.92, { style: 'bolt' });
+      }
+      break;
+    case 'tank':
+      fireShot(desiredAngle, 1.42, 0.8, 1.28, { style: 'bomb' });
+      if (displayTier >= 15 && pressureRatio < 0.84) {
+        fireShot(desiredAngle + (Math.random() < 0.5 ? -0.06 : 0.06), 0.95, 0.84, 1.05, { style: 'bomb' });
+      }
+      break;
+    case 'orbiter': {
+      const swirl = 0.18 + Math.sin(enemy.phase * 2.1) * 0.1;
+      fireShot(desiredAngle + swirl, 0.92, 1.02, 0.9, {
+        style: 'wave',
+        driftAmp: 14,
+        driftFreq: 6.8,
+      });
+      fireShot(desiredAngle - swirl, 0.92, 1.02, 0.9, {
+        style: 'wave',
+        driftAmp: 14,
+        driftFreq: 6.8,
+      });
+      if (displayTier >= 12 && pressureRatio < 0.82) {
+        fireShot(desiredAngle, 0.88, 1.08, 0.82, {
+          style: 'orb',
+          driftAmp: 8,
+          driftFreq: 9.2,
+        });
+      }
+      break;
+    }
+    case 'sniper':
+      fireShot(desiredAngle, 1.5, 1.28, 0.78, { style: 'needle' });
+      if (displayTier >= 14 && pressureRatio < 0.78) {
+        fireShot(desiredAngle + Math.sin(enemy.phase) * 0.03, 1.0, 1.18, 0.74, { style: 'needle' });
+      }
+      break;
+    case 'bomber':
+      fireFan(displayTier >= 16 ? scaledCount(3, 2) : 2, 0.24, 1.1, 0.82, 1.2, { style: 'bomb' });
+      if (displayTier >= 16 && pressureRatio < 0.8) {
+        fireFan(scaledCount(2, 1), 0.12, 0.82, 0.92, 0.94, {
+          style: 'wave',
+          driftAmp: 12,
+          driftFreq: 5.8,
+        });
+      }
+      break;
+    case 'interceptor':
+      fireFan(displayTier >= 18 ? scaledCount(5, 3) : scaledCount(4, 3), 0.11, 0.82, 1.18, 0.86, { style: 'bolt' });
+      if (displayTier >= 20 && pressureRatio < 0.8) {
+        fireShot(desiredAngle, 0.95, 1.22, 0.82, { style: 'needle' });
+      }
+      break;
+    case 'prismBoss':
+      if (Math.sin(enemy.phase * 0.6) > 0) {
+        fireFan(displayTier >= 18 ? scaledCount(7, 5) : scaledCount(6, 4), 0.2, 0.92, 0.98, 1, {
+          style: 'wave',
+          driftAmp: 16,
+          driftFreq: 5.2,
+        });
+      } else {
+        fireFan(scaledCount(4, 3), 0.34, 1.14, 1.08, 0.9, { style: 'needle' });
+        if (pressureRatio < 0.88) {
+          fireShot(desiredAngle, 1.3, 1.02, 1.1, { style: 'bomb' });
+        }
+      }
+      break;
+    default:
+      if (config.burstCount <= 1) {
+        fireShot(desiredAngle, 1, 1, 1);
+        break;
+      }
+      fireFan(config.burstCount, config.spreadAngle, 1, 1, 1);
+      break;
   }
 }
 
@@ -555,8 +812,13 @@ function spawnEnemy(
     size: config.size,
     health,
     maxHealth: health,
-    attackCooldown:
-      Math.max(0.62, config.fireInterval - Math.min(0.6, (displayTier - 1) * 0.035)) * (options?.attackCooldownMultiplier ?? 1),
+    attackCooldown: getEnemyAttackCooldown(
+      kind,
+      displayTier,
+      config.fireInterval,
+      state.enemyBullets.length,
+      options?.attackCooldownMultiplier ?? 1
+    ),
     windupTimer: 0,
     flash: 0,
     burnTimer: 0,
@@ -588,16 +850,36 @@ function spawnEnemyGroup(state: ArenaGameState, boardWidth: number, boardHeight:
   spawnEnemy(state, boardWidth, boardHeight, primaryKind, { laneIndex });
 
   const remainingCapacity = activeEnemyCap - state.enemies.length;
-  const shouldAddWingman =
-    remainingCapacity > 0 &&
-    displayTier >= 4 &&
-    (primaryKind === 'hover' || primaryKind === 'burst' || primaryKind === 'orbiter' || primaryKind === 'bomber') &&
-    Math.random() < (displayTier >= 8 ? 0.38 : 0.22);
+  if (remainingCapacity <= 0) {
+    return;
+  }
 
-  if (shouldAddWingman) {
+  const bulletPressure = clamp(state.enemyBullets.length / Math.max(1, getArenaEnemyBulletCap(displayTier)), 0, 1);
+  const wingmanChanceByKind: Record<ArenaEnemyKind, number> = {
+    hover: displayTier >= 10 ? 0.5 : 0.34,
+    burst: displayTier >= 10 ? 0.42 : 0.28,
+    orbiter: 0.26,
+    tank: 0.22,
+    sniper: 0.18,
+    bomber: 0.2,
+    interceptor: 0.12,
+    prismBoss: 0,
+  };
+  const wingmanChance = Math.max(0.08, wingmanChanceByKind[primaryKind] - bulletPressure * 0.24);
+  if (displayTier >= 4 && Math.random() < wingmanChance) {
     const offset = laneIndex <= 1 ? 1 : laneIndex >= lanes.length - 2 ? -1 : Math.random() < 0.5 ? -1 : 1;
-    const secondLane = clamp(laneIndex + offset, 0, lanes.length - 1);
-    spawnEnemy(state, boardWidth, boardHeight, 'hover', { laneIndex: secondLane });
+    spawnEnemy(state, boardWidth, boardHeight, 'hover', {
+      laneIndex: clamp(laneIndex + offset, 0, lanes.length - 1),
+      attackCooldownMultiplier: 1.05,
+    });
+  }
+
+  const canAddSwarmExtra = remainingCapacity >= 2 && displayTier >= 12;
+  if (canAddSwarmExtra && (primaryKind === 'hover' || primaryKind === 'burst') && Math.random() < 0.22 - bulletPressure * 0.12) {
+    spawnEnemy(state, boardWidth, boardHeight, 'hover', {
+      laneIndex: clamp(laneIndex + (Math.random() < 0.5 ? -2 : 2), 0, lanes.length - 1),
+      attackCooldownMultiplier: 1.08,
+    });
   }
 }
 
@@ -931,6 +1213,7 @@ function createPlayerMissileVolley(state: ArenaGameState, boardHeight: number) {
   queueEffect(state, 'muzzle', state.playerX, muzzleY, 24, '#FFD9A6', {
     flavor: 'missileCommand',
     intensity: 1.2,
+    angle: Math.PI,
   });
 }
 
@@ -1022,6 +1305,7 @@ function createPlayerVolley(state: ArenaGameState, boardHeight: number) {
   queueEffect(state, 'muzzle', state.playerX, muzzleY, 24 + weapon.shotCount * 6, '#FFE4A8', {
     flavor: state.activeBuild,
     intensity: state.activeBuild === 'novaBloom' ? 1.16 : state.activeBuild === 'railFocus' ? 1.1 : 1,
+    angle: Math.PI,
   });
 }
 
@@ -1376,7 +1660,11 @@ export function tickArenaState(
   if (!nextState.activeEncounter) {
     while (nextState.enemySpawnCooldown <= 0) {
       spawnEnemyGroup(nextState, boardWidth, boardHeight);
-      nextState.enemySpawnCooldown += getArenaSpawnCooldown(displayTier, nextState.enemies.length);
+      nextState.enemySpawnCooldown += getArenaSpawnCooldown(
+        displayTier,
+        nextState.enemies.length,
+        nextState.enemyBullets.length
+      );
       if (nextState.enemies.length >= getArenaActiveEnemyCap(displayTier)) {
         break;
       }
@@ -1397,23 +1685,63 @@ export function tickArenaState(
     const config = ARENA_ENEMY_CONFIG[enemy.kind];
     const previousWindup = enemy.windupTimer;
     const hadReachedCruise = enemy.y >= enemy.cruiseY;
+    const minX = enemy.size / 2 + 8;
+    const maxX = boardWidth - enemy.size / 2 - 8;
+    const minY = enemy.size / 2 + 10;
+    const maxY = getEnemyZoneMaxY(boardHeight) - enemy.size / 2 - 10;
     let nextEnemy: ArenaEnemy = {
       ...enemy,
       flash: Math.max(0, enemy.flash - deltaSeconds * 4.5),
       attackCooldown: enemy.attackCooldown - deltaSeconds,
       windupTimer: Math.max(0, enemy.windupTimer - deltaSeconds),
-      phase: enemy.phase + deltaSeconds * (enemy.kind === 'orbiter' ? 2.2 : enemy.kind === 'prismBoss' ? 0.65 : 1),
+      phase:
+        enemy.phase +
+        deltaSeconds *
+          (enemy.kind === 'hover'
+            ? 2.4
+            : enemy.kind === 'burst'
+              ? 1.9
+              : enemy.kind === 'tank'
+                ? 0.8
+                : enemy.kind === 'orbiter'
+                  ? 2.2
+                  : enemy.kind === 'sniper'
+                    ? 0.9
+                    : enemy.kind === 'bomber'
+                      ? 1.2
+                      : enemy.kind === 'interceptor'
+                        ? 2.6
+                        : enemy.kind === 'prismBoss'
+                          ? 0.75
+                          : 1),
     };
 
     if (!hadReachedCruise) {
       nextEnemy.y = Math.min(nextEnemy.cruiseY, enemy.y + config.descendSpeed * deltaSeconds);
+      nextEnemy.x = clamp(nextEnemy.x + Math.sin(nextEnemy.phase) * deltaSeconds * 12, minX, maxX);
       if (nextEnemy.y >= nextEnemy.cruiseY) {
         nextEnemy.y = nextEnemy.cruiseY;
       }
     } else {
+      if (enemy.kind === 'interceptor') {
+        const chaseDirection = Math.sign(nextState.playerX - nextEnemy.x);
+        const desiredVx =
+          chaseDirection === 0 ? 0 : chaseDirection * config.strafeSpeed * 1.2;
+        const chaseBlend = Math.min(1, deltaSeconds * 4.1);
+        nextEnemy.vx += (desiredVx - nextEnemy.vx) * chaseBlend;
+      } else if (enemy.kind === 'sniper') {
+        const desiredVx = clamp(nextState.playerX - nextEnemy.x, -1, 1) * config.strafeSpeed * 0.45;
+        const settleBlend = Math.min(1, deltaSeconds * 1.9);
+        nextEnemy.vx += (desiredVx - nextEnemy.vx) * settleBlend;
+      } else if (enemy.kind === 'tank') {
+        const slowDrift = Math.sign(nextEnemy.vx || 1) * config.strafeSpeed * 0.72;
+        nextEnemy.vx += (slowDrift - nextEnemy.vx) * Math.min(1, deltaSeconds * 0.9);
+      } else if (enemy.kind === 'prismBoss') {
+        const figureEightVx = Math.sin(nextEnemy.phase * 0.72) * config.strafeSpeed * 1.18;
+        nextEnemy.vx += (figureEightVx - nextEnemy.vx) * Math.min(1, deltaSeconds * 1.2);
+      }
+
       nextEnemy.x += nextEnemy.vx * deltaSeconds;
-      const minX = nextEnemy.size / 2 + 8;
-      const maxX = boardWidth - nextEnemy.size / 2 - 8;
       if (nextEnemy.x <= minX) {
         nextEnemy.x = minX;
         nextEnemy.vx = Math.abs(nextEnemy.vx);
@@ -1421,10 +1749,39 @@ export function tickArenaState(
         nextEnemy.x = maxX;
         nextEnemy.vx = -Math.abs(nextEnemy.vx);
       }
-      nextEnemy.y =
-        enemy.kind === 'orbiter'
-          ? clamp(nextEnemy.cruiseY + Math.sin(nextEnemy.phase) * config.bobAmplitude, enemy.size / 2 + 10, getEnemyZoneMaxY(boardHeight) - enemy.size / 2 - 10)
-          : nextEnemy.cruiseY;
+
+      switch (enemy.kind) {
+        case 'hover':
+          nextEnemy.y = nextEnemy.cruiseY + Math.sin(nextEnemy.phase * 2.6) * config.bobAmplitude * 0.88;
+          break;
+        case 'burst':
+          nextEnemy.y = nextEnemy.cruiseY + Math.sin(nextEnemy.phase * 2.0) * config.bobAmplitude * 0.64;
+          break;
+        case 'tank':
+          nextEnemy.y = nextEnemy.cruiseY + Math.sin(nextEnemy.phase * 0.8) * Math.max(2, config.bobAmplitude * 0.3);
+          break;
+        case 'orbiter':
+          nextEnemy.x = clamp(nextEnemy.x + Math.cos(nextEnemy.phase * 1.6) * deltaSeconds * 26, minX, maxX);
+          nextEnemy.y = nextEnemy.cruiseY + Math.sin(nextEnemy.phase * 1.6) * config.bobAmplitude;
+          break;
+        case 'sniper':
+          nextEnemy.y = nextEnemy.cruiseY + Math.sin(nextEnemy.phase * 0.8) * 2;
+          break;
+        case 'bomber':
+          nextEnemy.y = nextEnemy.cruiseY + Math.sin(nextEnemy.phase * 1.15) * config.bobAmplitude * 0.56;
+          break;
+        case 'interceptor':
+          nextEnemy.y = nextEnemy.cruiseY + Math.sin(nextEnemy.phase * 2.4) * config.bobAmplitude * 0.5;
+          break;
+        case 'prismBoss':
+          nextEnemy.y = nextEnemy.cruiseY + Math.sin(nextEnemy.phase * 0.94) * config.bobAmplitude * 1.45;
+          break;
+        default:
+          nextEnemy.y = nextEnemy.cruiseY;
+          break;
+      }
+
+      nextEnemy.y = clamp(nextEnemy.y, minY, maxY);
     }
     nextEnemy.aimAngle = getEnemyAimAngle(nextEnemy, nextState.playerX, boardHeight);
 
@@ -1449,13 +1806,29 @@ export function tickArenaState(
 
     if (previousWindup > 0 && nextEnemy.windupTimer <= 0) {
       fireEnemyPattern(nextState, nextEnemy, boardHeight);
-      queueEffect(nextState, 'muzzle', nextEnemy.x, nextEnemy.y + nextEnemy.size * 0.34, 20 + nextEnemy.size * 0.22, '#FFEED2', {
-        flavor: 'enemy',
-        intensity: nextEnemy.kind === 'prismBoss' ? 1.28 : 1,
-      });
+      const muzzleForwardX = Math.sin(nextEnemy.aimAngle);
+      const muzzleForwardY = Math.cos(nextEnemy.aimAngle);
+      queueEffect(
+        nextState,
+        'muzzle',
+        nextEnemy.x + muzzleForwardX * nextEnemy.size * 0.58,
+        nextEnemy.y + muzzleForwardY * nextEnemy.size * 0.58,
+        20 + nextEnemy.size * 0.22,
+        '#FFEED2',
+        {
+          flavor: 'enemy',
+          intensity: nextEnemy.kind === 'prismBoss' ? 1.28 : 1,
+          angle: nextEnemy.aimAngle,
+        }
+      );
     } else if (previousWindup <= 0 && nextEnemy.attackCooldown <= 0) {
       nextEnemy.windupTimer = config.windupDuration;
-      nextEnemy.attackCooldown = Math.max(0.65, config.fireInterval - Math.min(0.7, (displayTier - 1) * 0.035));
+      nextEnemy.attackCooldown = getEnemyAttackCooldown(
+        nextEnemy.kind,
+        displayTier,
+        config.fireInterval,
+        nextState.enemyBullets.length
+      );
     }
 
     movedEnemies.push(nextEnemy);
@@ -1711,11 +2084,25 @@ export function tickArenaState(
   const survivingEnemyBullets: ArenaProjectile[] = [];
 
   for (const bullet of nextState.enemyBullets) {
+    const nextAge = bullet.age + deltaSeconds;
+    const driftOffsetX =
+      bullet.driftAmp && bullet.driftFreq
+        ? Math.sin(nextAge * bullet.driftFreq + (bullet.driftPhase ?? 0)) *
+          bullet.driftAmp *
+          deltaSeconds
+        : 0;
+    const driftOffsetY =
+      bullet.enemyStyle === 'wave' && bullet.driftAmp && bullet.driftFreq
+        ? Math.cos(nextAge * bullet.driftFreq * 0.58 + (bullet.driftPhase ?? 0)) *
+          bullet.driftAmp *
+          0.12 *
+          deltaSeconds
+        : 0;
     const nextBullet: ArenaProjectile = {
       ...bullet,
-      x: bullet.x + bullet.vx * deltaSeconds,
-      y: bullet.y + bullet.vy * deltaSeconds,
-      age: bullet.age + deltaSeconds,
+      x: bullet.x + bullet.vx * deltaSeconds + driftOffsetX,
+      y: bullet.y + bullet.vy * deltaSeconds + driftOffsetY,
+      age: nextAge,
     };
 
     if (

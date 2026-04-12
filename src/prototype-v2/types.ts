@@ -56,6 +56,10 @@ export type ArenaProjectile = {
   owner: ArenaProjectileOwner;
   kind: ArenaProjectileKind;
   buildFlavor?: ArenaBuildId;
+  enemyStyle?: 'bolt' | 'orb' | 'needle' | 'bomb' | 'wave';
+  driftAmp?: number;
+  driftFreq?: number;
+  driftPhase?: number;
   x: number;
   y: number;
   vx: number;
@@ -105,6 +109,7 @@ export type ArenaEffect = {
   kind: ArenaEffectKind;
   flavor?: ArenaEffectFlavor;
   intensity?: number;
+  angle?: number;
   x: number;
   y: number;
   size: number;

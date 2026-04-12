@@ -358,109 +358,259 @@ function createNovaSweepPath(centerX: number, boardWidth: number, boardHeight: n
   return path;
 }
 
-function createEnemyPath(kind: ArenaEnemy['kind'], x: number, y: number, size: number) {
-  const halfSize = size / 2;
+type EnemyLocalPoint = readonly [number, number];
+
+const ENEMY_HULL_POINTS: Record<ArenaEnemy['kind'], readonly EnemyLocalPoint[]> = {
+  hover: [
+    [1.02, 0],
+    [0.3, 0.68],
+    [-0.5, 0.52],
+    [-0.94, 0.1],
+    [-0.94, -0.1],
+    [-0.5, -0.52],
+    [0.3, -0.68],
+  ],
+  burst: [
+    [1.04, 0],
+    [0.24, 0.8],
+    [-0.66, 0.4],
+    [-0.98, 0],
+    [-0.66, -0.4],
+    [0.24, -0.8],
+  ],
+  tank: [
+    [0.86, 0.62],
+    [1.02, 0.2],
+    [1.02, -0.2],
+    [0.86, -0.62],
+    [-0.74, -0.62],
+    [-1, -0.2],
+    [-1, 0.2],
+    [-0.74, 0.62],
+  ],
+  orbiter: [
+    [0.96, 0],
+    [0.34, 0.72],
+    [-0.38, 0.6],
+    [-0.9, 0.18],
+    [-0.9, -0.18],
+    [-0.38, -0.6],
+    [0.34, -0.72],
+  ],
+  sniper: [
+    [1.14, 0],
+    [0.24, 0.38],
+    [-0.92, 0.3],
+    [-1.06, 0],
+    [-0.92, -0.3],
+    [0.24, -0.38],
+  ],
+  bomber: [
+    [0.74, 0.86],
+    [1.04, 0.34],
+    [0.8, 0],
+    [1.04, -0.34],
+    [0.74, -0.86],
+    [-0.22, -0.56],
+    [-0.96, -0.32],
+    [-0.96, 0.32],
+    [-0.22, 0.56],
+  ],
+  interceptor: [
+    [1.08, 0],
+    [0.28, 0.72],
+    [-0.58, 0.44],
+    [-0.98, 0],
+    [-0.58, -0.44],
+    [0.28, -0.72],
+  ],
+  prismBoss: [
+    [1.1, 0],
+    [0.42, 0.92],
+    [-0.46, 0.66],
+    [-1, 0.2],
+    [-1, -0.2],
+    [-0.46, -0.66],
+    [0.42, -0.92],
+  ],
+};
+
+function getEnemyBasis(aimAngle: number) {
+  const forwardX = Math.sin(aimAngle);
+  const forwardY = Math.cos(aimAngle);
+  const rightX = forwardY;
+  const rightY = -forwardX;
+  return { forwardX, forwardY, rightX, rightY };
+}
+
+function createOrientedPolygonPath(
+  x: number,
+  y: number,
+  forwardX: number,
+  forwardY: number,
+  rightX: number,
+  rightY: number,
+  scale: number,
+  points: readonly EnemyLocalPoint[]
+) {
   const path = Skia.Path.Make();
-
-  if (kind === 'hover' || kind === 'orbiter') {
-    path.addCircle(x, y, halfSize);
+  if (points.length === 0) {
     return path;
   }
 
-  if (kind === 'burst' || kind === 'interceptor' || kind === 'prismBoss') {
-    path.moveTo(x, y - halfSize);
-    path.lineTo(x + halfSize, y);
-    path.lineTo(x, y + halfSize);
-    path.lineTo(x - halfSize, y);
-    path.close();
-    return path;
+  const [firstForward, firstRight] = points[0];
+  path.moveTo(x + forwardX * firstForward * scale + rightX * firstRight * scale, y + forwardY * firstForward * scale + rightY * firstRight * scale);
+
+  for (let index = 1; index < points.length; index += 1) {
+    const [pointForward, pointRight] = points[index];
+    path.lineTo(
+      x + forwardX * pointForward * scale + rightX * pointRight * scale,
+      y + forwardY * pointForward * scale + rightY * pointRight * scale
+    );
   }
 
-  if (kind === 'bomber') {
-    path.moveTo(x - halfSize * 0.9, y - halfSize * 0.38);
-    path.lineTo(x - halfSize * 0.42, y - halfSize);
-    path.lineTo(x + halfSize * 0.42, y - halfSize);
-    path.lineTo(x + halfSize * 0.9, y - halfSize * 0.38);
-    path.lineTo(x + halfSize * 0.9, y + halfSize * 0.38);
-    path.lineTo(x + halfSize * 0.42, y + halfSize);
-    path.lineTo(x - halfSize * 0.42, y + halfSize);
-    path.lineTo(x - halfSize * 0.9, y + halfSize * 0.38);
-    path.close();
-    return path;
-  }
-
-  path.addRRect(Skia.RRectXY(Skia.XYWHRect(x - halfSize, y - halfSize, size, size), 12, 12));
+  path.close();
   return path;
 }
 
-function createEnemyWingPath(enemy: ArenaEnemy, side: -1 | 1) {
-  const forwardX = Math.sin(enemy.aimAngle);
-  const forwardY = Math.cos(enemy.aimAngle);
-  const rightX = forwardY;
-  const rightY = -forwardX;
-  const size = enemy.size;
-  const innerOffset = size * 0.18;
-  const outerOffset = size * 0.46;
-  const forwardOffset = size * 0.05;
-  const backOffset = size * 0.28;
-
-  const rootX = enemy.x - forwardX * size * 0.03 + rightX * side * innerOffset;
-  const rootY = enemy.y - forwardY * size * 0.03 + rightY * side * innerOffset;
-  const outerFrontX = enemy.x + forwardX * forwardOffset + rightX * side * outerOffset;
-  const outerFrontY = enemy.y + forwardY * forwardOffset + rightY * side * outerOffset;
-  const outerBackX = enemy.x - forwardX * backOffset + rightX * side * (outerOffset * 0.9);
-  const outerBackY = enemy.y - forwardY * backOffset + rightY * side * (outerOffset * 0.9);
-  const tailX = enemy.x - forwardX * (backOffset + size * 0.08) + rightX * side * (innerOffset * 0.75);
-  const tailY = enemy.y - forwardY * (backOffset + size * 0.08) + rightY * side * (innerOffset * 0.75);
-
-  const wingPath = Skia.Path.Make();
-  wingPath.moveTo(rootX, rootY);
-  wingPath.lineTo(outerFrontX, outerFrontY);
-  wingPath.lineTo(outerBackX, outerBackY);
-  wingPath.lineTo(tailX, tailY);
-  wingPath.close();
-  return wingPath;
+function createEnemyHullPath(enemy: ArenaEnemy) {
+  const { forwardX, forwardY, rightX, rightY } = getEnemyBasis(enemy.aimAngle);
+  return createOrientedPolygonPath(
+    enemy.x,
+    enemy.y,
+    forwardX,
+    forwardY,
+    rightX,
+    rightY,
+    enemy.size * 0.5,
+    ENEMY_HULL_POINTS[enemy.kind]
+  );
 }
 
-function createEnemyTipPath(enemy: ArenaEnemy) {
-  const forwardX = Math.sin(enemy.aimAngle);
-  const forwardY = Math.cos(enemy.aimAngle);
-  const rightX = forwardY;
-  const rightY = -forwardX;
-  const tipDistance = enemy.size * 0.62;
-  const baseDistance = enemy.size * 0.3;
-  const tipHalf = enemy.size * 0.12;
-  const tipX = enemy.x + forwardX * tipDistance;
-  const tipY = enemy.y + forwardY * tipDistance;
-  const baseX = enemy.x + forwardX * baseDistance;
-  const baseY = enemy.y + forwardY * baseDistance;
+function createEnemyWingPanelPath(enemy: ArenaEnemy, side: -1 | 1) {
+  const { forwardX, forwardY, rightX, rightY } = getEnemyBasis(enemy.aimAngle);
+  const span =
+    enemy.kind === 'prismBoss'
+      ? 0.7
+      : enemy.kind === 'tank'
+        ? 0.62
+        : enemy.kind === 'sniper'
+          ? 0.52
+          : 0.58;
+  const points: EnemyLocalPoint[] = [
+    [0.14, side * (span * 0.24)],
+    [-0.02, side * span],
+    [-0.36, side * (span * 0.8)],
+    [-0.56, side * (span * 0.28)],
+  ];
+  return createOrientedPolygonPath(enemy.x, enemy.y, forwardX, forwardY, rightX, rightY, enemy.size * 0.5, points);
+}
 
-  const tipPath = Skia.Path.Make();
-  tipPath.moveTo(tipX, tipY);
-  tipPath.lineTo(baseX + rightX * tipHalf, baseY + rightY * tipHalf);
-  tipPath.lineTo(baseX - rightX * tipHalf, baseY - rightY * tipHalf);
-  tipPath.close();
-  return tipPath;
+function createEnemyCanopyPath(enemy: ArenaEnemy) {
+  const { forwardX, forwardY, rightX, rightY } = getEnemyBasis(enemy.aimAngle);
+  const canopyLength =
+    enemy.kind === 'sniper' ? enemy.size * 0.28 : enemy.kind === 'tank' ? enemy.size * 0.22 : enemy.size * 0.24;
+  const canopyWidth =
+    enemy.kind === 'tank' || enemy.kind === 'bomber' ? enemy.size * 0.16 : enemy.size * 0.13;
+  return createOrientedRectPath(
+    enemy.x + forwardX * (enemy.size * 0.02),
+    enemy.y + forwardY * (enemy.size * 0.02),
+    forwardX,
+    forwardY,
+    rightX,
+    rightY,
+    canopyLength,
+    canopyWidth
+  );
+}
+
+function createEnemyGunBarrelPaths(enemy: ArenaEnemy) {
+  const { forwardX, forwardY, rightX, rightY } = getEnemyBasis(enemy.aimAngle);
+  const barrels: ReturnType<typeof Skia.Path.Make>[] = [];
+
+  const mainBarrel = createOrientedRectPath(
+    enemy.x + forwardX * (enemy.size * 0.46),
+    enemy.y + forwardY * (enemy.size * 0.46),
+    forwardX,
+    forwardY,
+    rightX,
+    rightY,
+    enemy.kind === 'sniper' ? enemy.size * 0.3 : enemy.size * 0.22,
+    enemy.kind === 'tank' || enemy.kind === 'bomber' ? enemy.size * 0.1 : enemy.size * 0.075
+  );
+  barrels.push(mainBarrel);
+
+  if (enemy.kind === 'bomber' || enemy.kind === 'prismBoss' || enemy.kind === 'interceptor') {
+    const sideOffset = enemy.kind === 'prismBoss' ? enemy.size * 0.16 : enemy.size * 0.13;
+    const sideBarrelLength = enemy.kind === 'prismBoss' ? enemy.size * 0.18 : enemy.size * 0.16;
+    const sideBarrelWidth = enemy.size * 0.052;
+    barrels.push(
+      createOrientedRectPath(
+        enemy.x + forwardX * (enemy.size * 0.4) + rightX * sideOffset,
+        enemy.y + forwardY * (enemy.size * 0.4) + rightY * sideOffset,
+        forwardX,
+        forwardY,
+        rightX,
+        rightY,
+        sideBarrelLength,
+        sideBarrelWidth
+      )
+    );
+    barrels.push(
+      createOrientedRectPath(
+        enemy.x + forwardX * (enemy.size * 0.4) - rightX * sideOffset,
+        enemy.y + forwardY * (enemy.size * 0.4) - rightY * sideOffset,
+        forwardX,
+        forwardY,
+        rightX,
+        rightY,
+        sideBarrelLength,
+        sideBarrelWidth
+      )
+    );
+  }
+
+  return barrels;
 }
 
 function renderEnemyShipDetails(enemy: ArenaEnemy) {
-  const tipPath = createEnemyTipPath(enemy);
-  const leftWingPath = createEnemyWingPath(enemy, -1);
-  const rightWingPath = createEnemyWingPath(enemy, 1);
-  const forwardX = Math.sin(enemy.aimAngle);
-  const forwardY = Math.cos(enemy.aimAngle);
-  const muzzleX = enemy.x + forwardX * (enemy.size * 0.64);
-  const muzzleY = enemy.y + forwardY * (enemy.size * 0.64);
+  const leftWingPath = createEnemyWingPanelPath(enemy, -1);
+  const rightWingPath = createEnemyWingPanelPath(enemy, 1);
+  const canopyPath = createEnemyCanopyPath(enemy);
+  const gunBarrels = createEnemyGunBarrelPaths(enemy);
+  const { forwardX, forwardY, rightX, rightY } = getEnemyBasis(enemy.aimAngle);
+  const rearKeelPath = createOrientedRectPath(
+    enemy.x - forwardX * (enemy.size * 0.36),
+    enemy.y - forwardY * (enemy.size * 0.36),
+    forwardX,
+    forwardY,
+    rightX,
+    rightY,
+    enemy.size * 0.16,
+    enemy.size * 0.08
+  );
 
   return (
     <>
-      <Path path={leftWingPath} color={withAlpha(enemy.color, 0.26)} />
-      <Path path={rightWingPath} color={withAlpha(enemy.color, 0.26)} />
-      <Path path={leftWingPath} style="stroke" strokeWidth={1.15} color={withAlpha('#EAF7FF', 0.52)} />
-      <Path path={rightWingPath} style="stroke" strokeWidth={1.15} color={withAlpha('#EAF7FF', 0.52)} />
-      <Path path={tipPath} color={withAlpha('#FFE7C8', 0.95)} />
-      <Path path={tipPath} style="stroke" strokeWidth={1.1} color={withAlpha('#FFFFFF', 0.82)} />
-      <Circle cx={muzzleX} cy={muzzleY} r={enemy.size * 0.06} color={withAlpha('#FFF5DD', 0.9)} />
+      <Path path={leftWingPath} color={withAlpha(enemy.color, 0.3)} />
+      <Path path={rightWingPath} color={withAlpha(enemy.color, 0.3)} />
+      <Path path={leftWingPath} style="stroke" strokeWidth={1.1} color={withAlpha('#EAF7FF', 0.48)} />
+      <Path path={rightWingPath} style="stroke" strokeWidth={1.1} color={withAlpha('#EAF7FF', 0.48)} />
+      <Path path={rearKeelPath} color={withAlpha('#E8F2FF', 0.28)} />
+      <Path path={canopyPath} color={withAlpha('#F2F7FF', 0.45)} />
+      <Path path={canopyPath} style="stroke" strokeWidth={1} color={withAlpha('#FFFFFF', 0.72)} />
+      {gunBarrels.map((barrelPath, index) => (
+        <Path key={`enemy-barrel-${enemy.id}-${index}`} path={barrelPath} color={withAlpha('#FEE8CB', enemy.windupTimer > 0 ? 0.94 : 0.78)} />
+      ))}
+      {gunBarrels.map((barrelPath, index) => (
+        <Path
+          key={`enemy-barrel-outline-${enemy.id}-${index}`}
+          path={barrelPath}
+          style="stroke"
+          strokeWidth={0.9}
+          color={withAlpha('#FFF8EA', enemy.windupTimer > 0 ? 0.9 : 0.6)}
+        />
+      ))}
     </>
   );
 }
@@ -517,7 +667,7 @@ function createStaticBackgroundScene({
 }
 
 function renderEnemyCore(enemy: ArenaEnemy) {
-  const enemyPath = createEnemyPath(enemy.kind, enemy.x, enemy.y, enemy.size);
+  const enemyPath = createEnemyHullPath(enemy);
   const isElite = enemy.kind === 'interceptor';
   const isBoss = enemy.kind === 'prismBoss';
   const auraColor = isBoss ? '#FF89C0' : isElite ? '#CBBFFF' : enemy.color;
@@ -1166,6 +1316,8 @@ export function ArenaCanvas({ boardWidth, boardHeight, state, vfxQuality }: Aren
         if (effect.kind === 'muzzle') {
           const flavor = effect.flavor ?? 'neutral';
           const intensity = clamp(effect.intensity ?? 1, 0.75, 1.6);
+          const muzzleAngle = effect.angle ?? (flavor === 'enemy' ? 0 : Math.PI);
+          const basis = getProjectileBasis(Math.sin(muzzleAngle), Math.cos(muzzleAngle));
           const flareColor =
             flavor === 'railFocus'
               ? '#D9E8FF'
@@ -1178,27 +1330,51 @@ export function ArenaCanvas({ boardWidth, boardHeight, state, vfxQuality }: Aren
                     : flavor === 'enemy'
                       ? '#FFD9C5'
                       : effect.color;
-          const flareHeight = effect.size * (0.92 + progress * 0.42);
-          const coreHeight = effect.size * (0.52 + progress * 0.18);
+          const flareLength = effect.size * (0.92 + progress * 0.42);
+          const coreLength = effect.size * (0.52 + progress * 0.18);
+          const flarePath = createOrientedRectPath(
+            effect.x + basis.forwardX * flareLength * 0.24,
+            effect.y + basis.forwardY * flareLength * 0.24,
+            basis.forwardX,
+            basis.forwardY,
+            basis.rightX,
+            basis.rightY,
+            flareLength * 0.5,
+            effect.size * 0.18
+          );
+          const corePath = createOrientedRectPath(
+            effect.x + basis.forwardX * coreLength * 0.24,
+            effect.y + basis.forwardY * coreLength * 0.24,
+            basis.forwardX,
+            basis.forwardY,
+            basis.rightX,
+            basis.rightY,
+            coreLength * 0.5,
+            effect.size * 0.09
+          );
+          const tipPath = createOrientedDiamondPath(
+            effect.x + basis.forwardX * flareLength * 0.78,
+            effect.y + basis.forwardY * flareLength * 0.78,
+            basis.forwardX,
+            basis.forwardY,
+            basis.rightX,
+            basis.rightY,
+            effect.size * (flavor === 'enemy' ? 0.22 : 0.2),
+            effect.size * (flavor === 'enemy' ? 0.11 : 0.13)
+          );
           return (
             <Group key={effect.id}>
-              <RoundedRect
-                x={effect.x - effect.size * 0.28}
-                y={effect.y - flareHeight}
-                width={effect.size * 0.56}
-                height={flareHeight}
-                r={999}
-                color={withAlpha(flareColor, 0.24 + opacity * (0.32 + intensity * 0.08))}
-              />
-              <RoundedRect
-                x={effect.x - effect.size * 0.14}
-                y={effect.y - coreHeight}
-                width={effect.size * 0.28}
-                height={coreHeight}
-                r={999}
-                color={withAlpha('#FFF7E8', 0.48 + opacity * 0.4)}
-              />
-              <Circle cx={effect.x} cy={effect.y - flareHeight * 0.85} r={effect.size * 0.17 * (0.9 + intensity * 0.15)} color={withAlpha('#FFEED2', 0.62 + opacity * 0.26)} />
+              <Path path={flarePath} color={withAlpha(flareColor, 0.24 + opacity * (0.32 + intensity * 0.08))} />
+              <Path path={corePath} color={withAlpha('#FFF7E8', 0.48 + opacity * 0.4)} />
+              <Path path={tipPath} color={withAlpha('#FFEED2', flavor === 'enemy' ? 0.72 + opacity * 0.2 : 0.62 + opacity * 0.26)} />
+              {flavor === 'enemy' ? null : (
+                <Circle
+                  cx={effect.x + basis.forwardX * flareLength * 0.92}
+                  cy={effect.y + basis.forwardY * flareLength * 0.92}
+                  r={effect.size * 0.16 * (0.9 + intensity * 0.15)}
+                  color={withAlpha('#FFEED2', 0.58 + opacity * 0.24)}
+                />
+              )}
             </Group>
           );
         }
@@ -1213,7 +1389,15 @@ export function ArenaCanvas({ boardWidth, boardHeight, state, vfxQuality }: Aren
 
       {sampledEnemyBullets.map((bullet) => {
         const basis = getProjectileBasis(bullet.vx, bullet.vy);
-        const trailLength = bullet.size * 3.2;
+        const style = bullet.enemyStyle ?? 'bolt';
+        const trailLength =
+          style === 'needle'
+            ? bullet.size * 4.6
+            : style === 'bomb'
+              ? bullet.size * 2.3
+              : style === 'wave'
+                ? bullet.size * 3.6
+                : bullet.size * 3.2;
         const tailX = bullet.x - basis.forwardX * trailLength;
         const tailY = bullet.y - basis.forwardY * trailLength;
         const boltPath = createOrientedDiamondPath(
@@ -1226,6 +1410,104 @@ export function ArenaCanvas({ boardWidth, boardHeight, state, vfxQuality }: Aren
           bullet.size * 0.94,
           bullet.size * 0.42
         );
+
+        if (style === 'orb') {
+          return (
+            <Group key={`enemy-bullet-${bullet.id}`}>
+              <Line
+                p1={vec(tailX, tailY)}
+                p2={vec(bullet.x - basis.forwardX * bullet.size * 0.56, bullet.y - basis.forwardY * bullet.size * 0.56)}
+                color={withAlpha(bullet.color, 0.26)}
+                strokeWidth={bullet.size * 0.5}
+                strokeCap="round"
+              />
+              <Circle cx={bullet.x} cy={bullet.y} r={bullet.size * 0.5} color={withAlpha(bullet.color, 0.85)} />
+              <Circle cx={bullet.x} cy={bullet.y} r={bullet.size * 0.3} color={withAlpha('#F4FFF9', 0.8)} />
+            </Group>
+          );
+        }
+
+        if (style === 'needle') {
+          const needlePath = createOrientedRectPath(
+            bullet.x,
+            bullet.y,
+            basis.forwardX,
+            basis.forwardY,
+            basis.rightX,
+            basis.rightY,
+            bullet.size * 1.08,
+            bullet.size * 0.18
+          );
+          return (
+            <Group key={`enemy-bullet-${bullet.id}`}>
+              <Line
+                p1={vec(tailX, tailY)}
+                p2={vec(bullet.x - basis.forwardX * bullet.size * 0.82, bullet.y - basis.forwardY * bullet.size * 0.82)}
+                color={withAlpha(bullet.color, 0.34)}
+                strokeWidth={bullet.size * 0.36}
+                strokeCap="round"
+              />
+              <Path path={needlePath} color={withAlpha(bullet.color, 0.96)} />
+              <Path path={needlePath} style="stroke" strokeWidth={1} color={withAlpha('#FFF3FC', 0.86)} />
+            </Group>
+          );
+        }
+
+        if (style === 'bomb') {
+          const bombPath = createOrientedDiamondPath(
+            bullet.x,
+            bullet.y,
+            basis.forwardX,
+            basis.forwardY,
+            basis.rightX,
+            basis.rightY,
+            bullet.size * 0.86,
+            bullet.size * 0.54
+          );
+          return (
+            <Group key={`enemy-bullet-${bullet.id}`}>
+              <Line
+                p1={vec(tailX, tailY)}
+                p2={vec(bullet.x - basis.forwardX * bullet.size * 0.44, bullet.y - basis.forwardY * bullet.size * 0.44)}
+                color={withAlpha(bullet.color, 0.24)}
+                strokeWidth={bullet.size * 0.56}
+                strokeCap="round"
+              />
+              <Path path={bombPath} color={withAlpha(bullet.color, 0.9)} />
+              <Path path={bombPath} style="stroke" strokeWidth={1.12} color={withAlpha('#FFF1DD', 0.8)} />
+              <Line
+                p1={vec(bullet.x - basis.rightX * bullet.size * 0.22, bullet.y - basis.rightY * bullet.size * 0.22)}
+                p2={vec(bullet.x + basis.rightX * bullet.size * 0.22, bullet.y + basis.rightY * bullet.size * 0.22)}
+                color={withAlpha('#FFF4E6', 0.68)}
+                strokeWidth={0.9}
+                strokeCap="round"
+              />
+            </Group>
+          );
+        }
+
+        if (style === 'wave') {
+          return (
+            <Group key={`enemy-bullet-${bullet.id}`}>
+              <Line
+                p1={vec(tailX, tailY)}
+                p2={vec(bullet.x - basis.forwardX * bullet.size * 0.66, bullet.y - basis.forwardY * bullet.size * 0.66)}
+                color={withAlpha(bullet.color, 0.28)}
+                strokeWidth={bullet.size * 0.5}
+                strokeCap="round"
+              />
+              <Circle cx={bullet.x} cy={bullet.y} r={bullet.size * 0.44} color={withAlpha(bullet.color, 0.84)} />
+              <Circle
+                cx={bullet.x}
+                cy={bullet.y}
+                r={bullet.size * 0.58}
+                style="stroke"
+                strokeWidth={1}
+                color={withAlpha('#EFFFF8', 0.5)}
+              />
+            </Group>
+          );
+        }
 
         return (
           <Group key={`enemy-bullet-${bullet.id}`}>
