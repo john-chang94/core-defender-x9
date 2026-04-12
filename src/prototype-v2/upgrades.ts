@@ -108,29 +108,30 @@ export const ARENA_ARMORY_UPGRADE_ORDER = Object.keys(
   ARENA_ARMORY_UPGRADES,
 ) as ArenaArmoryUpgradeKey[];
 
-function weaponsEqual(left: ArenaWeapon, right: ArenaWeapon) {
-  const epsilon = 0.0001;
-  return (
-    Math.abs(left.damage - right.damage) < epsilon &&
-    Math.abs(left.fireInterval - right.fireInterval) < epsilon &&
-    Math.abs(left.shotCount - right.shotCount) < epsilon &&
-    Math.abs(left.pierce - right.pierce) < epsilon &&
-    Math.abs(left.bulletSpeed - right.bulletSpeed) < epsilon &&
-    Math.abs(left.bulletSize - right.bulletSize) < epsilon &&
-    Math.abs(left.spread - right.spread) < epsilon
-  );
-}
-
 export function isArenaArmoryUpgradeMaxed(
   key: ArenaArmoryUpgradeKey,
   weapon: ArenaWeapon,
 ) {
-  const definition = ARENA_ARMORY_UPGRADES[key];
-  if (definition.applyMeta) {
-    return false;
+  const epsilon = 0.0001;
+  switch (key) {
+    case "damageMatrix":
+      return false;
+    case "rapidCycle":
+      return weapon.fireInterval <= 0.05 + epsilon;
+    case "twinArray":
+      return weapon.shotCount >= 4;
+    case "phasePierce":
+      return weapon.pierce >= 3;
+    case "shieldCapacitor":
+    case "hullWeave":
+      return false;
+    case "accelerator":
+      return (
+        weapon.bulletSpeed >= 1700 - epsilon &&
+        weapon.bulletSize >= 12.5 - epsilon &&
+        weapon.pierce >= 4
+      );
   }
-  const nextWeapon = definition.apply(weapon);
-  return weaponsEqual(weapon, nextWeapon);
 }
 
 export function createArenaArmoryChoice(cost: number): ArenaArmoryChoice {

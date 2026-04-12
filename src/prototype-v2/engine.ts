@@ -1051,6 +1051,7 @@ export function createInitialArenaState(boardWidth: number): ArenaGameState {
     shieldRegenCooldown: 0,
     playerFlash: 0,
     overclockTimer: 0,
+    overclockVisualBlend: 0,
     ultimateCharge: 0,
     ultimateTimer: 0,
     ultimateBuild: null,
@@ -1278,6 +1279,17 @@ export function tickArenaState(
   boardWidth: number,
   boardHeight: number
 ): ArenaGameState {
+  const nextOverclockTimer = Math.max(0, previousState.overclockTimer - deltaSeconds);
+  const previousOverclockBlend =
+    previousState.overclockVisualBlend ?? (previousState.overclockTimer > 0 ? 1 : 0);
+  const overclockBlendTarget = nextOverclockTimer > 0 ? 1 : 0;
+  const overclockBlendRate =
+    overclockBlendTarget > previousOverclockBlend ? 9.2 : 7.8;
+  const nextOverclockVisualBlend =
+    overclockBlendTarget > previousOverclockBlend
+      ? Math.min(1, previousOverclockBlend + deltaSeconds * overclockBlendRate)
+      : Math.max(0, previousOverclockBlend - deltaSeconds * overclockBlendRate);
+
   const nextState: ArenaGameState = {
     ...previousState,
     elapsed: previousState.elapsed + deltaSeconds,
@@ -1286,7 +1298,8 @@ export function tickArenaState(
     shield: previousState.shield,
     shieldRegenCooldown: Math.max(0, previousState.shieldRegenCooldown - deltaSeconds),
     playerFlash: Math.max(0, previousState.playerFlash - deltaSeconds * 4.5),
-    overclockTimer: Math.max(0, previousState.overclockTimer - deltaSeconds),
+    overclockTimer: nextOverclockTimer,
+    overclockVisualBlend: nextOverclockVisualBlend,
     ultimateCharge: previousState.ultimateCharge,
     ultimateTimer: Math.max(0, previousState.ultimateTimer - deltaSeconds),
     ultimateBuild: previousState.ultimateTimer > deltaSeconds ? previousState.ultimateBuild : null,

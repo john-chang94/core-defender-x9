@@ -148,6 +148,7 @@ export type ArenaGameState = {
   shieldRegenCooldown: number;
   playerFlash: number;
   overclockTimer: number;
+  overclockVisualBlend: number;
   ultimateCharge: number;
   ultimateTimer: number;
   ultimateBuild: ArenaBuildId | null;

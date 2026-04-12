@@ -563,6 +563,8 @@ export function ArenaCanvas({ boardWidth, boardHeight, state, vfxQuality }: Aren
   const themeIndex = Math.floor((displayTier - 1) / 5) % ARENA_THEMES.length;
   const theme = ARENA_THEMES[themeIndex];
   const themePulse = 0.5 + Math.sin(state.elapsed * 0.45) * 0.5;
+  const overdriveBlend = clamp(state.overclockVisualBlend, 0, 1);
+  const overdrivePulse = 0.5 + Math.sin(state.elapsed * 7.4) * 0.5;
   const isHighVfx = vfxQuality === 'high';
   const maxRenderedEffects = isHighVfx ? MAX_RENDERED_EFFECTS : 34;
   const maxRenderedPlayerBullets = isHighVfx ? MAX_RENDERED_PLAYER_BULLETS : 74;
@@ -629,6 +631,49 @@ export function ArenaCanvas({ boardWidth, boardHeight, state, vfxQuality }: Aren
       )}
 
       <Rect x={0} y={0} width={boardWidth} height={boardHeight} color={withAlpha(theme.overlay, 0.06 + themePulse * 0.05)} />
+      {overdriveBlend > 0 ? (
+        <Group opacity={overdriveBlend}>
+          <Rect
+            x={0}
+            y={0}
+            width={boardWidth}
+            height={boardHeight}
+            color={withAlpha('#32150B', 0.07 + overdrivePulse * 0.03)}
+          />
+          <Circle
+            cx={boardWidth * 0.86}
+            cy={boardHeight * 0.16}
+            r={boardWidth * 0.3}
+            color={withAlpha('#FFAE67', 0.08 + overdrivePulse * 0.04)}
+          />
+          <Circle
+            cx={boardWidth * 0.24}
+            cy={boardHeight * 0.85}
+            r={boardWidth * 0.36}
+            color={withAlpha('#FF7A38', 0.06 + overdrivePulse * 0.025)}
+          />
+          <RoundedRect
+            x={14}
+            y={boardHeight * ARENA_ENEMY_ZONE_RATIO}
+            width={Math.max(0, boardWidth - 28)}
+            height={2}
+            r={999}
+            color={withAlpha('#FFB36B', 0.34 + overdrivePulse * 0.12)}
+          />
+          {(isHighVfx ? [0.14, 0.3, 0.5, 0.68, 0.84] : [0.22, 0.5, 0.78]).map((lane, index) => {
+            const sway = Math.sin(state.elapsed * 2.9 + index * 0.8) * 7;
+            return (
+              <Line
+                key={`overdrive-lane-${index}`}
+                p1={vec(boardWidth * lane + sway, 0)}
+                p2={vec(boardWidth * lane - sway * 0.35, boardHeight)}
+                color={withAlpha('#FFBD82', isHighVfx ? 0.11 : 0.08)}
+                strokeWidth={isHighVfx ? 1.4 : 1}
+              />
+            );
+          })}
+        </Group>
+      ) : null}
 
       {isHighVfx
         ? ATMOSPHERE_ORBS.map((orb, index) => {
