@@ -56,7 +56,20 @@ function randomChoice<T>(items: readonly T[]): T {
   return items[Math.floor(Math.random() * items.length)];
 }
 
-function getBuildProjectileCap(build: ArenaBuildId) {
+function getBuildProjectileCap(build: ArenaBuildId, overdrive = false) {
+  if (overdrive) {
+    switch (build) {
+      case 'railFocus':
+        return 3;
+      case 'novaBloom':
+        return 5;
+      case 'missileCommand':
+        return 7;
+      case 'fractureCore':
+        return 4;
+    }
+  }
+
   switch (build) {
     case 'railFocus':
       return 2;
@@ -186,6 +199,7 @@ export function getArenaDisplayTier(elapsedSeconds: number) {
 
 export function getArenaActiveWeapon(state: ArenaGameState): ArenaWeapon {
   const displayTier = getArenaDisplayTier(state.elapsed);
+  const overdriveActive = state.overclockTimer > 0;
   let nextWeapon: ArenaWeapon = {
     ...state.weapon,
     damage: state.weapon.damage + Math.floor((displayTier - 1) / 6),
@@ -209,7 +223,7 @@ export function getArenaActiveWeapon(state: ArenaGameState): ArenaWeapon {
       nextWeapon = {
         ...nextWeapon,
         damage: Math.round(nextWeapon.damage * 0.82),
-        fireInterval: Math.max(0.056, nextWeapon.fireInterval * 0.79),
+        fireInterval: Math.max(0.072, nextWeapon.fireInterval * 0.86),
         shotCount: Math.min(4, Math.max(2, nextWeapon.shotCount + 1)),
         pierce: Math.max(0, nextWeapon.pierce),
         bulletSpeed: Math.min(1600, nextWeapon.bulletSpeed + 40),
@@ -233,7 +247,7 @@ export function getArenaActiveWeapon(state: ArenaGameState): ArenaWeapon {
       nextWeapon = {
         ...nextWeapon,
         damage: Math.round(nextWeapon.damage * 1.64),
-        fireInterval: Math.max(0.165, nextWeapon.fireInterval * 1.7),
+        fireInterval: Math.max(0.235, nextWeapon.fireInterval * 2.05),
         shotCount: Math.min(3, Math.max(1, nextWeapon.shotCount)),
         pierce: Math.min(4, nextWeapon.pierce + 1),
         bulletSpeed: Math.min(1500, nextWeapon.bulletSpeed + 20),
@@ -243,26 +257,26 @@ export function getArenaActiveWeapon(state: ArenaGameState): ArenaWeapon {
       break;
   }
 
-  if (state.overclockTimer > 0) {
-    const projectileCap = getBuildProjectileCap(state.activeBuild);
-    const overdriveFireMultiplier = state.activeBuild === 'fractureCore' ? 0.95 : 0.78;
-    const overdriveFireFloor = state.activeBuild === 'fractureCore' ? 0.15 : 0.06;
-    const overdriveBulletSizeCap = state.activeBuild === 'fractureCore' ? 24.2 : 12.5;
+  if (overdriveActive) {
+    const projectileCap = getBuildProjectileCap(state.activeBuild, true);
+    const overdriveFireMultiplier = state.activeBuild === 'fractureCore' ? 0.9 : 0.74;
+    const overdriveFireFloor = state.activeBuild === 'fractureCore' ? 0.205 : 0.065;
+    const overdriveBulletSizeCap = state.activeBuild === 'fractureCore' ? 26.5 : 14.2;
     nextWeapon = {
       ...nextWeapon,
-      damage: nextWeapon.damage + 6,
+      damage: nextWeapon.damage + 10,
       fireInterval: Math.max(overdriveFireFloor, nextWeapon.fireInterval * overdriveFireMultiplier),
-      shotCount: Math.min(projectileCap, nextWeapon.shotCount + 1),
-      pierce: Math.min(4, nextWeapon.pierce + 1),
-      bulletSpeed: Math.min(1600, nextWeapon.bulletSpeed + 120),
-      bulletSize: Math.min(overdriveBulletSizeCap, nextWeapon.bulletSize + 0.7),
+      shotCount: projectileCap,
+      pierce: Math.min(7, nextWeapon.pierce + 2),
+      bulletSpeed: Math.min(1850, nextWeapon.bulletSpeed + 180),
+      bulletSize: Math.min(overdriveBulletSizeCap, nextWeapon.bulletSize + 1),
       spread: Math.min(30, nextWeapon.spread + 3),
     };
   }
 
   nextWeapon = {
     ...nextWeapon,
-    shotCount: Math.max(1, Math.min(getBuildProjectileCap(state.activeBuild), nextWeapon.shotCount)),
+    shotCount: Math.max(1, Math.min(getBuildProjectileCap(state.activeBuild, overdriveActive), nextWeapon.shotCount)),
   };
 
   return nextWeapon;
@@ -1188,10 +1202,13 @@ function applyPlayerDamage(state: ArenaGameState, damage: number, boardHeight: n
 }
 
 function getMissileLaunchOffsets(state: ArenaGameState, weapon: ArenaWeapon) {
+  if (state.overclockTimer > 0) {
+    return [-40, -26, -13, 0, 13, 26, 40];
+  }
+
   const displayTier = getArenaDisplayTier(state.elapsed);
   const tierBonus = displayTier >= 16 ? 2 : displayTier >= 9 ? 1 : 0;
-  const overdriveBonus = state.overclockTimer > 0 ? 1 : 0;
-  const volleyCount = Math.max(2, Math.min(6, weapon.shotCount + tierBonus + overdriveBonus));
+  const volleyCount = Math.max(2, Math.min(6, weapon.shotCount + tierBonus));
 
   switch (volleyCount) {
     case 6:
@@ -1241,7 +1258,7 @@ function createPlayerMissile(
       vx: offset === 0 ? 0 : offset < 0 ? -120 : 120,
       vy: -560,
       homing: 6.4,
-      damage: Math.max(10, Math.round(weapon.damage * 2.05 * damageScale)),
+      damage: Math.max(12, Math.round(weapon.damage * 2.7 * damageScale)),
       size: Math.min(10.4, weapon.bulletSize + 0.5),
       color: '#FFD8A6',
       age: 0,
@@ -2105,7 +2122,7 @@ export function tickArenaState(
 
       if (activeBullet.kind === 'missile') {
         const splashRadius = nextState.activeBuild === 'missileCommand' ? 66 : 52;
-        const splashDamageScale = nextState.activeBuild === 'missileCommand' ? 0.58 : 0.44;
+        const splashDamageScale = nextState.activeBuild === 'missileCommand' ? 0.7 : 0.5;
         for (const splashTarget of survivingEnemies) {
           if (splashTarget === enemy || splashTarget.health <= 0) {
             continue;

@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
 import {
   Canvas,
   Circle,
@@ -80,8 +80,10 @@ function createDeterministicRandom(seedValue: number) {
   };
 }
 
-function createOverdriveCrackSegments(boardWidth: number, boardHeight: number, highVfx: boolean) {
-  const random = createDeterministicRandom(Math.floor(boardWidth * 31 + boardHeight * 17 + (highVfx ? 97 : 53)));
+function createOverdriveCrackSegments(boardWidth: number, boardHeight: number, highVfx: boolean, seedOffset: number) {
+  const random = createDeterministicRandom(
+    Math.floor(boardWidth * 31 + boardHeight * 17 + (highVfx ? 97 : 53) + seedOffset)
+  );
   const segments: OverdriveCrackSegment[] = [];
   const chainCount = highVfx ? 10 : 7;
   const maxStep = Math.min(boardWidth, boardHeight) * (highVfx ? 0.22 : 0.18);
@@ -776,9 +778,18 @@ export function ArenaCanvas({ boardWidth, boardHeight, state, vfxQuality }: Aren
     const lineCount = Math.max(5, Math.floor(boardHeight / 62));
     return Array.from({ length: lineCount }, (_, index) => ((index + 1) * boardHeight) / (lineCount + 1));
   }, [boardHeight]);
+  const [overdriveCrackSeed, setOverdriveCrackSeed] = useState(() => Math.floor(Math.random() * 1_000_000));
+  const wasOverdriveActiveRef = useRef(false);
+  useEffect(() => {
+    const isOverdriveActive = overdriveBlend > 0.08;
+    if (isOverdriveActive && !wasOverdriveActiveRef.current) {
+      setOverdriveCrackSeed((previousSeed) => (previousSeed + Math.floor(Math.random() * 9_973) + 137) % 10_000_000);
+    }
+    wasOverdriveActiveRef.current = isOverdriveActive;
+  }, [overdriveBlend]);
   const overdriveCrackSegments = useMemo(
-    () => createOverdriveCrackSegments(boardWidth, boardHeight, isHighVfx),
-    [boardHeight, boardWidth, isHighVfx]
+    () => createOverdriveCrackSegments(boardWidth, boardHeight, isHighVfx, overdriveCrackSeed),
+    [boardHeight, boardWidth, isHighVfx, overdriveCrackSeed]
   );
 
   const [backgroundImage, setBackgroundImage] = useState<SkImage | null>(null);
