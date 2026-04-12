@@ -39,7 +39,7 @@ export const ARENA_BUILD_META: Record<
       'Accelerates primary fire into a broad spread that continuously layers burn damage. Excellent for crowd control and area denial against dense waves.',
     ultimateLabel: 'Solar Bloom',
     ultimateDescription:
-      'Unleashes a wide solar sweep, overclocks the ship, and applies heavy lingering burn across the field.',
+      'Unleashes a wide solar sweep, overdrives the ship, and applies heavy lingering burn across the field.',
   },
   missileCommand: {
     label: 'Missile Command',

@@ -49,6 +49,19 @@ const FLOW_STREAKS = [
   { x: 0.86, length: 120, speed: 206, width: 2 },
 ];
 
+const ATMOSPHERE_ORBS = [
+  { x: 0.14, y: -80, radius: 120, speed: 20, color: '#6EDCFF', opacity: 0.075 },
+  { x: 0.84, y: 42, radius: 156, speed: 15, color: '#FF89C0', opacity: 0.07 },
+  { x: 0.34, y: 280, radius: 102, speed: 18, color: '#9EC7FF', opacity: 0.06 },
+  { x: 0.72, y: 420, radius: 130, speed: 23, color: '#FFD39C', opacity: 0.062 },
+] as const;
+
+const ENERGY_SWEEPS = [
+  { x: 0.22, width: 52, height: 240, speed: 42, color: '#8BD2FF' },
+  { x: 0.56, width: 66, height: 290, speed: 35, color: '#FFC9E5' },
+  { x: 0.8, width: 58, height: 260, speed: 47, color: '#B6E7FF' },
+] as const;
+
 type ArenaTheme = {
   base: string;
   auraA: string;
@@ -107,6 +120,51 @@ function withAlpha(color: string, alpha: number) {
   const green = Number.parseInt(normalizedHex.slice(2, 4), 16);
   const blue = Number.parseInt(normalizedHex.slice(4, 6), 16);
   return `rgba(${red}, ${green}, ${blue}, ${Math.max(0, Math.min(1, alpha))})`;
+}
+
+function clamp(value: number, min: number, max: number) {
+  return Math.max(min, Math.min(max, value));
+}
+
+function getBuildProjectilePalette(buildFlavor: ArenaGameState['activeBuild'] | undefined) {
+  if (buildFlavor === 'railFocus') {
+    return {
+      body: '#CDE0FF',
+      rim: '#ECF4FF',
+      core: '#FFF6DC',
+      trailOuter: withAlpha('#9EC4FF', 0.38),
+      trailInner: withAlpha('#F4FAFF', 0.58),
+      halo: '#D6E7FF',
+    };
+  }
+  if (buildFlavor === 'novaBloom') {
+    return {
+      body: '#FFB7D9',
+      rim: '#FFE2F1',
+      core: '#FFF2DF',
+      trailOuter: withAlpha('#FF9DCE', 0.36),
+      trailInner: withAlpha('#FFEAF5', 0.56),
+      halo: '#FFC7E3',
+    };
+  }
+  if (buildFlavor === 'fractureCore') {
+    return {
+      body: '#B4C4D7',
+      rim: '#E3EDFA',
+      core: '#F7FBFF',
+      trailOuter: withAlpha('#B8CCE0', 0.35),
+      trailInner: withAlpha('#F3F8FF', 0.52),
+      halo: '#CDDEEF',
+    };
+  }
+  return {
+    body: '#FFD7A9',
+    rim: '#FFEAD1',
+    core: '#FFF7E4',
+    trailOuter: withAlpha('#FFD8A9', 0.35),
+    trailInner: withAlpha('#FFF4E1', 0.52),
+    halo: '#FFE5BF',
+  };
 }
 
 function sampleForRender<T>(items: T[], maxItems: number) {
@@ -530,6 +588,38 @@ export function ArenaCanvas({ boardWidth, boardHeight, state }: ArenaCanvasProps
 
       <Rect x={0} y={0} width={boardWidth} height={boardHeight} color={withAlpha(theme.overlay, 0.06 + themePulse * 0.05)} />
 
+      {ATMOSPHERE_ORBS.map((orb, index) => {
+        const travel = boardHeight + orb.radius * 2 + 220;
+        const orbY = ((orb.y + state.elapsed * orb.speed) % travel) - orb.radius - 100;
+        const orbX = boardWidth * orb.x + Math.sin(state.elapsed * 0.42 + index * 1.3) * 18;
+        return (
+          <Circle
+            key={`orb-${index}`}
+            cx={orbX}
+            cy={orbY}
+            r={orb.radius}
+            color={withAlpha(orb.color, orb.opacity)}
+          />
+        );
+      })}
+
+      {ENERGY_SWEEPS.map((sweep, index) => {
+        const travel = boardHeight + sweep.height + 180;
+        const sweepY = ((state.elapsed * sweep.speed + index * 170) % travel) - sweep.height - 90;
+        const sweepX = boardWidth * sweep.x + Math.cos(state.elapsed * 0.31 + index * 0.9) * 14;
+        return (
+          <RoundedRect
+            key={`sweep-${index}`}
+            x={sweepX - sweep.width * 0.5}
+            y={sweepY}
+            width={sweep.width}
+            height={sweep.height}
+            r={sweep.width * 0.5}
+            color={withAlpha(sweep.color, 0.05)}
+          />
+        );
+      })}
+
       {BACKGROUND_PLATES.map((plate, index) => {
         const travel = boardHeight + plate.height + 180;
         const y = ((plate.y + state.elapsed * plate.speed) % travel) - plate.height - 80;
@@ -557,6 +647,15 @@ export function ArenaCanvas({ boardWidth, boardHeight, state }: ArenaCanvasProps
           />
         );
       })}
+
+      <RoundedRect
+        x={boardWidth * 0.5 - Math.min(90, boardWidth * 0.18)}
+        y={boardHeight - 70}
+        width={Math.min(180, boardWidth * 0.36)}
+        height={62}
+        r={999}
+        color={withAlpha(theme.pulse, 0.06 + themePulse * 0.05)}
+      />
 
       {state.ultimateTimer > 0 ? (
         <Group opacity={0.24 + ultimateStrength * 0.76}>
@@ -794,17 +893,96 @@ export function ArenaCanvas({ boardWidth, boardHeight, state }: ArenaCanvasProps
           );
         }
 
-        if (effect.kind === 'muzzle') {
+        if (effect.kind === 'fractureBits') {
+          const shardCount = 10;
+          const shardBase = Math.max(1.4, effect.size * 0.06);
           return (
-            <RoundedRect
-              key={effect.id}
-              x={effect.x - effect.size * 0.21}
-              y={effect.y - effect.size}
-              width={effect.size * 0.42}
-              height={effect.size}
-              r={999}
-              color={withAlpha(effect.color, opacity)}
-            />
+            <Group key={effect.id} opacity={opacity}>
+              {Array.from({ length: shardCount }, (_, index) => {
+                const angle = (Math.PI * 2 * index) / shardCount + effect.x * 0.01;
+                const distance = effect.size * (0.12 + progress * 0.78);
+                const shardX = effect.x + Math.cos(angle) * distance;
+                const shardY = effect.y + Math.sin(angle) * distance;
+                const shardSize = Math.max(0.9, shardBase * (1 - progress * 0.62));
+                return (
+                  <Circle
+                    key={`${effect.id}-bit-${index}`}
+                    cx={shardX}
+                    cy={shardY}
+                    r={shardSize}
+                    color={withAlpha(index % 2 === 0 ? '#F4FAFF' : effect.color, 0.85)}
+                  />
+                );
+              })}
+            </Group>
+          );
+        }
+
+        if (effect.kind === 'burst') {
+          const ringRadius = size * (0.26 + progress * 0.48);
+          const innerRadius = size * (0.08 + progress * 0.16);
+          const sparkCount = 6;
+          return (
+            <Group key={effect.id}>
+              <Circle cx={effect.x} cy={effect.y} r={size * 0.56} color={withAlpha(effect.color, 0.05 + opacity * 0.09)} />
+              <Circle cx={effect.x} cy={effect.y} r={ringRadius} style="stroke" strokeWidth={2.2 - progress * 0.8} color={withAlpha(effect.color, 0.42 + opacity * 0.38)} />
+              <Circle cx={effect.x} cy={effect.y} r={innerRadius} color={withAlpha('#FFF3DA', 0.52 + opacity * 0.32)} />
+              {Array.from({ length: sparkCount }, (_, index) => {
+                const angle = (Math.PI * 2 * index) / sparkCount + effect.x * 0.013 + effect.y * 0.009;
+                const sparkStart = size * (0.12 + progress * 0.2);
+                const sparkEnd = size * (0.28 + progress * 0.5);
+                const startX = effect.x + Math.cos(angle) * sparkStart;
+                const startY = effect.y + Math.sin(angle) * sparkStart;
+                const endX = effect.x + Math.cos(angle) * sparkEnd;
+                const endY = effect.y + Math.sin(angle) * sparkEnd;
+                return (
+                  <Line
+                    key={`${effect.id}-spark-${index}`}
+                    p1={vec(startX, startY)}
+                    p2={vec(endX, endY)}
+                    color={withAlpha(index % 2 === 0 ? '#FFF5DE' : effect.color, 0.42 + opacity * 0.32)}
+                    strokeWidth={index % 2 === 0 ? 1.9 : 1.3}
+                    strokeCap="round"
+                  />
+                );
+              })}
+            </Group>
+          );
+        }
+
+        if (effect.kind === 'pickup') {
+          return (
+            <Group key={effect.id}>
+              <Circle cx={effect.x} cy={effect.y} r={size * 0.46} color={withAlpha(effect.color, 0.12 + opacity * 0.14)} />
+              <Circle cx={effect.x} cy={effect.y} r={size * (0.18 + progress * 0.42)} style="stroke" strokeWidth={2} color={withAlpha('#F4FAFF', 0.42 + opacity * 0.34)} />
+              <Circle cx={effect.x} cy={effect.y} r={size * 0.1} color={withAlpha('#FFF3E0', 0.68 + opacity * 0.2)} />
+            </Group>
+          );
+        }
+
+        if (effect.kind === 'muzzle') {
+          const flareHeight = effect.size * (0.92 + progress * 0.42);
+          const coreHeight = effect.size * (0.52 + progress * 0.18);
+          return (
+            <Group key={effect.id}>
+              <RoundedRect
+                x={effect.x - effect.size * 0.28}
+                y={effect.y - flareHeight}
+                width={effect.size * 0.56}
+                height={flareHeight}
+                r={999}
+                color={withAlpha(effect.color, 0.28 + opacity * 0.34)}
+              />
+              <RoundedRect
+                x={effect.x - effect.size * 0.14}
+                y={effect.y - coreHeight}
+                width={effect.size * 0.28}
+                height={coreHeight}
+                r={999}
+                color={withAlpha('#FFF7E8', 0.48 + opacity * 0.4)}
+              />
+              <Circle cx={effect.x} cy={effect.y - flareHeight * 0.85} r={effect.size * 0.17} color={withAlpha('#FFEED2', 0.66 + opacity * 0.2)} />
+            </Group>
           );
         }
 
@@ -816,27 +994,53 @@ export function ArenaCanvas({ boardWidth, boardHeight, state }: ArenaCanvasProps
         );
       })}
 
-      {sampledEnemyBullets.map((bullet) => (
-        <Group key={`enemy-bullet-${bullet.id}`}>
-          <Line
-            p1={vec(bullet.x, bullet.y - bullet.size * 1.8)}
-            p2={vec(bullet.x, bullet.y + bullet.size * 0.15)}
-            color={withAlpha(bullet.color, 0.34)}
-            strokeWidth={bullet.size * 0.6}
-            strokeCap="round"
-          />
-          <Circle cx={bullet.x} cy={bullet.y} r={bullet.size * 0.48} color={bullet.color} />
-          <Circle cx={bullet.x} cy={bullet.y} r={bullet.size * 0.24} color="#FFF3E6" />
-        </Group>
-      ))}
+      {sampledEnemyBullets.map((bullet) => {
+        const basis = getProjectileBasis(bullet.vx, bullet.vy);
+        const trailLength = bullet.size * 3.2;
+        const tailX = bullet.x - basis.forwardX * trailLength;
+        const tailY = bullet.y - basis.forwardY * trailLength;
+        const boltPath = createOrientedDiamondPath(
+          bullet.x,
+          bullet.y,
+          basis.forwardX,
+          basis.forwardY,
+          basis.rightX,
+          basis.rightY,
+          bullet.size * 0.94,
+          bullet.size * 0.42
+        );
+
+        return (
+          <Group key={`enemy-bullet-${bullet.id}`}>
+            <Line
+              p1={vec(tailX, tailY)}
+              p2={vec(bullet.x - basis.forwardX * bullet.size * 0.66, bullet.y - basis.forwardY * bullet.size * 0.66)}
+              color={withAlpha(bullet.color, 0.3)}
+              strokeWidth={bullet.size * 0.62}
+              strokeCap="round"
+            />
+            <Line
+              p1={vec(tailX, tailY)}
+              p2={vec(bullet.x - basis.forwardX * bullet.size * 0.64, bullet.y - basis.forwardY * bullet.size * 0.64)}
+              color={withAlpha('#FFF3E2', 0.44)}
+              strokeWidth={bullet.size * 0.2}
+              strokeCap="round"
+            />
+            <Path path={boltPath} color={bullet.color} />
+            <Path path={boltPath} style="stroke" strokeWidth={1.05} color={withAlpha('#FFF3E6', 0.8)} />
+            <Circle cx={bullet.x} cy={bullet.y} r={bullet.size * 0.18} color={withAlpha('#FFF5E7', 0.86)} />
+          </Group>
+        );
+      })}
 
       {sampledPlayerBullets.map((bullet) => (
         <Group key={`player-bullet-${bullet.id}`}>
           {(() => {
             const basis = getProjectileBasis(bullet.vx, bullet.vy);
             const launchScale = 1 + Math.max(0, 0.18 - bullet.age) * 1.15;
-            const renderSize = bullet.size * launchScale;
-            const trailLength = bullet.kind === 'missile' ? renderSize * 4.9 : bullet.kind === 'shard' ? renderSize * 2.8 : renderSize * 3.9;
+            const sizeScale = bullet.kind === 'missile' ? 0.82 : 1;
+            const renderSize = bullet.size * launchScale * sizeScale;
+            const trailLength = bullet.kind === 'missile' ? renderSize * 2.8 : bullet.kind === 'shard' ? renderSize * 2.8 : renderSize * 3.9;
             const trailTailX = bullet.x - basis.forwardX * trailLength;
             const trailTailY = bullet.y - basis.forwardY * trailLength;
 
@@ -896,14 +1100,14 @@ export function ArenaCanvas({ boardWidth, boardHeight, state }: ArenaCanvasProps
                     p1={vec(trailTailX, trailTailY)}
                     p2={vec(bullet.x - basis.forwardX * renderSize * 0.84, bullet.y - basis.forwardY * renderSize * 0.84)}
                     color={withAlpha('#FFD4A2', 0.32)}
-                    strokeWidth={renderSize * 0.98}
+                    strokeWidth={renderSize * 0.52}
                     strokeCap="round"
                   />
                   <Line
                     p1={vec(trailTailX, trailTailY)}
                     p2={vec(bullet.x - basis.forwardX * renderSize * 0.9, bullet.y - basis.forwardY * renderSize * 0.9)}
                     color={withAlpha('#FFF6E3', 0.5)}
-                    strokeWidth={renderSize * 0.4}
+                    strokeWidth={renderSize * 0.2}
                     strokeCap="round"
                   />
                   <Path path={missileBodyPath} color={bullet.color} />
@@ -950,67 +1154,106 @@ export function ArenaCanvas({ boardWidth, boardHeight, state }: ArenaCanvasProps
             }
 
             if (bullet.buildFlavor === 'fractureCore') {
-              const fracturePath = createOrientedDiamondPath(
-                bullet.x,
-                bullet.y,
-                basis.forwardX,
-                basis.forwardY,
-                basis.rightX,
-                basis.rightY,
-                renderSize * 1.34,
-                renderSize * 0.54
-              );
+              const rockRadius = renderSize * 0.56;
+              const rockPulse = 0.5 + Math.sin(bullet.age * 24 + bullet.x * 0.02) * 0.5;
               return (
                 <>
                   <Line
                     p1={vec(trailTailX, trailTailY)}
                     p2={vec(bullet.x - basis.forwardX * renderSize * 0.74, bullet.y - basis.forwardY * renderSize * 0.74)}
-                    color={withAlpha('#DCEBFF', 0.36)}
-                    strokeWidth={renderSize * 0.88}
+                    color={withAlpha('#DCEBFF', 0.28)}
+                    strokeWidth={renderSize * 0.7}
                     strokeCap="round"
                   />
                   <Line
                     p1={vec(trailTailX, trailTailY)}
                     p2={vec(bullet.x - basis.forwardX * renderSize * 0.78, bullet.y - basis.forwardY * renderSize * 0.78)}
-                    color={withAlpha('#F7FCFF', 0.5)}
-                    strokeWidth={renderSize * 0.34}
+                    color={withAlpha('#F7FCFF', 0.34)}
+                    strokeWidth={renderSize * 0.22}
                     strokeCap="round"
                   />
-                  <Path path={fracturePath} color={withAlpha(bullet.color, 0.94)} />
-                  <Path path={fracturePath} style="stroke" strokeWidth={1.25} color={withAlpha('#F5FAFF', 0.92)} />
-                  <Circle cx={bullet.x} cy={bullet.y} r={renderSize * 0.22} color={withAlpha('#F8FDFF', 0.62)} />
+                  <Circle cx={bullet.x} cy={bullet.y} r={rockRadius} color={withAlpha('#9EB2C7', 0.95)} />
+                  <Circle cx={bullet.x} cy={bullet.y} r={rockRadius * 0.92} style="stroke" strokeWidth={1.35} color={withAlpha('#D6E4F2', 0.84)} />
+                  <Line
+                    p1={vec(bullet.x - rockRadius * 0.45, bullet.y - rockRadius * 0.08)}
+                    p2={vec(bullet.x + rockRadius * 0.3, bullet.y + rockRadius * 0.22)}
+                    color={withAlpha('#E8F2FF', 0.66)}
+                    strokeWidth={1.15}
+                    strokeCap="round"
+                  />
+                  <Line
+                    p1={vec(bullet.x - rockRadius * 0.08, bullet.y - rockRadius * 0.38)}
+                    p2={vec(bullet.x + rockRadius * 0.22, bullet.y + rockRadius * 0.02)}
+                    color={withAlpha('#E8F2FF', 0.62)}
+                    strokeWidth={1}
+                    strokeCap="round"
+                  />
+                  <Circle cx={bullet.x + rockRadius * 0.1} cy={bullet.y - rockRadius * 0.16} r={rockRadius * (0.14 + rockPulse * 0.06)} color={withAlpha('#F3FAFF', 0.45)} />
                 </>
               );
             }
 
-            const boltPath = createOrientedDiamondPath(
-              bullet.x,
-              bullet.y,
+            const palette = getBuildProjectilePalette(bullet.buildFlavor);
+            const boltPath =
+              bullet.buildFlavor === 'railFocus'
+                ? createOrientedShardPath(
+                    bullet.x,
+                    bullet.y,
+                    basis.forwardX,
+                    basis.forwardY,
+                    basis.rightX,
+                    basis.rightY,
+                    renderSize * 1.44,
+                    renderSize * 0.34
+                  )
+                : createOrientedDiamondPath(
+                    bullet.x,
+                    bullet.y,
+                    basis.forwardX,
+                    basis.forwardY,
+                    basis.rightX,
+                    basis.rightY,
+                    bullet.buildFlavor === 'novaBloom' ? renderSize * 1.02 : renderSize * 1.12,
+                    bullet.buildFlavor === 'novaBloom' ? renderSize * 0.5 : renderSize * 0.38
+                  );
+            const corePath = createOrientedRectPath(
+              bullet.x + basis.forwardX * renderSize * 0.14,
+              bullet.y + basis.forwardY * renderSize * 0.14,
               basis.forwardX,
               basis.forwardY,
               basis.rightX,
               basis.rightY,
-              renderSize * 1.1,
-              renderSize * 0.36
+              renderSize * 0.36,
+              renderSize * 0.16
             );
+            const haloOpacity = clamp(0.16 + Math.sin(bullet.age * 22 + bullet.x * 0.03) * 0.06, 0.1, 0.24);
+
             return (
               <>
                 <Line
                   p1={vec(trailTailX, trailTailY)}
                   p2={vec(bullet.x - basis.forwardX * renderSize * 0.72, bullet.y - basis.forwardY * renderSize * 0.72)}
-                  color={withAlpha('#FFE6A8', 0.34)}
-                  strokeWidth={renderSize * 0.86}
+                  color={palette.trailOuter}
+                  strokeWidth={renderSize * 0.84}
                   strokeCap="round"
                 />
                 <Line
                   p1={vec(trailTailX, trailTailY)}
-                  p2={vec(bullet.x - basis.forwardX * renderSize * 0.7, bullet.y - basis.forwardY * renderSize * 0.7)}
-                  color={withAlpha('#FFF8DE', 0.46)}
-                  strokeWidth={renderSize * 0.32}
+                  p2={vec(bullet.x - basis.forwardX * renderSize * 0.69, bullet.y - basis.forwardY * renderSize * 0.69)}
+                  color={palette.trailInner}
+                  strokeWidth={renderSize * 0.3}
                   strokeCap="round"
                 />
-                <Path path={boltPath} color={bullet.color} />
-                <Path path={boltPath} style="stroke" strokeWidth={1.05} color={withAlpha('#FFF8E0', 0.86)} />
+                <Circle cx={bullet.x} cy={bullet.y} r={renderSize * 0.46} color={withAlpha(palette.halo, haloOpacity)} />
+                <Path path={boltPath} color={palette.body} />
+                <Path path={boltPath} style="stroke" strokeWidth={1.1} color={palette.rim} />
+                <Path path={corePath} color={withAlpha(palette.core, 0.82)} />
+                <Circle
+                  cx={bullet.x + basis.forwardX * renderSize * 0.38}
+                  cy={bullet.y + basis.forwardY * renderSize * 0.38}
+                  r={renderSize * 0.12}
+                  color={withAlpha('#FFF8E8', 0.72)}
+                />
               </>
             );
           })()}

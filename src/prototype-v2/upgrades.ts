@@ -30,10 +30,11 @@ export const ARENA_ARMORY_UPGRADES: Record<
   },
   rapidCycle: {
     label: "Rapid Cycle",
-    summary: "Increase rate of fire by 12%.",
+    summary: "Increase rate of fire by 16% and tighten spread.",
     apply: (weapon) => ({
       ...weapon,
-      fireInterval: Math.max(0.055, weapon.fireInterval * 0.88),
+      fireInterval: Math.max(0.05, weapon.fireInterval * 0.84),
+      spread: Math.max(8, Math.round(weapon.spread * 0.94)),
     }),
   },
   twinArray: {
@@ -71,11 +72,12 @@ export const ARENA_ARMORY_UPGRADES: Record<
   },
   accelerator: {
     label: "Accelerator",
-    summary: "+160 projectile speed and +0.5 shot size.",
+    summary: "+240 projectile speed, +0.7 shot size, +1 pierce.",
     apply: (weapon) => ({
       ...weapon,
-      bulletSpeed: Math.min(1500, weapon.bulletSpeed + 160),
-      bulletSize: Math.min(11.5, weapon.bulletSize + 0.5),
+      bulletSpeed: Math.min(1700, weapon.bulletSpeed + 240),
+      bulletSize: Math.min(12.5, weapon.bulletSize + 0.7),
+      pierce: Math.min(4, weapon.pierce + 1),
     }),
   },
 };

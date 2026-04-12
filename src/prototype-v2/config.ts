@@ -15,7 +15,7 @@ export const ARENA_MIN_ENEMY_CRUISE_Y_RATIO = 0.15;
 export const ARENA_MAX_ENEMY_CRUISE_Y_RATIO = 0.41;
 export const ARENA_SHIELD_REGEN_DELAY_SECONDS = 2.2;
 export const ARENA_SHIELD_REGEN_PER_SECOND = 11;
-export const ARENA_VERSION_LABEL = 'v0.19';
+export const ARENA_VERSION_LABEL = 'v0.25';
 
 export const BASE_ARENA_WEAPON: ArenaWeapon = {
   damage: 12,

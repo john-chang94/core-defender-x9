@@ -20,12 +20,13 @@ export type ArenaEffectKind =
   | 'warning'
   | 'shield'
   | 'pickup'
+  | 'fractureBits'
   | 'ultimateRail'
   | 'ultimateNova'
   | 'ultimateMissile'
   | 'ultimateFracture';
 
-export type ArenaDropType = 'hullPatch' | 'shieldCell' | 'overclock' | 'salvageBurst';
+export type ArenaDropType = 'hullPatch' | 'shieldCell' | 'overdrive' | 'salvageBurst';
 
 export type ArenaArmoryUpgradeKey =
   | 'damageMatrix'

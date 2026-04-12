@@ -239,6 +239,28 @@ export function ArenaPrototypeScreen({ onSwitchGame }: ArenaPrototypeScreenProps
   const healthProgress = clamp(gameState.hull / Math.max(1, gameState.maxHull), 0, 1);
   const shieldProgress = clamp(gameState.shield / Math.max(1, gameState.maxShield), 0, 1);
   const salvageProgress = clamp(gameState.salvage / Math.max(1, gameState.nextArmoryCost), 0, 1);
+  const impactEffectCount = gameState.effects.reduce((count, effect) => {
+    if (
+      effect.kind === 'burst' ||
+      effect.kind === 'fractureBits' ||
+      effect.kind === 'ultimateRail' ||
+      effect.kind === 'ultimateNova' ||
+      effect.kind === 'ultimateMissile' ||
+      effect.kind === 'ultimateFracture'
+    ) {
+      return count + 1;
+    }
+    return count;
+  }, 0);
+  const boardShakeStrength = clamp(
+    gameState.playerFlash * 0.96 +
+      Math.min(1, impactEffectCount / 12) * 0.42 +
+      (gameState.ultimateTimer > 0 ? 0.4 : 0),
+    0,
+    1
+  );
+  const boardShakeX = Math.sin(gameState.elapsed * 76) * boardShakeStrength * 1.5;
+  const boardShakeY = Math.cos(gameState.elapsed * 63) * boardShakeStrength * 1.05;
   const hasEncounterAnnouncement = gameState.encounterAnnouncement !== null && gameState.encounterAnnouncementTimer > 0;
   const encounterAnnouncementProgress = hasEncounterAnnouncement
     ? 1 - gameState.encounterAnnouncementTimer / 1.75
@@ -260,10 +282,10 @@ export function ArenaPrototypeScreen({ onSwitchGame }: ArenaPrototypeScreenProps
           : gameState.pickupMessage ??
             (activeEncounterAnchor && gameState.activeEncounter
               ? `${gameState.activeEncounter.label} ${formatArenaValue(activeEncounterAnchor.health)}`
-              : gameState.activeEncounter
+                : gameState.activeEncounter
                 ? `${gameState.activeEncounter.label} active`
                 : gameState.overclockTimer > 0
-                  ? `${activeBuildMeta.shortLabel} Overclock ${gameState.overclockTimer.toFixed(1)}s. Threat ${gameState.enemies.length}/${activeEnemyCap}`
+                  ? `${activeBuildMeta.shortLabel} Overdrive ${gameState.overclockTimer.toFixed(1)}s. Threat ${gameState.enemies.length}/${activeEnemyCap}`
                   : `${activeBuildMeta.shortLabel} Build online. Threat ${gameState.enemies.length}/${activeEnemyCap}`);
   const armorySubtitle =
     gameState.pendingArmoryChoice?.source === 'boss'
@@ -397,26 +419,48 @@ export function ArenaPrototypeScreen({ onSwitchGame }: ArenaPrototypeScreenProps
         </Pressable>
       </View>
 
-      <View style={arenaStyles.topHudRow}>
-        <View style={arenaStyles.hudChip}>
-          <Text style={arenaStyles.hudLabel}>Score</Text>
-          <Text style={arenaStyles.hudValue}>{gameState.score}</Text>
+      <View style={arenaStyles.overviewStrip}>
+        <View style={arenaStyles.overviewItem}>
+          <Text style={arenaStyles.overviewSymbol}>★</Text>
+          <Text style={arenaStyles.overviewValue}>{gameState.score}</Text>
         </View>
-        <View style={arenaStyles.hudChip}>
-          <Text style={arenaStyles.hudLabel}>Pressure</Text>
-          <Text style={arenaStyles.hudValue}>T{displayTier}</Text>
+        <View style={arenaStyles.overviewDivider} />
+        <View style={arenaStyles.overviewItem}>
+          <Text style={arenaStyles.overviewSymbol}>T</Text>
+          <Text style={arenaStyles.overviewValue}>T{displayTier}</Text>
         </View>
-        <View style={arenaStyles.hudChip}>
-          <Text style={arenaStyles.hudLabel}>Build</Text>
-          <Text style={[arenaStyles.hudValue, { color: activeBuildMeta.accent }]}>
+        <View style={arenaStyles.overviewDivider} />
+        <View style={arenaStyles.overviewItem}>
+          <Text style={arenaStyles.overviewSymbol}>▣</Text>
+          <Text style={[arenaStyles.overviewValue, { color: activeBuildMeta.accent }]}>
             {activeBuildMeta.shortLabel}
           </Text>
         </View>
+        <View style={arenaStyles.overviewDivider} />
+        <View style={arenaStyles.overviewItem}>
+          <Text style={arenaStyles.overviewSymbol}>✦</Text>
+          <Text style={arenaStyles.overviewValue}>{activeWeapon.damage}</Text>
+        </View>
+        <View style={arenaStyles.overviewDivider} />
+        <View style={arenaStyles.overviewItem}>
+          <Text style={arenaStyles.overviewSymbol}>⏱</Text>
+          <Text style={arenaStyles.overviewValue}>{fireRate}/s</Text>
+        </View>
+        <View style={arenaStyles.overviewDivider} />
+        <View style={arenaStyles.overviewItem}>
+          <Text style={arenaStyles.overviewSymbol}>➤</Text>
+          <Text style={arenaStyles.overviewValue}>{Math.round(activeWeapon.bulletSpeed)}</Text>
+        </View>
       </View>
 
-      <View style={arenaStyles.meterRow}>
-        <View style={[arenaStyles.hudChip, arenaStyles.hudMeterChip, arenaStyles.meterCard]}>
-          <Text style={arenaStyles.hudLabel}>Health</Text>
+      <View style={arenaStyles.resourceStrip}>
+        <View style={arenaStyles.resourceItem}>
+          <View style={arenaStyles.resourceHeader}>
+            <Text style={arenaStyles.resourceSymbol}>+</Text>
+            <Text style={[arenaStyles.resourceValue, hullRatio <= 0.35 && arenaStyles.resourceValueDanger]}>
+              {Math.ceil(gameState.hull)} / {Math.ceil(gameState.maxHull)}
+            </Text>
+          </View>
           <View style={arenaStyles.hudMeter}>
             <View
               style={[
@@ -425,13 +469,15 @@ export function ArenaPrototypeScreen({ onSwitchGame }: ArenaPrototypeScreenProps
                 { width: `${healthProgress * 100}%` },
               ]}
             />
-            <Text style={[arenaStyles.hudMeterText, hullRatio <= 0.35 && arenaStyles.hudMeterTextDanger]}>
-              {Math.ceil(gameState.hull)} / {Math.ceil(gameState.maxHull)}
-            </Text>
           </View>
         </View>
-        <View style={[arenaStyles.hudChip, arenaStyles.hudMeterChip, arenaStyles.meterCard]}>
-          <Text style={arenaStyles.hudLabel}>Shield</Text>
+        <View style={arenaStyles.resourceItem}>
+          <View style={arenaStyles.resourceHeader}>
+            <Text style={arenaStyles.resourceSymbol}>🛡</Text>
+            <Text style={[arenaStyles.resourceValue, arenaStyles.resourceValueShield]}>
+              {Math.ceil(gameState.shield)} / {Math.ceil(gameState.maxShield)}
+            </Text>
+          </View>
           <View style={arenaStyles.hudMeter}>
             <View
               style={[
@@ -440,13 +486,15 @@ export function ArenaPrototypeScreen({ onSwitchGame }: ArenaPrototypeScreenProps
                 { width: `${shieldProgress * 100}%` },
               ]}
             />
-            <Text style={[arenaStyles.hudMeterText, arenaStyles.hudMeterTextShield]}>
-              {Math.ceil(gameState.shield)} / {Math.ceil(gameState.maxShield)}
-            </Text>
           </View>
         </View>
-        <View style={[arenaStyles.hudChip, arenaStyles.hudMeterChip, arenaStyles.meterCard]}>
-          <Text style={arenaStyles.hudLabel}>Salvage</Text>
+        <View style={arenaStyles.resourceItem}>
+          <View style={arenaStyles.resourceHeader}>
+            <Text style={arenaStyles.resourceSymbol}>◈</Text>
+            <Text style={arenaStyles.resourceValue}>
+              {gameState.salvage} / {gameState.nextArmoryCost}
+            </Text>
+          </View>
           <View style={arenaStyles.hudMeter}>
             <View
               style={[
@@ -455,30 +503,19 @@ export function ArenaPrototypeScreen({ onSwitchGame }: ArenaPrototypeScreenProps
                 { width: `${salvageProgress * 100}%` },
               ]}
             />
-            <Text style={arenaStyles.hudMeterText}>
-              {gameState.salvage} / {gameState.nextArmoryCost}
-            </Text>
           </View>
         </View>
       </View>
 
-      <View style={arenaStyles.statRow}>
-        <View style={arenaStyles.statCard}>
-          <Text style={arenaStyles.statLabel}>Damage</Text>
-          <Text style={arenaStyles.statValue}>{activeWeapon.damage}</Text>
-        </View>
-        <View style={arenaStyles.statCard}>
-          <Text style={arenaStyles.statLabel}>RoF</Text>
-          <Text style={arenaStyles.statValue}>{fireRate}/s</Text>
-        </View>
-        <View style={arenaStyles.statCard}>
-          <Text style={arenaStyles.statLabel}>Speed</Text>
-          <Text style={arenaStyles.statValue}>{Math.round(activeWeapon.bulletSpeed)}</Text>
-        </View>
-      </View>
-
       <View style={arenaStyles.boardFrame}>
-        <View onLayout={handleBoardLayout} style={arenaStyles.board}>
+        <View
+          onLayout={handleBoardLayout}
+          style={[
+            arenaStyles.board,
+            {
+              transform: [{ translateX: boardShakeX }, { translateY: boardShakeY }],
+            },
+          ]}>
           <ArenaCanvas boardWidth={boardSize.width} boardHeight={boardSize.height} state={gameState} />
 
           <GestureDetector gesture={panGesture}>
@@ -667,13 +704,13 @@ const arenaStyles = StyleSheet.create({
     flex: 1,
     backgroundColor: '#07111A',
     paddingHorizontal: 12,
-    paddingBottom: 8,
+    paddingBottom: 6,
   },
   containerPortrait: {
     paddingHorizontal: 10,
   },
   topBar: {
-    height: 36,
+    height: 34,
     flexDirection: 'row',
     alignItems: 'center',
     gap: 6,
@@ -684,7 +721,7 @@ const arenaStyles = StyleSheet.create({
     borderWidth: 1,
     borderColor: '#3F6683',
     backgroundColor: '#14263A',
-    paddingVertical: 5,
+    paddingVertical: 4,
     alignItems: 'center',
   },
   primaryButtonStart: {
@@ -697,7 +734,7 @@ const arenaStyles = StyleSheet.create({
   },
   primaryButtonText: {
     color: '#F0F7FF',
-    fontSize: 13,
+    fontSize: 12,
     fontWeight: '800',
   },
   statusPill: {
@@ -707,11 +744,11 @@ const arenaStyles = StyleSheet.create({
     borderColor: '#24405D',
     backgroundColor: '#0E1A28',
     paddingHorizontal: 10,
-    paddingVertical: 5,
+    paddingVertical: 4,
   },
   statusPillText: {
     color: '#BFD4F1',
-    fontSize: 12,
+    fontSize: 11,
     fontWeight: '700',
     textAlign: 'center',
   },
@@ -721,7 +758,7 @@ const arenaStyles = StyleSheet.create({
     borderWidth: 1,
     borderColor: '#2D4E6B',
     backgroundColor: '#112133',
-    paddingVertical: 5,
+    paddingVertical: 4,
     alignItems: 'center',
   },
   quickButtonActive: {
@@ -730,8 +767,79 @@ const arenaStyles = StyleSheet.create({
   },
   quickButtonText: {
     color: '#E6F1FF',
-    fontSize: 12,
+    fontSize: 11,
     fontWeight: '800',
+  },
+  overviewStrip: {
+    marginTop: 2,
+    borderRadius: 10,
+    borderWidth: 1,
+    borderColor: '#25425E',
+    backgroundColor: '#0C1827',
+    paddingHorizontal: 8,
+    paddingVertical: 4,
+    flexDirection: 'row',
+    alignItems: 'center',
+  },
+  overviewItem: {
+    flex: 1,
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    gap: 4,
+  },
+  overviewSymbol: {
+    color: '#86A8CD',
+    fontSize: 9,
+    fontWeight: '800',
+  },
+  overviewValue: {
+    color: '#EAF4FF',
+    fontSize: 10.5,
+    fontWeight: '800',
+  },
+  overviewDivider: {
+    width: 1,
+    height: 15,
+    backgroundColor: '#243E58',
+    marginHorizontal: 2,
+  },
+  resourceStrip: {
+    marginTop: 3,
+    borderRadius: 10,
+    borderWidth: 1,
+    borderColor: '#24405D',
+    backgroundColor: '#0D1826',
+    paddingHorizontal: 8,
+    paddingVertical: 5,
+    flexDirection: 'row',
+    gap: 8,
+  },
+  resourceItem: {
+    flex: 1,
+    gap: 3,
+  },
+  resourceHeader: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    gap: 6,
+  },
+  resourceSymbol: {
+    color: '#8CA8C8',
+    fontSize: 11,
+    fontWeight: '900',
+  },
+  resourceValue: {
+    color: '#E7F0FF',
+    fontSize: 10,
+    fontWeight: '800',
+  },
+  resourceValueDanger: {
+    color: '#FFD3C6',
+  },
+  resourceValueShield: {
+    color: '#D1F8FF',
   },
   topHudRow: {
     marginTop: 2,
@@ -782,7 +890,7 @@ const arenaStyles = StyleSheet.create({
     color: '#9DEBFF',
   },
   hudMeter: {
-    height: 20,
+    height: 14,
     borderRadius: 9,
     borderWidth: 1,
     borderColor: '#30516F',
@@ -846,7 +954,7 @@ const arenaStyles = StyleSheet.create({
   },
   boardFrame: {
     flex: 1,
-    marginTop: 8,
+    marginTop: 4,
     position: 'relative',
   },
   board: {
@@ -1271,7 +1379,7 @@ const arenaStyles = StyleSheet.create({
   },
   menuPanel: {
     position: 'absolute',
-    top: 64,
+    top: 56,
     left: 18,
     right: 18,
     borderRadius: 16,

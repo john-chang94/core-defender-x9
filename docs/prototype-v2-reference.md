@@ -1,10 +1,10 @@
 # Prototype V2 Reference
 
-Snapshot date: `2026-04-10`
+Snapshot date: `2026-04-11`
 
 This document tracks the redesign direction and the implemented state of the arena-combat prototype (`prototypeV2`), separate from the original falling-enemy prototype.
 
-## Current Implementation Summary (`v0.17`)
+## Current Implementation Summary (`v0.21`)
 
 Prototype V2 is playable and active in the app today.
 
@@ -39,6 +39,10 @@ Prototype V2 is playable and active in the app today.
   - `Solar Bloom`
   - `Missile Barrage`
   - `Cascade Break`
+- Phase 3 polish is in progress:
+  - stronger per-build passive separation (rail precision, nova burn spread, missile splash cadence, fracture shatter pulse)
+  - build-specific projectile silhouettes and impact read
+  - armory upgrade differentiation tuned (`Rapid Cycle` vs `Accelerator`)
 - HUD/UI is live with:
   - score + pressure
   - health/shield/salvage bars with current and max values
@@ -59,6 +63,22 @@ Prototype V2 is playable and active in the app today.
   - ship movement path remains smooth after shared-value input migration
 
 ## Changelog (V2)
+
+### 2026-04-11
+
+- Continued Phase 3 polish and advanced board label to `v0.21`.
+- Tuned build identity in combat:
+  - rail precision hits now convert into stronger burst value and extra ultimate gain
+  - nova rounds now spread burn pressure to nearby enemies
+  - missile command now escalates to larger missile salvos with stronger splash profile
+  - fracture core now applies clearer shatter pulse behavior and higher-impact fragment outcomes
+- Improved armory readability by separating upgrade identities:
+  - `Rapid Cycle` now focuses on fire-loop throughput and tighter spread
+  - `Accelerator` now focuses on projectile velocity/size and penetration
+- Updated drop economy balance:
+  - reduced health/shield drop weighting from enemy-kill drops to preserve pressure pacing
+- Updated menu behavior/layout polish:
+  - menu panel positioning adjusted for portrait fit and reduced overflow pressure
 
 ### 2026-04-09
 
@@ -495,7 +515,7 @@ Monetization should not sell direct combat advantage.
 
 ## Development Roadmap
 
-### Phase 1: Combat Skeleton
+### Phase 1: Combat Skeleton (`Complete`)
 
 - separate third game screen
 - player HP and shield
@@ -504,34 +524,38 @@ Monetization should not sell direct combat advantage.
 - `2-3` basic enemy archetypes
 - lose condition based on health
 
-### Phase 2: Hybrid Progression
+### Phase 2: Hybrid Progression (`Complete`)
 
 - salvage/resource loop
 - armory draft system
 - keep tactical field drops
 - boss reward flow
 
-### Phase 3: Build Conversion
+### Phase 3: Build Conversion (`In Polish Pass`)
 
 - adapt the 4 builds to the arena model
 - build-specific ultimates
 - improve special-fire readability
+- improve build-specific passive readability and damage-loop differentiation
+- tune armory upgrades so picks change combat feel immediately
+- finalize build-specific projectile language (shape, impact, VFX timing)
 
-### Phase 4: Content Expansion
+### Phase 4: Content Expansion (`Next Major`)
 
 - more enemy families
 - mini-bosses
 - biome/theme changes
 - more encounter types
+- encounter scripting variants (rush, artillery lock, shield convoy, split-lane pressure)
 
-### Phase 5: Retention
+### Phase 5: Retention (`Planned`)
 
 - codex
 - mastery
 - unlock tracks
 - milestone rewards
 
-### Phase 6: Monetization
+### Phase 6: Monetization (`Planned`)
 
 - cosmetics
 - themes
@@ -557,8 +581,17 @@ It does not need full armory drafts, mastery, or monetization systems yet.
 
 ## Current Next Step
 
-The immediate next step after this document is to build the first playable V2 combat sandbox on a third screen and validate one question:
+The immediate next step is to close Phase 3 polish and transition into Phase 4 content expansion.
 
-Is the upper-half ranged-enemy combat loop more engaging than the current falling-shape pressure model?
+Execution order:
 
-If the answer is yes, V2 becomes the future path. If not, the current prototype remains the main shooter line and V2 stays experimental.
+1. Lock final Phase 3 tuning targets:
+   - build-specific combat identity deltas are obvious within a single run
+   - each armory pick has visible output within `5-10s`
+   - projectile and impact readability is stable at high threat density
+2. Start Phase 4 enemy/encounter rollout:
+   - add `2` enemy families with distinct movement/fire jobs
+   - add at least `2` new encounter scripts beyond current mini-boss/boss cadence
+   - attach one additional arena theme/biome transition to pressure tiers
+3. Rebalance pressure pacing around the new content:
+   - preserve readability while increasing run variety and replay value.
