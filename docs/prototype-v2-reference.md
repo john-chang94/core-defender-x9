@@ -1,9 +1,14 @@
 # Prototype V2 Reference
 
-Snapshot date: `2026-04-13`
-Board version: `v0.39`
+Snapshot date: `2026-04-14`
+Board version: `v0.40`
 
 This document is the current reference for the arena-combat shooter in `/Users/johnchang/Desktop/defender/src/prototype-v2`. It replaces the earlier planning-heavy draft with a snapshot of what is actually implemented today, plus the next major gaps.
+
+Versioning note:
+
+- increase `ARENA_VERSION_LABEL` by `0.01` after each Arena V2 code update
+- keep this document’s `Board version` line in sync with the live label in `src/prototype-v2/config.ts`
 
 ## Overview
 
@@ -396,6 +401,14 @@ Primary implementation files:
 - `/Users/johnchang/Desktop/defender/src/prototype-v2/ArenaPrototypeScreen.tsx`
 
 ## Changelog Snapshot
+
+### 2026-04-14
+
+- Advanced arena board label to `v0.40`.
+- Replaced in-arena armory and ultimate text buttons with icon-first controls.
+- Enhanced the armory ready-state glow and slightly reduced side-control size.
+- Increased `Fracture Core` firing cadence again.
+- Added an explicit versioning rule: bump `ARENA_VERSION_LABEL` by `0.01` after each Arena V2 code update.
 
 ### 2026-04-13
 

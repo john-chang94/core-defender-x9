@@ -102,6 +102,72 @@ function DropNode({ drop }: { drop: ArenaDrop }) {
   );
 }
 
+const ULTIMATE_ICON_RAY_ANGLES = ['0deg', '45deg', '90deg', '135deg'] as const;
+const ULTIMATE_ICON_SPARK_ANGLES = ['22deg', '68deg', '112deg', '158deg'] as const;
+
+function ArmoryControlIcon() {
+  return (
+    <View pointerEvents="none" style={arenaStyles.armoryIconWrap}>
+      <View style={[arenaStyles.armorySword, arenaStyles.armorySwordLeft]}>
+        <View style={arenaStyles.armorySwordBlade} />
+        <View style={arenaStyles.armorySwordGuard} />
+        <View style={arenaStyles.armorySwordGrip} />
+        <View style={arenaStyles.armorySwordPommel} />
+      </View>
+      <View style={[arenaStyles.armorySword, arenaStyles.armorySwordRight]}>
+        <View style={arenaStyles.armorySwordBlade} />
+        <View style={arenaStyles.armorySwordGuard} />
+        <View style={arenaStyles.armorySwordGrip} />
+        <View style={arenaStyles.armorySwordPommel} />
+      </View>
+    </View>
+  );
+}
+
+function UltimateControlIcon({
+  ready,
+  chargeProgress,
+}: {
+  ready: boolean;
+  chargeProgress: number;
+}) {
+  return (
+    <View pointerEvents="none" style={arenaStyles.ultimateIconWrap}>
+      {ULTIMATE_ICON_RAY_ANGLES.map((angle, index) => (
+        <View
+          key={`ult-ray-${angle}`}
+          style={[
+            arenaStyles.ultimateIconRay,
+            index % 2 === 0 ? arenaStyles.ultimateIconRayLong : arenaStyles.ultimateIconRayShort,
+            ready && arenaStyles.ultimateIconRayReady,
+            { transform: [{ rotate: angle }] },
+          ]}
+        />
+      ))}
+      {ULTIMATE_ICON_SPARK_ANGLES.map((angle) => (
+        <View
+          key={`ult-spark-${angle}`}
+          style={[
+            arenaStyles.ultimateIconSpark,
+            ready && arenaStyles.ultimateIconSparkReady,
+            { transform: [{ rotate: angle }] },
+          ]}
+        />
+      ))}
+      <View style={[arenaStyles.ultimateIconRing, ready && arenaStyles.ultimateIconRingReady]} />
+      <View
+        style={[
+          arenaStyles.ultimateIconCore,
+          ready && arenaStyles.ultimateIconCoreReady,
+          {
+            opacity: 0.52 + chargeProgress * 0.44,
+          },
+        ]}
+      />
+    </View>
+  );
+}
+
 export function ArenaPrototypeScreen({ onSwitchGame }: ArenaPrototypeScreenProps) {
   const { width: windowWidth, height: windowHeight } = useWindowDimensions();
   const isPortraitViewport = windowHeight >= windowWidth;
@@ -259,9 +325,10 @@ export function ArenaPrototypeScreen({ onSwitchGame }: ArenaPrototypeScreenProps
     : 0;
   const sideControlTop =
     boardSize.height > 0
-      ? clamp(boardSize.height * 0.75 - 34, 72, Math.max(72, boardSize.height - 112))
+      ? clamp(boardSize.height * 0.75 - 30, 72, Math.max(72, boardSize.height - 102))
       : 72;
   const armoryReadyPulse = hasArmoryChoices ? 0.5 + Math.sin(gameState.elapsed * 4.2) * 0.5 : 0;
+  const ultimateReadyPulse = ultimateReady ? 0.5 + Math.sin(gameState.elapsed * 5.8) * 0.5 : 0;
   const statusText =
     !hasStarted
       ? 'Press Start to deploy the arena test.'
@@ -622,11 +689,13 @@ export function ArenaPrototypeScreen({ onSwitchGame }: ArenaPrototypeScreenProps
               {
                 top: sideControlTop,
                 borderColor: hasArmoryChoices
-                  ? hexToRgba('#D7EDFF', 0.42 + armoryReadyPulse * 0.22)
+                  ? hexToRgba('#E6F6FF', 0.54 + armoryReadyPulse * 0.28)
                   : '#385673',
                 backgroundColor: hasArmoryChoices
-                  ? hexToRgba('#173654', 0.84 + armoryReadyPulse * 0.1)
+                  ? hexToRgba('#183F61', 0.86 + armoryReadyPulse * 0.12)
                   : 'rgba(10, 20, 30, 0.9)',
+                shadowOpacity: hasArmoryChoices ? 0.26 + armoryReadyPulse * 0.26 : 0,
+                shadowRadius: hasArmoryChoices ? 12 + armoryReadyPulse * 9 : 0,
               },
             ]}>
             <View
@@ -634,14 +703,36 @@ export function ArenaPrototypeScreen({ onSwitchGame }: ArenaPrototypeScreenProps
               style={[
                 arenaStyles.armoryButtonGlow,
                 {
-                  opacity: hasArmoryChoices ? 0.16 + armoryReadyPulse * 0.2 : 0,
+                  opacity: hasArmoryChoices ? 0.2 + armoryReadyPulse * 0.28 : 0,
                 },
               ]}
             />
-            <Text style={arenaStyles.armoryButtonLabel}>ARMORY</Text>
-            <Text style={[arenaStyles.armoryButtonValue, hasArmoryChoices && arenaStyles.armoryButtonValueReady]}>
-              {hasArmoryChoices ? `x${gameState.availableArmoryChoices}` : '0'}
-            </Text>
+            <View
+              pointerEvents="none"
+              style={[
+                arenaStyles.armoryButtonCoreGlow,
+                {
+                  opacity: hasArmoryChoices ? 0.14 + armoryReadyPulse * 0.26 : 0,
+                  transform: [{ scale: 0.9 + armoryReadyPulse * 0.18 }],
+                },
+              ]}
+            />
+            <View
+              pointerEvents="none"
+              style={[
+                arenaStyles.armoryButtonPulseRing,
+                {
+                  opacity: hasArmoryChoices ? 0.18 + armoryReadyPulse * 0.28 : 0,
+                  transform: [{ scale: 0.92 + armoryReadyPulse * 0.08 }],
+                },
+              ]}
+            />
+            <ArmoryControlIcon />
+            {hasArmoryChoices ? (
+              <View style={arenaStyles.sideControlBadge}>
+                <Text style={arenaStyles.sideControlBadgeText}>{gameState.availableArmoryChoices}</Text>
+              </View>
+            ) : null}
           </Pressable>
 
           <Pressable
@@ -653,13 +744,27 @@ export function ArenaPrototypeScreen({ onSwitchGame }: ArenaPrototypeScreenProps
               arenaStyles.ultimateButton,
               ultimateReady && arenaStyles.ultimateButtonReady,
               ultimateButtonDisabled && arenaStyles.sideControlButtonDisabled,
-              { top: sideControlTop },
+              {
+                top: sideControlTop,
+                shadowOpacity: ultimateReady ? 0.2 + ultimateReadyPulse * 0.18 : 0,
+                shadowRadius: ultimateReady ? 10 + ultimateReadyPulse * 7 : 0,
+              },
             ]}>
+            {ultimateReady ? (
+              <View
+                pointerEvents="none"
+                style={[
+                  arenaStyles.ultimateReadyGlow,
+                  {
+                    opacity: 0.16 + ultimateReadyPulse * 0.18,
+                  },
+                ]}
+              />
+            ) : null}
+            <UltimateControlIcon ready={ultimateReady} chargeProgress={ultimateChargeProgress} />
             <View style={arenaStyles.ultimateButtonMeter}>
               <View style={[arenaStyles.ultimateButtonFill, { width: `${ultimateChargeProgress * 100}%` }]} />
             </View>
-            <Text style={arenaStyles.ultimateButtonLabel}>ULT</Text>
-            <Text style={arenaStyles.ultimateButtonValue}>{ultimateReady ? 'READY' : `${Math.round(gameState.ultimateCharge)}%`}</Text>
           </Pressable>
         </View>
 
@@ -1731,18 +1836,19 @@ const arenaStyles = StyleSheet.create({
   },
   sideControlButton: {
     position: 'absolute',
-    width: 72,
-    minHeight: 60,
-    borderRadius: 14,
+    width: 64,
+    minHeight: 54,
+    borderRadius: 13,
     borderWidth: 1,
     borderColor: '#385673',
     backgroundColor: 'rgba(10, 20, 30, 0.9)',
-    paddingHorizontal: 10,
-    paddingVertical: 8,
+    paddingHorizontal: 8,
+    paddingVertical: 7,
     alignItems: 'center',
     justifyContent: 'center',
     overflow: 'hidden',
     zIndex: 6,
+    shadowColor: '#9FD7FF',
   },
   sideControlButtonLeft: {
     left: 14,
@@ -1763,20 +1869,87 @@ const arenaStyles = StyleSheet.create({
     ...StyleSheet.absoluteFillObject,
     backgroundColor: '#8BCBFF',
   },
-  armoryButtonLabel: {
-    color: '#EAF5FF',
+  armoryButtonCoreGlow: {
+    position: 'absolute',
+    width: 68,
+    height: 68,
+    borderRadius: 999,
+    backgroundColor: 'rgba(170, 228, 255, 0.86)',
+  },
+  armoryButtonPulseRing: {
+    position: 'absolute',
+    width: 46,
+    height: 46,
+    borderRadius: 999,
+    borderWidth: 1.5,
+    borderColor: '#D9F5FF',
+  },
+  sideControlBadge: {
+    position: 'absolute',
+    top: 5,
+    right: 5,
+    minWidth: 18,
+    height: 18,
+    borderRadius: 999,
+    borderWidth: 1,
+    borderColor: '#D8F2FF',
+    backgroundColor: 'rgba(12, 32, 48, 0.94)',
+    paddingHorizontal: 5,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  sideControlBadgeText: {
+    color: '#F1FBFF',
     fontSize: 10,
     fontWeight: '900',
-    letterSpacing: 0.6,
   },
-  armoryButtonValue: {
-    marginTop: 2,
-    color: '#96B5D6',
-    fontSize: 14,
-    fontWeight: '900',
+  armoryIconWrap: {
+    width: 28,
+    height: 28,
+    alignItems: 'center',
+    justifyContent: 'center',
   },
-  armoryButtonValueReady: {
-    color: '#F2FAFF',
+  armorySword: {
+    position: 'absolute',
+    width: 28,
+    height: 28,
+    alignItems: 'center',
+    justifyContent: 'flex-start',
+  },
+  armorySwordLeft: {
+    transform: [{ rotate: '-44deg' }],
+  },
+  armorySwordRight: {
+    transform: [{ rotate: '44deg' }],
+  },
+  armorySwordBlade: {
+    width: 4,
+    height: 15,
+    borderRadius: 4,
+    backgroundColor: '#EFF9FF',
+    borderWidth: 1,
+    borderColor: '#BDE1FF',
+  },
+  armorySwordGuard: {
+    marginTop: 1,
+    width: 11,
+    height: 3,
+    borderRadius: 3,
+    backgroundColor: '#D7A767',
+  },
+  armorySwordGrip: {
+    marginTop: 1,
+    width: 3,
+    height: 6,
+    borderRadius: 3,
+    backgroundColor: '#5A84A6',
+  },
+  armorySwordPommel: {
+    marginTop: 1,
+    width: 5,
+    height: 5,
+    borderRadius: 999,
+    backgroundColor: '#BFDFFF',
   },
   ultimateButton: {
     justifyContent: 'center',
@@ -1790,7 +1963,7 @@ const arenaStyles = StyleSheet.create({
     left: 0,
     right: 0,
     bottom: 0,
-    height: 12,
+    height: 10,
     backgroundColor: 'rgba(23, 41, 60, 0.66)',
   },
   ultimateButtonFill: {
@@ -1800,16 +1973,61 @@ const arenaStyles = StyleSheet.create({
     bottom: 0,
     backgroundColor: 'rgba(255, 192, 96, 0.54)',
   },
-  ultimateButtonLabel: {
-    color: '#EAF5FF',
-    fontSize: 12,
-    fontWeight: '900',
-    letterSpacing: 0.6,
+  ultimateReadyGlow: {
+    ...StyleSheet.absoluteFillObject,
+    backgroundColor: '#FFD285',
   },
-  ultimateButtonValue: {
-    marginTop: 2,
-    color: '#BDD7F6',
-    fontSize: 10,
-    fontWeight: '800',
+  ultimateIconWrap: {
+    width: 26,
+    height: 26,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  ultimateIconRay: {
+    position: 'absolute',
+    width: 2,
+    borderRadius: 999,
+    backgroundColor: '#E9F5FF',
+  },
+  ultimateIconRayLong: {
+    height: 20,
+  },
+  ultimateIconRayShort: {
+    height: 14,
+  },
+  ultimateIconRayReady: {
+    backgroundColor: '#FFF1C8',
+  },
+  ultimateIconSpark: {
+    position: 'absolute',
+    width: 2,
+    height: 10,
+    borderRadius: 999,
+    backgroundColor: '#BFD9F4',
+  },
+  ultimateIconSparkReady: {
+    backgroundColor: '#FFE3AA',
+  },
+  ultimateIconRing: {
+    width: 16,
+    height: 16,
+    borderRadius: 999,
+    borderWidth: 1.5,
+    borderColor: '#D4E6F8',
+    backgroundColor: 'rgba(11, 23, 35, 0.34)',
+  },
+  ultimateIconRingReady: {
+    borderColor: '#FFE6B3',
+    backgroundColor: 'rgba(58, 41, 12, 0.32)',
+  },
+  ultimateIconCore: {
+    position: 'absolute',
+    width: 6,
+    height: 6,
+    borderRadius: 999,
+    backgroundColor: '#EDF7FF',
+  },
+  ultimateIconCoreReady: {
+    backgroundColor: '#FFF0CA',
   },
 });
