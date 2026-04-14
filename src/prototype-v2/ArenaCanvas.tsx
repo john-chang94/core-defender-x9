@@ -787,16 +787,15 @@ export function ArenaCanvas({ boardWidth, boardHeight, state, vfxQuality }: Aren
     }
     wasOverdriveActiveRef.current = isOverdriveActive;
   }, [overdriveBlend]);
-  const overdriveCrackPhase = overdriveBlend > 0.08 ? Math.floor(state.elapsed * 5 + overdrivePulse * 4) : 0;
   const overdriveCrackSegments = useMemo(
     () =>
       createOverdriveCrackSegments(
         boardWidth,
         boardHeight,
         isHighVfx,
-        overdriveCrackSeed * 31 + overdriveCrackPhase * 104729
+        overdriveCrackSeed * 31
       ),
-    [boardHeight, boardWidth, isHighVfx, overdriveCrackSeed, overdriveCrackPhase]
+    [boardHeight, boardWidth, isHighVfx, overdriveCrackSeed]
   );
 
   const [backgroundImage, setBackgroundImage] = useState<SkImage | null>(null);
@@ -1286,7 +1285,7 @@ export function ArenaCanvas({ boardWidth, boardHeight, state, vfxQuality }: Aren
         }
 
         if (effect.kind === 'fractureBits') {
-          const shardCount = denseEffectMode ? (isHighVfx ? 8 : 6) : isHighVfx ? 14 : 10;
+          const shardCount = denseEffectMode ? 6 : 8;
           const seedBase = (effect.angle ?? 0) + effect.x * 0.012 + effect.y * 0.009;
           return (
             <Group key={effect.id} opacity={opacity}>
@@ -1303,10 +1302,10 @@ export function ArenaCanvas({ boardWidth, boardHeight, state, vfxQuality }: Aren
                 const forwardY = Math.sin(angle);
                 const rightX = -forwardY;
                 const rightY = forwardX;
-                const distance = effect.size * (0.1 + progress * (0.4 + (index % 3) * 0.1));
+                const distance = effect.size * (0.16 + progress * (0.54 + (index % 3) * 0.12));
                 const shardX = effect.x + forwardX * distance;
                 const shardY = effect.y + forwardY * distance;
-                const shardLength = Math.max(4, effect.size * (0.12 + (index % 4) * 0.026) * (1 - progress * 0.22));
+                const shardLength = Math.max(4, effect.size * (0.13 + (index % 4) * 0.026) * (1 - progress * 0.2));
                 const shardHalfWidth = Math.max(1.4, effect.size * (0.018 + (index % 2) * 0.006) * (1 - progress * 0.28));
                 const shardPath = createOrientedShardPath(
                   shardX,
@@ -1323,7 +1322,7 @@ export function ArenaCanvas({ boardWidth, boardHeight, state, vfxQuality }: Aren
                     key={`${effect.id}-bit-${index}`}
                   >
                     <Line
-                      p1={vec(effect.x + forwardX * effect.size * 0.08, effect.y + forwardY * effect.size * 0.08)}
+                      p1={vec(effect.x + forwardX * effect.size * 0.1, effect.y + forwardY * effect.size * 0.1)}
                       p2={vec(shardX - forwardX * shardLength * 0.34, shardY - forwardY * shardLength * 0.34)}
                       color={withAlpha(index % 2 === 0 ? '#F4FAFF' : effect.color, 0.24 + opacity * 0.2)}
                       strokeWidth={Math.max(1, shardHalfWidth * 0.72)}
