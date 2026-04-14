@@ -94,7 +94,7 @@ function getBuildProjectileCap(build: ArenaBuildId, overdrive = false) {
       case 'novaBloom':
         return 5;
       case 'missileCommand':
-        return 12;
+        return 10;
       case 'fractureCore':
         return 4;
     }
@@ -110,6 +110,40 @@ function getBuildProjectileCap(build: ArenaBuildId, overdrive = false) {
     case 'fractureCore':
       return 3;
   }
+}
+
+function getArenaPlayerBulletCap(state: ArenaGameState) {
+  const displayTier = getArenaDisplayTier(state.elapsed);
+  const combatStress =
+    state.enemies.length +
+    Math.floor(state.enemyBullets.length / 2) +
+    state.hazards.length * 2 +
+    (state.overclockTimer > 0 ? 3 : 0) +
+    (state.ultimateTimer > 0 ? 4 : 0);
+
+  let cap =
+    state.activeBuild === 'missileCommand'
+      ? 92
+      : state.activeBuild === 'fractureCore'
+        ? 108
+        : 116;
+
+  if (displayTier >= 16) {
+    cap -= 6;
+  }
+  if (state.overclockTimer > 0) {
+    cap -= state.activeBuild === 'missileCommand' ? 14 : 10;
+  }
+  if (state.ultimateTimer > 0) {
+    cap -= state.activeBuild === 'missileCommand' ? 18 : 14;
+  }
+  if (combatStress >= 18) {
+    cap -= 12;
+  } else if (combatStress >= 12) {
+    cap -= 8;
+  }
+
+  return Math.max(56, cap);
 }
 
 function createArenaEffect(
@@ -199,9 +233,12 @@ function shouldRenderCombatHitEffect(
   const visualLoad =
     state.effects.length +
     Math.min(12, Math.floor(state.playerBullets.length / 6)) +
-    Math.min(10, Math.floor(state.enemyBullets.length / 4));
+    Math.min(10, Math.floor(state.enemyBullets.length / 4)) +
+    state.hazards.length +
+    (state.overclockTimer > 0 ? 3 : 0) +
+    (state.ultimateTimer > 0 ? 4 : 0);
 
-  if (visualLoad < 24) {
+  if (visualLoad < 22) {
     return true;
   }
 
@@ -213,13 +250,13 @@ function shouldRenderCombatHitEffect(
         : 0;
   const weightedEmphasis = emphasis + emphasisBonus;
 
-  if (visualLoad < 30) {
+  if (visualLoad < 28) {
     return weightedEmphasis >= 1.18 || state.nextEffectId % 2 === 0;
   }
-  if (visualLoad < 36) {
+  if (visualLoad < 33) {
     return weightedEmphasis >= 1.24 ? state.nextEffectId % 2 === 0 : state.nextEffectId % 3 === 0;
   }
-  return weightedEmphasis >= 1.32 ? state.nextEffectId % 3 === 0 : state.nextEffectId % 4 === 0;
+  return weightedEmphasis >= 1.32 ? state.nextEffectId % 3 === 0 : state.nextEffectId % 5 === 0;
 }
 
 function queueEncounterAnnouncement(state: ArenaGameState, label: string, accentColor: string) {
@@ -2012,6 +2049,9 @@ function createPlayerMissile(
   offset: number,
   damageScale: number
 ) {
+  if (state.playerBullets.length >= getArenaPlayerBulletCap(state)) {
+    return false;
+  }
   const weapon = getArenaActiveWeapon(state);
   const muzzleY = boardHeight - ARENA_PLAYER_HEIGHT - 16;
   state.playerBullets = [
@@ -2035,6 +2075,7 @@ function createPlayerMissile(
     },
   ];
   state.nextBulletId += 1;
+  return true;
 }
 
 function queuePlayerMissileVolley(state: ArenaGameState) {
@@ -2071,12 +2112,17 @@ function tickQueuedMissileVolley(state: ArenaGameState, boardHeight: number, del
 
   state.missileBurstTimer -= deltaSeconds;
   while (state.pendingMissileOffsets.length > 0 && state.missileBurstTimer <= 0) {
-    const nextOffset = state.pendingMissileOffsets.shift();
+    const nextOffset = state.pendingMissileOffsets[0];
     if (nextOffset === undefined) {
       break;
     }
 
-    createPlayerMissile(state, boardHeight, nextOffset, state.pendingMissileDamageScale);
+    const didLaunch = createPlayerMissile(state, boardHeight, nextOffset, state.pendingMissileDamageScale);
+    if (!didLaunch) {
+      state.missileBurstTimer = Math.max(0.05, state.missileBurstInterval || 0.08);
+      break;
+    }
+    state.pendingMissileOffsets.shift();
     if (state.pendingMissileOffsets.length > 0) {
       state.missileBurstTimer += Math.max(0.04, state.missileBurstInterval);
     } else {
@@ -2098,19 +2144,30 @@ function createPlayerMissileVolleyInstant(state: ArenaGameState, boardHeight: nu
         ? 0.9
         : salvoCount >= 4
           ? 0.95
-          : salvoCount === 3
-            ? 0.98
-            : 1;
+      : salvoCount === 3
+        ? 0.98
+        : 1;
   for (const offset of launchOffsets) {
-    createPlayerMissile(state, boardHeight, offset, salvoDamageScale);
+    if (!createPlayerMissile(state, boardHeight, offset, salvoDamageScale)) {
+      break;
+    }
   }
 }
 
 function createFractureShards(state: ArenaGameState, x: number, y: number, baseDamage: number) {
-  if (state.playerBullets.length >= 160) {
+  const availableSlots = getArenaPlayerBulletCap(state) - state.playerBullets.length;
+  if (availableSlots <= 0) {
     return;
   }
-  const shardCount = 8;
+  const heavyLoad =
+    state.enemyBullets.length >= 12 ||
+    state.effects.length >= 22 ||
+    state.overclockTimer > 0 ||
+    state.ultimateTimer > 0;
+  const shardCount = Math.min(availableSlots, heavyLoad ? 5 : 8);
+  if (shardCount <= 0) {
+    return;
+  }
   const shardSpeed = 560;
   const bullets = [...state.playerBullets];
   for (let index = 0; index < shardCount; index += 1) {
@@ -2148,9 +2205,15 @@ function createPlayerVolley(state: ArenaGameState, boardHeight: number) {
     state.fireCooldown = 0;
     return;
   }
+  const playerBulletCap = getArenaPlayerBulletCap(state);
+  if (state.playerBullets.length >= playerBulletCap) {
+    state.fireCooldown += Math.max(0.05, weapon.fireInterval * 0.9);
+    return;
+  }
   const bullets = [...state.playerBullets];
   const muzzleY = boardHeight - ARENA_PLAYER_HEIGHT - 18;
-  const centerIndex = (weapon.shotCount - 1) / 2;
+  const availableShots = Math.max(1, Math.min(weapon.shotCount, playerBulletCap - bullets.length));
+  const centerIndex = (availableShots - 1) / 2;
   const bulletColor =
     state.activeBuild === 'railFocus'
       ? '#D7E9FF'
@@ -2158,7 +2221,7 @@ function createPlayerVolley(state: ArenaGameState, boardHeight: number) {
         ? '#FFD2E8'
         : '#D8E7FF';
 
-  for (let index = 0; index < weapon.shotCount; index += 1) {
+  for (let index = 0; index < availableShots; index += 1) {
     const lane = index - centerIndex;
     const fractureJitter = state.activeBuild === 'fractureCore' ? (Math.random() - 0.5) * 0.08 : 0;
     const fractureOffsetFactor = state.activeBuild === 'fractureCore' ? 0.9 + Math.random() * 0.25 : 1;

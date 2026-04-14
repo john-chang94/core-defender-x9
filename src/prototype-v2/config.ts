@@ -4,18 +4,18 @@ export const ARENA_PLAYER_HALF_WIDTH = 22;
 export const ARENA_PLAYER_RENDER_HALF_WIDTH = 28;
 export const ARENA_PLAYER_HEIGHT = 28;
 export const ARENA_PLAYER_MARGIN = 14;
-export const ARENA_PLAYER_FLOOR_OFFSET = 14;
+export const ARENA_PLAYER_FLOOR_OFFSET = 60;
 export const ARENA_TIER_DURATION_SECONDS = 15;
 export const ARENA_MAX_FRAME_DELTA_SECONDS = 0.1;
 export const ARENA_FIXED_STEP_SECONDS = 1 / 60;
 export const ARENA_MAX_CATCH_UP_STEPS = 5;
-export const ARENA_MAX_ACTIVE_EFFECTS = 36;
+export const ARENA_MAX_ACTIVE_EFFECTS = 30;
 export const ARENA_ENEMY_ZONE_RATIO = 0.46;
 export const ARENA_MIN_ENEMY_CRUISE_Y_RATIO = 0.15;
 export const ARENA_MAX_ENEMY_CRUISE_Y_RATIO = 0.41;
 export const ARENA_SHIELD_REGEN_DELAY_SECONDS = 2.2;
 export const ARENA_SHIELD_REGEN_PER_SECOND = 11;
-export const ARENA_VERSION_LABEL = 'v0.42';
+export const ARENA_VERSION_LABEL = 'v0.43';
 
 export const ARENA_ENEMY_ORDER: ArenaEnemyKind[] = [
   'hover',

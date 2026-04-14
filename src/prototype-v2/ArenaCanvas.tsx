@@ -27,9 +27,9 @@ type ArenaCanvasProps = {
   vfxQuality: ArenaVfxQuality;
 };
 
-const MAX_RENDERED_EFFECTS = 48;
-const MAX_RENDERED_PLAYER_BULLETS = 96;
-const MAX_RENDERED_ENEMY_BULLETS = 54;
+const MAX_RENDERED_EFFECTS = 40;
+const MAX_RENDERED_PLAYER_BULLETS = 72;
+const MAX_RENDERED_ENEMY_BULLETS = 42;
 
 const BACKGROUND_PLATES = [
   { x: 0.08, y: -30, width: 96, height: 152, radius: 18, speed: 18, color: '#132236', stroke: '#203754' },
@@ -861,9 +861,17 @@ export function ArenaCanvas({ boardWidth, boardHeight, state, vfxQuality }: Aren
   const overdriveBlend = clamp(state.overclockVisualBlend, 0, 1);
   const overdrivePulse = 0.5 + Math.sin(state.elapsed * 7.4) * 0.5;
   const isHighVfx = vfxQuality === 'high';
-  const maxRenderedEffects = isHighVfx ? MAX_RENDERED_EFFECTS : 34;
-  const maxRenderedPlayerBullets = isHighVfx ? MAX_RENDERED_PLAYER_BULLETS : 74;
-  const maxRenderedEnemyBullets = isHighVfx ? MAX_RENDERED_ENEMY_BULLETS : 40;
+  const renderStress =
+    state.enemies.length +
+    Math.floor(state.playerBullets.length / 16) +
+    Math.floor(state.enemyBullets.length / 6) +
+    state.hazards.length * 2 +
+    (state.overclockTimer > 0 ? 3 : 0) +
+    (state.ultimateTimer > 0 ? 4 : 0);
+  const renderBudgetScale = renderStress >= 18 ? 0.68 : renderStress >= 12 ? 0.8 : 1;
+  const maxRenderedEffects = Math.max(22, Math.round((isHighVfx ? MAX_RENDERED_EFFECTS : 30) * renderBudgetScale));
+  const maxRenderedPlayerBullets = Math.max(36, Math.round((isHighVfx ? MAX_RENDERED_PLAYER_BULLETS : 56) * renderBudgetScale));
+  const maxRenderedEnemyBullets = Math.max(24, Math.round((isHighVfx ? MAX_RENDERED_ENEMY_BULLETS : 34) * renderBudgetScale));
 
   const verticalGridLines = useMemo(() => {
     const lineCount = Math.max(6, Math.floor(boardWidth / 62));

@@ -1,7 +1,7 @@
 # Prototype V2 Reference
 
 Snapshot date: `2026-04-14`
-Board version: `v0.42`
+Board version: `v0.43`
 
 This document is the current reference for the arena-combat shooter in `/Users/johnchang/Desktop/defender/src/prototype-v2`. It replaces the earlier planning-heavy draft with a snapshot of what is actually implemented today, plus the next major gaps.
 
@@ -69,6 +69,8 @@ Other UI behavior:
 - encounter announcements flash over the arena center
 - enemy health numbers are rendered as floating labels over enemies
 - drop labels are rendered under field pickups
+- the player ship now sits higher in the lower arena to keep the live view clearer under the player’s finger
+- a semi-transparent move hint sits below the ship and hides while the player is pressing in that control zone
 - the armory is opened manually from an in-arena button instead of auto-opening on threshold hit
 - the in-game menu now includes `Run`, `Codex`, and `Mastery` tabs
 - codex and mastery state persist across relaunches through a versioned AsyncStorage blob
@@ -401,6 +403,7 @@ Current Skia-rendered layers include:
 
 - effect list is capped
 - render sampling is used for effects and projectile layers
+- player projectile output now sheds excess volleys / shards under heavy stress instead of letting the live projectile count spike indefinitely
 - dense-effect mode reduces visual complexity when the board is saturated
 - impact bursts are throttled under heavy load
 - fracture fragment effects were recently reduced again for performance (`8` normal, `6` dense)
@@ -430,6 +433,9 @@ Primary implementation files:
 
 ### 2026-04-14
 
+- Advanced arena board label to `v0.43`.
+- Moved the player ship upward in the lower arena and added an in-arena move hint below the ship.
+- Added stress-based projectile / effect shedding to reduce lag during large swarm + overdrive / ultimate overlaps.
 - Advanced arena board label to `v0.42`.
 - Added `Carrier` and `Artillery` enemy jobs plus hazard telegraphs for lower-arena impact zones.
 - Expanded the formation pool with `Escort Relay`, `Carrier Surge`, `Crossfire Lattice`, `Artillery Net`, `Siege Screen`, and `Impact Corridor`.

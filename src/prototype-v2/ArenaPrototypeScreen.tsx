@@ -2,7 +2,7 @@ import { useEffect, useMemo, useRef, useState } from 'react';
 import type { LayoutChangeEvent } from 'react-native';
 import { Pressable, SafeAreaView, ScrollView, StyleSheet, Text, View, useWindowDimensions } from 'react-native';
 import { Gesture, GestureDetector } from 'react-native-gesture-handler';
-import Animated, { useAnimatedStyle, useSharedValue } from 'react-native-reanimated';
+import Animated, { runOnJS, useAnimatedStyle, useSharedValue } from 'react-native-reanimated';
 
 import {
   ARENA_FIXED_STEP_SECONDS,
@@ -120,6 +120,8 @@ function DropNode({ drop }: { drop: ArenaDrop }) {
 
 const ULTIMATE_ICON_RAY_ANGLES = ['0deg', '45deg', '90deg', '135deg'] as const;
 const ULTIMATE_ICON_SPARK_ANGLES = ['22deg', '68deg', '112deg', '158deg'] as const;
+const MOVE_HINT_DIAMETER = 48;
+const MOVE_HINT_BOTTOM_OFFSET = 4;
 
 function ArmoryControlIcon() {
   return (
@@ -211,6 +213,17 @@ function UnlockChip({
   );
 }
 
+function MoveHintHandIcon() {
+  return (
+    <View pointerEvents="none" style={arenaStyles.moveHintHandWrap}>
+      <View style={arenaStyles.moveHintFinger} />
+      <View style={arenaStyles.moveHintPalm} />
+      <View style={arenaStyles.moveHintThumb} />
+      <View style={arenaStyles.moveHintWrist} />
+    </View>
+  );
+}
+
 export function ArenaPrototypeScreen({ onSwitchGame }: ArenaPrototypeScreenProps) {
   const { width: windowWidth, height: windowHeight } = useWindowDimensions();
   const isPortraitViewport = windowHeight >= windowWidth;
@@ -224,6 +237,7 @@ export function ArenaPrototypeScreen({ onSwitchGame }: ArenaPrototypeScreenProps
   const [menuTab, setMenuTab] = useState<ArenaMenuTab>('run');
   const [arenaMeta, setArenaMeta] = useState<ArenaMetaState>(() => createArenaMetaState());
   const [isMetaReady, setIsMetaReady] = useState(false);
+  const [isMoveHintPressed, setIsMoveHintPressed] = useState(false);
   const hasInitializedBoardRef = useRef(false);
   const armoryResumeOnCloseRef = useRef(false);
   const persistedDiscoveryKeyRef = useRef('');
@@ -231,6 +245,9 @@ export function ArenaPrototypeScreen({ onSwitchGame }: ArenaPrototypeScreenProps
   const playerVisualX = useSharedValue(900 / 2);
   const playerShellAnimatedStyle = useAnimatedStyle(() => ({
     transform: [{ translateX: playerVisualX.value - ARENA_PLAYER_RENDER_HALF_WIDTH }],
+  }));
+  const moveHintAnimatedStyle = useAnimatedStyle(() => ({
+    transform: [{ translateX: playerVisualX.value - MOVE_HINT_DIAMETER / 2 }],
   }));
 
   useEffect(() => {
@@ -353,6 +370,7 @@ export function ArenaPrototypeScreen({ onSwitchGame }: ArenaPrototypeScreenProps
     if (gameState.status === 'lost') {
       setIsPaused(true);
       setIsArmoryOpen(false);
+      setIsMoveHintPressed(false);
       armoryResumeOnCloseRef.current = false;
     }
   }, [gameState.status]);
@@ -468,9 +486,26 @@ export function ArenaPrototypeScreen({ onSwitchGame }: ArenaPrototypeScreenProps
   });
 
   const canControlShip = boardSize.width > 0 && boardSize.height > 0 && !isMenuOpen && !isArmoryOpen && hasStarted && !isPaused && gameState.status === 'running';
+  const moveHintTop = boardSize.height > 0 ? Math.max(0, boardSize.height - MOVE_HINT_DIAMETER - MOVE_HINT_BOTTOM_OFFSET) : 0;
+  const shouldShowMoveHint = canControlShip && !isMoveHintPressed;
   const panGesture = useMemo(
-    () =>
-      Gesture.Pan()
+    () => {
+      const handleMoveHintTouchBegin = (touchX: number, touchY: number) => {
+        if (boardSize.width <= 0 || boardSize.height <= 0) {
+          setIsMoveHintPressed(false);
+          return;
+        }
+        const hintCenterX = gameState.playerX;
+        const hintCenterY = moveHintTop + MOVE_HINT_DIAMETER / 2;
+        const dx = touchX - hintCenterX;
+        const dy = touchY - hintCenterY;
+        setIsMoveHintPressed(dx * dx + dy * dy <= Math.pow(MOVE_HINT_DIAMETER * 0.5 + 6, 2));
+      };
+      const handleMoveHintTouchEnd = () => {
+        setIsMoveHintPressed(false);
+      };
+
+      return Gesture.Pan()
         .enabled(canControlShip)
         .maxPointers(1)
         .minDistance(0)
@@ -481,6 +516,7 @@ export function ArenaPrototypeScreen({ onSwitchGame }: ArenaPrototypeScreenProps
             ARENA_PLAYER_HALF_WIDTH + ARENA_PLAYER_MARGIN,
             boardSize.width - ARENA_PLAYER_HALF_WIDTH - ARENA_PLAYER_MARGIN
           );
+          runOnJS(handleMoveHintTouchBegin)(event.x, event.y);
         })
         .onUpdate((event) => {
           playerVisualX.value = clampWorklet(
@@ -488,8 +524,12 @@ export function ArenaPrototypeScreen({ onSwitchGame }: ArenaPrototypeScreenProps
             ARENA_PLAYER_HALF_WIDTH + ARENA_PLAYER_MARGIN,
             boardSize.width - ARENA_PLAYER_HALF_WIDTH - ARENA_PLAYER_MARGIN
           );
-        }),
-    [boardSize.width, canControlShip, playerVisualX]
+        })
+        .onFinalize(() => {
+          runOnJS(handleMoveHintTouchEnd)();
+        });
+    },
+    [boardSize.height, boardSize.width, canControlShip, gameState.playerX, moveHintTop, playerVisualX]
   );
 
   const handleBoardLayout = (event: LayoutChangeEvent) => {
@@ -594,6 +634,7 @@ export function ArenaPrototypeScreen({ onSwitchGame }: ArenaPrototypeScreenProps
     setIsMenuOpen(false);
     setIsArmoryOpen(false);
     setMenuTab('run');
+    setIsMoveHintPressed(false);
     armoryResumeOnCloseRef.current = false;
     runMetaCommittedRef.current = false;
   };
@@ -818,6 +859,20 @@ export function ArenaPrototypeScreen({ onSwitchGame }: ArenaPrototypeScreenProps
             <View style={arenaStyles.playerEngineLeft} />
             <View style={arenaStyles.playerEngineRight} />
           </Animated.View>
+
+          {shouldShowMoveHint ? (
+            <Animated.View
+              pointerEvents="none"
+              style={[
+                arenaStyles.moveHintWrap,
+                { top: moveHintTop },
+                moveHintAnimatedStyle,
+              ]}>
+              <View style={arenaStyles.moveHintCircle}>
+                <MoveHintHandIcon />
+              </View>
+            </Animated.View>
+          ) : null}
 
           <View pointerEvents="none" style={arenaStyles.versionBadge}>
             <Text style={arenaStyles.versionBadgeText}>{ARENA_VERSION_LABEL}</Text>
@@ -1761,6 +1816,64 @@ const arenaStyles = StyleSheet.create({
   },
   playerShellHit: {
     opacity: 0.82,
+  },
+  moveHintWrap: {
+    position: 'absolute',
+    width: MOVE_HINT_DIAMETER,
+    height: MOVE_HINT_DIAMETER,
+    alignItems: 'center',
+    justifyContent: 'center',
+    zIndex: 5,
+  },
+  moveHintCircle: {
+    width: MOVE_HINT_DIAMETER,
+    height: MOVE_HINT_DIAMETER,
+    borderRadius: 999,
+    borderWidth: 1,
+    borderColor: 'rgba(221, 242, 255, 0.34)',
+    backgroundColor: 'rgba(16, 30, 45, 0.34)',
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  moveHintHandWrap: {
+    width: 22,
+    height: 26,
+    alignItems: 'center',
+    justifyContent: 'flex-end',
+  },
+  moveHintFinger: {
+    width: 5,
+    height: 13,
+    borderRadius: 5,
+    backgroundColor: 'rgba(240, 247, 255, 0.9)',
+    borderWidth: 1,
+    borderColor: 'rgba(208, 230, 247, 0.96)',
+  },
+  moveHintPalm: {
+    marginTop: -1,
+    width: 14,
+    height: 10,
+    borderRadius: 6,
+    backgroundColor: 'rgba(225, 239, 250, 0.9)',
+    borderWidth: 1,
+    borderColor: 'rgba(203, 224, 241, 0.96)',
+  },
+  moveHintThumb: {
+    position: 'absolute',
+    right: 1,
+    bottom: 6,
+    width: 9,
+    height: 5,
+    borderRadius: 5,
+    backgroundColor: 'rgba(225, 239, 250, 0.88)',
+    transform: [{ rotate: '-28deg' }],
+  },
+  moveHintWrist: {
+    marginTop: 2,
+    width: 8,
+    height: 5,
+    borderRadius: 4,
+    backgroundColor: 'rgba(170, 197, 216, 0.76)',
   },
   playerThrusterGlow: {
     position: 'absolute',
