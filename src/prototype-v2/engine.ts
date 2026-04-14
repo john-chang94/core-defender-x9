@@ -887,6 +887,41 @@ function getPlayerShipTop(boardHeight: number) {
   return Math.max(0, boardHeight - ARENA_PLAYER_HEIGHT - ARENA_PLAYER_FLOOR_OFFSET);
 }
 
+function getNovaSweepEnvelope(centerX: number, boardWidth: number, boardHeight: number) {
+  const nearY = Math.max(0, getPlayerShipTop(boardHeight) + 6);
+  const farY = boardHeight * 0.01;
+  const nearHalf = Math.min(54, boardWidth * 0.16);
+  const farHalf = Math.max(boardWidth * 0.44, nearHalf + 92);
+  return {
+    centerX,
+    nearY,
+    farY,
+    nearHalf,
+    farHalf,
+  };
+}
+
+function isEnemyWithinNovaSweep(
+  enemy: ArenaEnemy,
+  centerX: number,
+  boardWidth: number,
+  boardHeight: number
+) {
+  const { nearY, farY, nearHalf, farHalf } = getNovaSweepEnvelope(centerX, boardWidth, boardHeight);
+  const enemyRadius = enemy.size * 0.44;
+  const sampleYs = [
+    clamp(enemy.y - enemyRadius, farY, nearY),
+    clamp(enemy.y, farY, nearY),
+    clamp(enemy.y + enemyRadius, farY, nearY),
+  ];
+
+  return sampleYs.some((sampleY) => {
+    const progress = nearY <= farY ? 1 : clamp((nearY - sampleY) / (nearY - farY), 0, 1);
+    const halfWidth = lerp(nearHalf, farHalf, progress);
+    return Math.abs(enemy.x - centerX) <= halfWidth + enemyRadius;
+  });
+}
+
 function getEnemyAimAngle(enemy: ArenaEnemy, playerX: number, boardHeight: number) {
   const targetY = getPlayerShipTop(boardHeight) + ARENA_PLAYER_HEIGHT * 0.22;
   const leadFactor =
@@ -1121,9 +1156,10 @@ function fireEnemyPattern(state: ArenaGameState, enemy: ArenaEnemy, boardWidth: 
     options?: Parameters<typeof createEnemyProjectile>[7]
   ) => {
     const fanCount = Math.min(count, budget);
+    const adjustedSpreadAngle = spreadAngle * 1.24;
     for (let index = 0; index < fanCount; index += 1) {
       const lane = index - (fanCount - 1) / 2;
-      fireShot(desiredAngle + lane * spreadAngle, damageScale, speedScale, sizeScale, options);
+      fireShot(desiredAngle + lane * adjustedSpreadAngle, damageScale, speedScale, sizeScale, options);
     }
   };
 
@@ -2396,7 +2432,7 @@ export function activateArenaUltimate(
       'ultimateNova',
       previousState.playerX,
       boardHeight - 26,
-      Math.max(boardWidth, boardHeight) * 1.04,
+      Math.max(boardWidth, boardHeight) * 1.16,
       '#FFD0E7',
       {
         flavor: 'novaBloom',
@@ -2404,6 +2440,9 @@ export function activateArenaUltimate(
       }
     );
     for (const enemy of nextState.enemies) {
+      if (!isEnemyWithinNovaSweep(enemy, previousState.playerX, boardWidth, boardHeight)) {
+        continue;
+      }
       const damage = enemy.maxHealth * 0.22 + 52;
       applyDamageToEnemy(nextState, enemy, damage, {
         allowDrafts: false,

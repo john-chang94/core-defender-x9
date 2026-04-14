@@ -1,7 +1,7 @@
 # Prototype V2 Reference
 
 Snapshot date: `2026-04-14`
-Board version: `v0.43`
+Board version: `v0.44`
 
 This document is the current reference for the arena-combat shooter in `/Users/johnchang/Desktop/defender/src/prototype-v2`. It replaces the earlier planning-heavy draft with a snapshot of what is actually implemented today, plus the next major gaps.
 
@@ -433,6 +433,10 @@ Primary implementation files:
 
 ### 2026-04-14
 
+- Advanced arena board label to `v0.44`.
+- Widened multi-projectile enemy fan spreads to restore dodge windows after moving the player ship upward.
+- Reworked `Nova Bloom` ultimate so the widened sweep only damages enemies inside the visible fan volume.
+- Refreshed the ultimate button icon and replaced the move hint glyph with a cursor-style pointer.
 - Advanced arena board label to `v0.43`.
 - Moved the player ship upward in the lower arena and added an in-arena move hint below the ship.
 - Added stress-based projectile / effect shedding to reduce lag during large swarm + overdrive / ultimate overlaps.

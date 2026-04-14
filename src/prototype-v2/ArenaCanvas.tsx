@@ -16,6 +16,8 @@ import {
 
 import {
   ARENA_ENEMY_ZONE_RATIO,
+  ARENA_PLAYER_FLOOR_OFFSET,
+  ARENA_PLAYER_HEIGHT,
   ARENA_TIER_DURATION_SECONDS,
 } from './config';
 import type { ArenaEnemy, ArenaGameState, ArenaVfxQuality } from './types';
@@ -395,10 +397,10 @@ function createMissileFinPath(
 }
 
 function createNovaSweepPath(centerX: number, boardWidth: number, boardHeight: number) {
-  const nearY = boardHeight - 18;
-  const farY = boardHeight * 0.02;
-  const nearHalf = Math.min(36, boardWidth * 0.11);
-  const farHalf = Math.max(boardWidth * 0.3, nearHalf + 40);
+  const nearY = Math.max(0, boardHeight - ARENA_PLAYER_HEIGHT - ARENA_PLAYER_FLOOR_OFFSET + 6);
+  const farY = boardHeight * 0.01;
+  const nearHalf = Math.min(54, boardWidth * 0.16);
+  const farHalf = Math.max(boardWidth * 0.44, nearHalf + 92);
   const path = Skia.Path.Make();
   path.moveTo(centerX - nearHalf, nearY);
   path.lineTo(centerX + nearHalf, nearY);

@@ -118,8 +118,7 @@ function DropNode({ drop }: { drop: ArenaDrop }) {
   );
 }
 
-const ULTIMATE_ICON_RAY_ANGLES = ['0deg', '45deg', '90deg', '135deg'] as const;
-const ULTIMATE_ICON_SPARK_ANGLES = ['22deg', '68deg', '112deg', '158deg'] as const;
+const ULTIMATE_ICON_SLASH_ANGLES = ['-42deg', '42deg'] as const;
 const MOVE_HINT_DIAMETER = 48;
 const MOVE_HINT_BOTTOM_OFFSET = 4;
 
@@ -151,28 +150,19 @@ function UltimateControlIcon({
 }) {
   return (
     <View pointerEvents="none" style={arenaStyles.ultimateIconWrap}>
-      {ULTIMATE_ICON_RAY_ANGLES.map((angle, index) => (
+      <View style={[arenaStyles.ultimateIconBlade, ready && arenaStyles.ultimateIconBladeReady]} />
+      {ULTIMATE_ICON_SLASH_ANGLES.map((angle) => (
         <View
-          key={`ult-ray-${angle}`}
+          key={`ult-slash-${angle}`}
           style={[
-            arenaStyles.ultimateIconRay,
-            index % 2 === 0 ? arenaStyles.ultimateIconRayLong : arenaStyles.ultimateIconRayShort,
-            ready && arenaStyles.ultimateIconRayReady,
-            { transform: [{ rotate: angle }] },
-          ]}
-        />
-      ))}
-      {ULTIMATE_ICON_SPARK_ANGLES.map((angle) => (
-        <View
-          key={`ult-spark-${angle}`}
-          style={[
-            arenaStyles.ultimateIconSpark,
-            ready && arenaStyles.ultimateIconSparkReady,
+            arenaStyles.ultimateIconSlash,
+            ready && arenaStyles.ultimateIconSlashReady,
             { transform: [{ rotate: angle }] },
           ]}
         />
       ))}
       <View style={[arenaStyles.ultimateIconRing, ready && arenaStyles.ultimateIconRingReady]} />
+      <View style={[arenaStyles.ultimateIconDiamond, ready && arenaStyles.ultimateIconDiamondReady]} />
       <View
         style={[
           arenaStyles.ultimateIconCore,
@@ -213,13 +203,13 @@ function UnlockChip({
   );
 }
 
-function MoveHintHandIcon() {
+function MoveHintPointerIcon() {
   return (
-    <View pointerEvents="none" style={arenaStyles.moveHintHandWrap}>
-      <View style={arenaStyles.moveHintFinger} />
-      <View style={arenaStyles.moveHintPalm} />
-      <View style={arenaStyles.moveHintThumb} />
-      <View style={arenaStyles.moveHintWrist} />
+    <View pointerEvents="none" style={arenaStyles.moveHintPointerWrap}>
+      <View style={arenaStyles.moveHintPointerHeadShadow} />
+      <View style={arenaStyles.moveHintPointerStemShadow} />
+      <View style={arenaStyles.moveHintPointerHead} />
+      <View style={arenaStyles.moveHintPointerStem} />
     </View>
   );
 }
@@ -869,7 +859,7 @@ export function ArenaPrototypeScreen({ onSwitchGame }: ArenaPrototypeScreenProps
                 moveHintAnimatedStyle,
               ]}>
               <View style={arenaStyles.moveHintCircle}>
-                <MoveHintHandIcon />
+                <MoveHintPointerIcon />
               </View>
             </Animated.View>
           ) : null}
@@ -1835,45 +1825,56 @@ const arenaStyles = StyleSheet.create({
     alignItems: 'center',
     justifyContent: 'center',
   },
-  moveHintHandWrap: {
+  moveHintPointerWrap: {
     width: 22,
-    height: 26,
-    alignItems: 'center',
-    justifyContent: 'flex-end',
+    height: 22,
+    transform: [{ rotate: '-18deg' }],
   },
-  moveHintFinger: {
-    width: 5,
-    height: 13,
-    borderRadius: 5,
-    backgroundColor: 'rgba(240, 247, 255, 0.9)',
-    borderWidth: 1,
-    borderColor: 'rgba(208, 230, 247, 0.96)',
-  },
-  moveHintPalm: {
-    marginTop: -1,
-    width: 14,
-    height: 10,
-    borderRadius: 6,
-    backgroundColor: 'rgba(225, 239, 250, 0.9)',
-    borderWidth: 1,
-    borderColor: 'rgba(203, 224, 241, 0.96)',
-  },
-  moveHintThumb: {
+  moveHintPointerHeadShadow: {
     position: 'absolute',
-    right: 1,
-    bottom: 6,
-    width: 9,
-    height: 5,
-    borderRadius: 5,
-    backgroundColor: 'rgba(225, 239, 250, 0.88)',
-    transform: [{ rotate: '-28deg' }],
+    left: 4,
+    top: 1,
+    width: 0,
+    height: 0,
+    borderLeftWidth: 0,
+    borderRightWidth: 12,
+    borderBottomWidth: 18,
+    borderLeftColor: 'transparent',
+    borderRightColor: 'transparent',
+    borderBottomColor: 'rgba(34, 52, 68, 0.88)',
   },
-  moveHintWrist: {
-    marginTop: 2,
-    width: 8,
-    height: 5,
-    borderRadius: 4,
-    backgroundColor: 'rgba(170, 197, 216, 0.76)',
+  moveHintPointerStemShadow: {
+    position: 'absolute',
+    left: 7,
+    top: 10,
+    width: 6,
+    height: 13,
+    borderRadius: 3,
+    backgroundColor: 'rgba(34, 52, 68, 0.88)',
+    transform: [{ rotate: '-34deg' }],
+  },
+  moveHintPointerHead: {
+    position: 'absolute',
+    left: 5,
+    top: 2,
+    width: 0,
+    height: 0,
+    borderLeftWidth: 0,
+    borderRightWidth: 10,
+    borderBottomWidth: 15,
+    borderLeftColor: 'transparent',
+    borderRightColor: 'transparent',
+    borderBottomColor: 'rgba(239, 247, 255, 0.94)',
+  },
+  moveHintPointerStem: {
+    position: 'absolute',
+    left: 8,
+    top: 11,
+    width: 5,
+    height: 11,
+    borderRadius: 3,
+    backgroundColor: 'rgba(228, 240, 250, 0.94)',
+    transform: [{ rotate: '-34deg' }],
   },
   playerThrusterGlow: {
     position: 'absolute',
@@ -2637,29 +2638,25 @@ const arenaStyles = StyleSheet.create({
     alignItems: 'center',
     justifyContent: 'center',
   },
-  ultimateIconRay: {
+  ultimateIconBlade: {
     position: 'absolute',
-    width: 2,
-    borderRadius: 999,
-    backgroundColor: '#E9F5FF',
-  },
-  ultimateIconRayLong: {
+    width: 5,
     height: 20,
+    borderRadius: 2,
+    backgroundColor: '#E9F5FF',
+    transform: [{ rotate: '0deg' }],
   },
-  ultimateIconRayShort: {
-    height: 14,
-  },
-  ultimateIconRayReady: {
+  ultimateIconBladeReady: {
     backgroundColor: '#FFF1C8',
   },
-  ultimateIconSpark: {
+  ultimateIconSlash: {
     position: 'absolute',
-    width: 2,
-    height: 10,
-    borderRadius: 999,
-    backgroundColor: '#BFD9F4',
+    width: 4,
+    height: 15,
+    borderRadius: 2,
+    backgroundColor: '#CDE2F7',
   },
-  ultimateIconSparkReady: {
+  ultimateIconSlashReady: {
     backgroundColor: '#FFE3AA',
   },
   ultimateIconRing: {
@@ -2674,12 +2671,27 @@ const arenaStyles = StyleSheet.create({
     borderColor: '#FFE6B3',
     backgroundColor: 'rgba(58, 41, 12, 0.32)',
   },
+  ultimateIconDiamond: {
+    position: 'absolute',
+    width: 10,
+    height: 10,
+    borderRadius: 2,
+    borderWidth: 1,
+    borderColor: '#E8F5FF',
+    backgroundColor: 'rgba(14, 26, 40, 0.44)',
+    transform: [{ rotate: '45deg' }],
+  },
+  ultimateIconDiamondReady: {
+    borderColor: '#FFEABA',
+    backgroundColor: 'rgba(72, 50, 16, 0.42)',
+  },
   ultimateIconCore: {
     position: 'absolute',
-    width: 6,
-    height: 6,
-    borderRadius: 999,
+    width: 4,
+    height: 4,
+    borderRadius: 1,
     backgroundColor: '#EDF7FF',
+    transform: [{ rotate: '45deg' }],
   },
   ultimateIconCoreReady: {
     backgroundColor: '#FFF0CA',
