@@ -33,13 +33,16 @@ import {
   applyArenaDiscoveryProgress,
   applyArenaRunSummary,
   createArenaMetaState,
+  getArenaBuildUnlockIds,
+  getArenaGlobalUnlockIds,
   createArenaRunMetaSummary,
   getArenaMasteryProgress,
+  getArenaNextBuildUnlock,
   loadArenaMetaState,
   saveArenaMetaState,
 } from './meta';
 import { ARENA_ARMORY_UPGRADES, ARENA_ARMORY_UPGRADE_ORDER, isArenaArmoryUpgradeMaxed } from './upgrades';
-import type { ArenaBuildId, ArenaDrop, ArenaEnemy, ArenaMetaState, ArenaVfxQuality } from './types';
+import type { ArenaBuildId, ArenaDrop, ArenaEnemy, ArenaMetaState, ArenaUnlockEntry, ArenaVfxQuality } from './types';
 
 type AppGameId = 'defender' | 'prototype' | 'prototypeV2';
 
@@ -78,7 +81,7 @@ function formatArenaValue(value: number) {
 }
 
 function EnemyNode({ enemy }: { enemy: ArenaEnemy }) {
-  const isBoss = enemy.kind === 'prismBoss';
+  const isBoss = enemy.kind === 'prismBoss' || enemy.kind === 'hiveCarrierBoss';
 
   return (
     <View
@@ -177,6 +180,33 @@ function UltimateControlIcon({
           },
         ]}
       />
+    </View>
+  );
+}
+
+function UnlockChip({
+  entry,
+  accentColor,
+}: {
+  entry: ArenaUnlockEntry;
+  accentColor?: string;
+}) {
+  return (
+    <View
+      style={[
+        arenaStyles.unlockChip,
+        entry.unlocked ? arenaStyles.unlockChipUnlocked : arenaStyles.unlockChipLocked,
+        entry.unlocked && accentColor
+          ? {
+              borderColor: hexToRgba(accentColor, 0.58),
+              backgroundColor: hexToRgba(accentColor, 0.12),
+            }
+          : null,
+      ]}>
+      <Text style={[arenaStyles.unlockChipLabel, !entry.unlocked && arenaStyles.unlockChipLabelLocked]}>
+        {entry.unlocked ? entry.rewardLabel : entry.label}
+      </Text>
+      <Text style={arenaStyles.unlockChipMeta}>{entry.unlocked ? 'Unlocked' : entry.description}</Text>
     </View>
   );
 }
@@ -354,7 +384,11 @@ export function ArenaPrototypeScreen({ onSwitchGame }: ArenaPrototypeScreenProps
   const ultimateChargeProgress = clamp(gameState.ultimateCharge / 100, 0, 1);
   const ultimateReady = gameState.ultimateCharge >= 100;
   const activeEncounterAnchor = gameState.activeEncounter
-    ? gameState.enemies.find((enemy) => enemy.kind === gameState.activeEncounter?.anchorKind) ?? null
+    ? (gameState.activeEncounter.anchorEnemyId
+        ? gameState.enemies.find((enemy) => enemy.id === gameState.activeEncounter?.anchorEnemyId)
+        : null) ??
+      gameState.enemies.find((enemy) => enemy.kind === gameState.activeEncounter?.anchorKind) ??
+      null
     : null;
   const hasArmoryChoices = gameState.availableArmoryChoices > 0;
   const armoryAvailabilityLabel =
@@ -416,15 +450,20 @@ export function ArenaPrototypeScreen({ onSwitchGame }: ArenaPrototypeScreenProps
     };
   });
   const codexEnemyEntries = ARENA_ENEMY_ORDER.map((kind) => arenaMeta.codexEnemies[kind]);
+  const globalUnlockEntries = getArenaGlobalUnlockIds().map((unlockId) => arenaMeta.unlocks[unlockId]);
   const masteryCards = ARENA_BUILD_ORDER.map((buildId) => {
     const buildMeta = ARENA_BUILD_META[buildId];
     const mastery = arenaMeta.mastery[buildId];
     const progress = getArenaMasteryProgress(mastery.xp);
+    const unlockEntries = getArenaBuildUnlockIds(buildId).map((unlockId) => arenaMeta.unlocks[unlockId]);
+    const nextUnlockId = getArenaNextBuildUnlock(arenaMeta, buildId);
     return {
       buildId,
       buildMeta,
       mastery,
       progress,
+      unlockEntries,
+      nextUnlock: nextUnlockId ? arenaMeta.unlocks[nextUnlockId] : null,
     };
   });
 
@@ -1046,6 +1085,13 @@ export function ArenaPrototypeScreen({ onSwitchGame }: ArenaPrototypeScreenProps
                   <Text style={arenaStyles.menuBuildDetailsText}>Loading persistent codex data...</Text>
                 ) : (
                   <>
+                    <Text style={arenaStyles.menuLabel}>Reward Hooks</Text>
+                    <View style={arenaStyles.unlockChipRow}>
+                      {globalUnlockEntries.map((entry) => (
+                        <UnlockChip key={`codex-unlock-${entry.id}`} entry={entry} />
+                      ))}
+                    </View>
+
                     <Text style={arenaStyles.menuLabel}>Enemy Log</Text>
                     <View style={arenaStyles.codexGrid}>
                       {codexEnemyEntries.map((entry) => {
@@ -1080,6 +1126,9 @@ export function ArenaPrototypeScreen({ onSwitchGame }: ArenaPrototypeScreenProps
                                 </Text>
                               </View>
                             ) : null}
+                            {!isLocked && entry.kind === 'hiveCarrierBoss' ? (
+                              <UnlockChip entry={arenaMeta.unlocks.hiveCarrierFirstClear} accentColor="#93F0D5" />
+                            ) : null}
                           </View>
                         );
                       })}
@@ -1090,6 +1139,7 @@ export function ArenaPrototypeScreen({ onSwitchGame }: ArenaPrototypeScreenProps
                       {ARENA_BUILD_ORDER.map((buildId) => {
                         const buildEntry = arenaMeta.codexBuilds[buildId];
                         const masteryEntry = arenaMeta.mastery[buildId];
+                        const buildUnlockEntries = getArenaBuildUnlockIds(buildId).map((unlockId) => arenaMeta.unlocks[unlockId]);
                         return (
                           <View key={`codex-build-${buildId}`} style={arenaStyles.codexCard}>
                             <View style={arenaStyles.codexCardHeader}>
@@ -1104,6 +1154,11 @@ export function ArenaPrototypeScreen({ onSwitchGame }: ArenaPrototypeScreenProps
                             <Text style={arenaStyles.codexStatText}>
                               Ultimate: {buildEntry.ultimateLabel}. {buildEntry.ultimateDescription}
                             </Text>
+                            <View style={arenaStyles.unlockChipRow}>
+                              {buildUnlockEntries.map((entry) => (
+                                <UnlockChip key={`codex-build-unlock-${entry.id}`} entry={entry} accentColor={ARENA_BUILD_META[buildId].accent} />
+                              ))}
+                            </View>
                           </View>
                         );
                       })}
@@ -1122,7 +1177,7 @@ export function ArenaPrototypeScreen({ onSwitchGame }: ArenaPrototypeScreenProps
                         Mastery XP is granted at run end to the build with the most active time. Ties resolve to the build you finish on.
                       </Text>
                     </View>
-                    {masteryCards.map(({ buildId, buildMeta, mastery, progress }) => (
+                    {masteryCards.map(({ buildId, buildMeta, mastery, progress, unlockEntries, nextUnlock }) => (
                       <View
                         key={`mastery-${buildId}`}
                         style={[arenaStyles.masteryCard, gameState.activeBuild === buildId && arenaStyles.masteryCardActive]}>
@@ -1151,11 +1206,21 @@ export function ArenaPrototypeScreen({ onSwitchGame }: ArenaPrototypeScreenProps
                             ? `${progress.currentThreshold} / ${progress.nextThreshold} threshold`
                             : 'Top rank reached'}
                         </Text>
+                        <Text style={arenaStyles.masteryThresholdText}>
+                          {nextUnlock
+                            ? `Next unlock: ${nextUnlock.rewardLabel} • ${nextUnlock.description}`
+                            : 'All current mastery reward hooks unlocked'}
+                        </Text>
                         <View style={arenaStyles.masteryStatRow}>
                           <Text style={arenaStyles.masteryStatText}>Best tier T{mastery.bestTier}</Text>
                           <Text style={arenaStyles.masteryStatText}>Mini-boss {mastery.miniBossClears}</Text>
                           <Text style={arenaStyles.masteryStatText}>Boss {mastery.bossClears}</Text>
                           <Text style={arenaStyles.masteryStatText}>Runs {mastery.runs}</Text>
+                        </View>
+                        <View style={arenaStyles.unlockChipRow}>
+                          {unlockEntries.map((entry) => (
+                            <UnlockChip key={`mastery-unlock-${entry.id}`} entry={entry} accentColor={buildMeta.accent} />
+                          ))}
                         </View>
                       </View>
                     ))}
@@ -2167,6 +2232,40 @@ const arenaStyles = StyleSheet.create({
     color: '#D8E7F7',
     fontSize: 10,
     fontWeight: '700',
+  },
+  unlockChipRow: {
+    flexDirection: 'row',
+    flexWrap: 'wrap',
+    gap: 6,
+  },
+  unlockChip: {
+    flexShrink: 1,
+    borderRadius: 10,
+    borderWidth: 1,
+    paddingHorizontal: 8,
+    paddingVertical: 6,
+    gap: 2,
+  },
+  unlockChipUnlocked: {
+    borderColor: '#4C7AA0',
+    backgroundColor: '#112335',
+  },
+  unlockChipLocked: {
+    borderColor: '#29435B',
+    backgroundColor: '#0B1622',
+  },
+  unlockChipLabel: {
+    color: '#EAF4FF',
+    fontSize: 10,
+    fontWeight: '800',
+  },
+  unlockChipLabelLocked: {
+    color: '#9BB3C9',
+  },
+  unlockChipMeta: {
+    color: '#87A0B9',
+    fontSize: 9.5,
+    lineHeight: 12,
   },
   masteryIntroCard: {
     borderRadius: 12,

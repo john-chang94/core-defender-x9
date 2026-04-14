@@ -494,6 +494,27 @@ const ENEMY_HULL_POINTS: Record<ArenaEnemy['kind'], readonly EnemyLocalPoint[]> 
     [-0.16, -0.9],
     [0.34, -0.46],
   ],
+  carrier: [
+    [1.02, 0.12],
+    [0.96, -0.12],
+    [0.26, -0.72],
+    [-0.42, -0.78],
+    [-0.98, -0.28],
+    [-1.04, 0.28],
+    [-0.42, 0.78],
+    [0.26, 0.72],
+  ],
+  artillery: [
+    [0.96, 0.42],
+    [1.08, 0.08],
+    [1.08, -0.08],
+    [0.96, -0.42],
+    [0.18, -0.74],
+    [-0.92, -0.58],
+    [-1.04, 0],
+    [-0.92, 0.58],
+    [0.18, 0.74],
+  ],
   prismBoss: [
     [1.1, 0],
     [0.42, 0.92],
@@ -502,6 +523,17 @@ const ENEMY_HULL_POINTS: Record<ArenaEnemy['kind'], readonly EnemyLocalPoint[]> 
     [-1, -0.2],
     [-0.46, -0.66],
     [0.42, -0.92],
+  ],
+  hiveCarrierBoss: [
+    [1.06, 0.24],
+    [0.98, -0.24],
+    [0.42, -0.88],
+    [-0.18, -0.96],
+    [-0.9, -0.58],
+    [-1.08, 0],
+    [-0.9, 0.58],
+    [-0.18, 0.96],
+    [0.42, 0.88],
   ],
 };
 
@@ -562,6 +594,12 @@ function createEnemyWingPanelPath(enemy: ArenaEnemy, side: -1 | 1) {
   const span =
     enemy.kind === 'prismBoss'
       ? 0.7
+      : enemy.kind === 'hiveCarrierBoss'
+        ? 0.76
+        : enemy.kind === 'carrier'
+          ? 0.72
+          : enemy.kind === 'artillery'
+            ? 0.64
       : enemy.kind === 'tank'
         ? 0.62
         : enemy.kind === 'sniper'
@@ -610,9 +648,16 @@ function createEnemyGunBarrelPaths(enemy: ArenaEnemy) {
   );
   barrels.push(mainBarrel);
 
-  if (enemy.kind === 'bomber' || enemy.kind === 'prismBoss' || enemy.kind === 'interceptor') {
+  if (
+    enemy.kind === 'bomber' ||
+    enemy.kind === 'prismBoss' ||
+    enemy.kind === 'hiveCarrierBoss' ||
+    enemy.kind === 'artillery' ||
+    enemy.kind === 'interceptor'
+  ) {
     const sideOffset = enemy.kind === 'prismBoss' ? enemy.size * 0.16 : enemy.size * 0.13;
-    const sideBarrelLength = enemy.kind === 'prismBoss' ? enemy.size * 0.18 : enemy.size * 0.16;
+    const sideBarrelLength =
+      enemy.kind === 'prismBoss' || enemy.kind === 'hiveCarrierBoss' ? enemy.size * 0.18 : enemy.size * 0.16;
     const sideBarrelWidth = enemy.size * 0.052;
     barrels.push(
       createOrientedRectPath(
@@ -738,10 +783,21 @@ function createStaticBackgroundScene({
 
 function renderEnemyCore(enemy: ArenaEnemy) {
   const enemyPath = createEnemyHullPath(enemy);
-  const isElite = enemy.kind === 'interceptor';
-  const isBoss = enemy.kind === 'prismBoss';
+  const isElite = enemy.kind === 'interceptor' || enemy.kind === 'carrier' || enemy.kind === 'artillery';
+  const isBoss = enemy.kind === 'prismBoss' || enemy.kind === 'hiveCarrierBoss';
   const isProtected = enemy.protectedTimer > 0;
-  const auraColor = isBoss ? '#FF89C0' : isElite ? '#CBBFFF' : enemy.color;
+  const auraColor =
+    enemy.kind === 'hiveCarrierBoss'
+      ? '#93F0D5'
+      : isBoss
+        ? '#FF89C0'
+        : enemy.kind === 'carrier'
+          ? '#B5F5D7'
+          : enemy.kind === 'artillery'
+            ? '#FFD5AD'
+            : isElite
+              ? '#CBBFFF'
+              : enemy.color;
 
   return (
     <Group key={`enemy-${enemy.id}`}>
@@ -1030,6 +1086,61 @@ export function ArenaCanvas({ boardWidth, boardHeight, state, vfxQuality }: Aren
             strokeWidth={streak.width}
             strokeCap="round"
           />
+        );
+      })}
+
+      {state.hazards.map((hazard) => {
+        const warningProgress = clamp(hazard.age / Math.max(0.001, hazard.warningDuration), 0, 1);
+        const pulse = 0.5 + Math.sin((state.elapsed + hazard.age) * 10) * 0.5;
+        const activeProgress = clamp(
+          (hazard.age - hazard.warningDuration) / Math.max(0.001, hazard.lingerDuration),
+          0,
+          1
+        );
+        return (
+          <Group key={`hazard-${hazard.id}`}>
+            {!hazard.triggered ? (
+              <>
+                <Circle
+                  cx={hazard.x}
+                  cy={hazard.y}
+                  r={hazard.radius * (0.74 + warningProgress * 0.22 + pulse * 0.04)}
+                  color={withAlpha(hazard.color, 0.12 + pulse * 0.08)}
+                />
+                <Circle
+                  cx={hazard.x}
+                  cy={hazard.y}
+                  r={hazard.radius}
+                  style="stroke"
+                  strokeWidth={2}
+                  color={withAlpha(hazard.accentColor, 0.5 + pulse * 0.2)}
+                />
+                <Circle
+                  cx={hazard.x}
+                  cy={hazard.y}
+                  r={Math.max(8, hazard.radius * (0.2 + warningProgress * 0.34))}
+                  color={withAlpha(hazard.accentColor, 0.12 + pulse * 0.12)}
+                />
+              </>
+            ) : (
+              <>
+                <Circle
+                  cx={hazard.x}
+                  cy={hazard.y}
+                  r={hazard.radius * (1 + activeProgress * 0.22)}
+                  color={withAlpha(hazard.color, 0.18 * (1 - activeProgress))}
+                />
+                <Circle
+                  cx={hazard.x}
+                  cy={hazard.y}
+                  r={hazard.radius * (0.84 + activeProgress * 0.14)}
+                  style="stroke"
+                  strokeWidth={3}
+                  color={withAlpha(hazard.accentColor, 0.46 * (1 - activeProgress))}
+                />
+              </>
+            )}
+          </Group>
         );
       })}
 

@@ -1,7 +1,7 @@
 # Prototype V2 Reference
 
 Snapshot date: `2026-04-14`
-Board version: `v0.41`
+Board version: `v0.42`
 
 This document is the current reference for the arena-combat shooter in `/Users/johnchang/Desktop/defender/src/prototype-v2`. It replaces the earlier planning-heavy draft with a snapshot of what is actually implemented today, plus the next major gaps.
 
@@ -25,7 +25,7 @@ Core loop:
 
 This mode is no longer just a redesign concept. It is a production prototype with live combat, encounters, progression, and Skia rendering.
 
-The current build also includes persistent between-run `Codex + Mastery` data stored locally, plus a scripted combat pass that expands encounter variety beyond the original hard-coded tier branches.
+The current build also includes persistent between-run `Codex + Mastery` data stored locally, a scripted encounter registry, a rotating two-boss cadence, artillery hazard telegraphs, and cosmetic-ready unlock hooks layered onto the meta screen flow.
 
 ## Current Playable State
 
@@ -42,6 +42,7 @@ The current build also includes persistent between-run `Codex + Mastery` data st
 - The player ship is restricted to the lower section of the board.
 - Enemies are restricted to the upper combat zone.
 - Enemy bullets, player bullets, drops, effects, encounters, and ultimates are all live.
+- Hazard telegraphs / delayed impact zones are now live for artillery pressure.
 - The arena is portrait-oriented.
 
 ### HUD / UI state
@@ -287,7 +288,12 @@ Current live enemy families:
 - `sniper`
 - `bomber`
 - `interceptor`
+- `warden`
+- `lancer`
+- `carrier`
+- `artillery`
 - `prismBoss`
+- `hiveCarrierBoss`
 
 ### Current enemy identity summary
 
@@ -298,7 +304,12 @@ Current live enemy families:
 - `sniper`: tighter, faster needle shots and more direct threat lines
 - `bomber`: heavier bombardment profile and more punishing projectile clusters
 - `interceptor`: mini-boss / elite anchor with faster attack pacing
+- `warden`: support ship that links temporary protection onto nearby allies
+- `lancer`: lane-control striker with telegraphed piercing sweep shots
+- `carrier`: support ship that deploys escort packets and stretches field pressure
+- `artillery`: siege ship that telegraphs delayed lower-arena impact zones
 - `prismBoss`: boss anchor with the heaviest health and multi-pattern pressure
+- `hiveCarrierBoss`: rotating boss carrier that mixes escort deployment, artillery pressure, and lane sweeps
 
 ### Enemy presentation state
 
@@ -317,6 +328,7 @@ Current presentation improvements:
 
 - mini-boss encounter every `3` tiers
 - boss encounter every `6` tiers
+- boss rotation currently starts with `Prism Core` at `T6` and alternates to `Hive Carrier` at `T12`, `T18`, and beyond
 
 ### Current live encounter anchors
 
@@ -324,13 +336,23 @@ Current presentation improvements:
   - anchor: `interceptor`
 - `Bombard Wing`
   - anchor: `bomber`
+- `Warden Bastion`
+  - anchor: `warden`
+- `Lancer Spearhead`
+  - anchor: `lancer`
+- `Carrier Nest`
+  - anchor: `carrier`
+- `Artillery Bastion`
+  - anchor: `artillery`
 - `Prism Core`
   - anchor: `prismBoss`
+- `Hive Carrier`
+  - anchor: `hiveCarrierBoss`
 
 ### Encounter reward behavior
 
 - mini-boss clear awards salvage and ultimate charge
-- boss clear awards more salvage, more ultimate charge, clears enemy bullets, and opens a boss cache draft
+- boss clear awards more salvage, more ultimate charge, clears enemy bullets / hazards, and opens a boss cache draft
 - encounter announcements flash in the arena center rather than taking a fixed HUD row
 
 ## Theme / Visual State
@@ -408,6 +430,13 @@ Primary implementation files:
 
 ### 2026-04-14
 
+- Advanced arena board label to `v0.42`.
+- Added `Carrier` and `Artillery` enemy jobs plus hazard telegraphs for lower-arena impact zones.
+- Expanded the formation pool with `Escort Relay`, `Carrier Surge`, `Crossfire Lattice`, `Artillery Net`, `Siege Screen`, and `Impact Corridor`.
+- Expanded the mini-boss pool with `Carrier Nest` and `Artillery Bastion`.
+- Added `Hive Carrier` as a second three-phase boss and rotated bosses every `6` tiers starting from `T6` / `T12`.
+- Added persistent cosmetic-ready unlock hooks for `Hive Carrier` clears, full enemy codex discovery, and build mastery milestones.
+- Surfaced unlock chips in the `Codex` and `Mastery` menu panels.
 - Advanced arena board label to `v0.41`.
 - Replaced hard-coded encounter branching with a script registry for formation, mini-boss, and boss encounters.
 - Added two new enemy jobs: `Warden` support ships and `Lancer` lane-control strikers.
@@ -453,13 +482,13 @@ These are the major areas that still remain after the current polish pass.
 
 ### Content expansion
 
-- more enemy families beyond the current core roster plus `Warden` / `Lancer`
-- more encounter scripts once the new registry has broader content authored for it
-- additional bosses after the now phase-driven `Prism Core`
+- more encounter scripts on top of the now broader registry
+- more enemy jobs beyond the current `Warden` / `Lancer` / `Carrier` / `Artillery` roster expansion
+- a third boss after the current `Prism Core` / `Hive Carrier` rotation
 
 ### Progression expansion
 
-- unlock tracks or cosmetic reward hooks layered on top of the current codex/mastery base
+- actual cosmetic equip / claim flows on top of the current unlock scaffolding
 - more premium-feeling armory picks beyond the current base set
 
 ### Retention / presentation

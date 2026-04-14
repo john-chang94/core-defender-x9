@@ -15,7 +15,7 @@ export const ARENA_MIN_ENEMY_CRUISE_Y_RATIO = 0.15;
 export const ARENA_MAX_ENEMY_CRUISE_Y_RATIO = 0.41;
 export const ARENA_SHIELD_REGEN_DELAY_SECONDS = 2.2;
 export const ARENA_SHIELD_REGEN_PER_SECOND = 11;
-export const ARENA_VERSION_LABEL = 'v0.41';
+export const ARENA_VERSION_LABEL = 'v0.42';
 
 export const ARENA_ENEMY_ORDER: ArenaEnemyKind[] = [
   'hover',
@@ -27,7 +27,10 @@ export const ARENA_ENEMY_ORDER: ArenaEnemyKind[] = [
   'interceptor',
   'warden',
   'lancer',
+  'carrier',
+  'artillery',
   'prismBoss',
+  'hiveCarrierBoss',
 ];
 
 export const BASE_ARENA_WEAPON: ArenaWeapon = {
@@ -50,7 +53,10 @@ export const ARENA_ENEMY_COLORS: Record<ArenaEnemyKind, string> = {
   interceptor: '#B9A3FF',
   warden: '#91EBFF',
   lancer: '#FFC18A',
+  carrier: '#A3E9C4',
+  artillery: '#FFC99A',
   prismBoss: '#FF6EAE',
+  hiveCarrierBoss: '#8FF0D6',
 };
 
 export const ARENA_ENEMY_SHAPES: Record<ArenaEnemyKind, ArenaEnemyShape> = {
@@ -63,7 +69,10 @@ export const ARENA_ENEMY_SHAPES: Record<ArenaEnemyKind, ArenaEnemyShape> = {
   interceptor: 'diamond',
   warden: 'square',
   lancer: 'diamond',
+  carrier: 'square',
+  artillery: 'square',
   prismBoss: 'diamond',
+  hiveCarrierBoss: 'square',
 };
 
 export const ARENA_ENEMY_CONFIG: Record<
@@ -229,6 +238,38 @@ export const ARENA_ENEMY_CONFIG: Record<
     spreadAngle: 0,
     bobAmplitude: 5,
   },
+  carrier: {
+    size: 68,
+    baseHealth: 148,
+    healthPerTier: 24,
+    strafeSpeed: 26,
+    descendSpeed: 88,
+    fireInterval: 3.6,
+    windupDuration: 0.66,
+    bulletSpeed: 246,
+    bulletDamage: 13,
+    bulletSize: 10,
+    reward: 335,
+    burstCount: 2,
+    spreadAngle: 0.14,
+    bobAmplitude: 3,
+  },
+  artillery: {
+    size: 64,
+    baseHealth: 134,
+    healthPerTier: 22,
+    strafeSpeed: 20,
+    descendSpeed: 82,
+    fireInterval: 4.1,
+    windupDuration: 0.88,
+    bulletSpeed: 208,
+    bulletDamage: 18,
+    bulletSize: 12,
+    reward: 320,
+    burstCount: 1,
+    spreadAngle: 0,
+    bobAmplitude: 2,
+  },
   prismBoss: {
     size: 96,
     baseHealth: 680,
@@ -243,6 +284,22 @@ export const ARENA_ENEMY_CONFIG: Record<
     reward: 980,
     burstCount: 5,
     spreadAngle: 0.22,
+    bobAmplitude: 0,
+  },
+  hiveCarrierBoss: {
+    size: 114,
+    baseHealth: 760,
+    healthPerTier: 132,
+    strafeSpeed: 28,
+    descendSpeed: 76,
+    fireInterval: 2.9,
+    windupDuration: 0.7,
+    bulletSpeed: 244,
+    bulletDamage: 16,
+    bulletSize: 12,
+    reward: 1100,
+    burstCount: 4,
+    spreadAngle: 0.18,
     bobAmplitude: 0,
   },
 };

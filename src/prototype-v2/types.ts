@@ -8,7 +8,10 @@ export type ArenaEnemyKind =
   | 'interceptor'
   | 'warden'
   | 'lancer'
-  | 'prismBoss';
+  | 'carrier'
+  | 'artillery'
+  | 'prismBoss'
+  | 'hiveCarrierBoss';
 
 export type ArenaEnemyShape = 'circle' | 'square' | 'diamond';
 
@@ -19,6 +22,7 @@ export type ArenaVfxQuality = 'balanced' | 'high';
 export type ArenaEffectFlavor = ArenaBuildId | 'enemy' | 'neutral';
 export type ArenaBuildValueMap<T> = Record<ArenaBuildId, T>;
 export type ArenaEnemyValueMap<T> = Record<ArenaEnemyKind, T>;
+export type ArenaUnlockValueMap<T> = Record<ArenaUnlockId, T>;
 
 export type ArenaEffectKind =
   | 'burst'
@@ -47,11 +51,22 @@ export type ArenaEncounterScriptId =
   | 'shieldScreen'
   | 'lancerSweep'
   | 'fortifiedBombard'
+  | 'escortRelay'
+  | 'carrierSurge'
+  | 'crossfireLattice'
+  | 'artilleryNet'
+  | 'siegeScreen'
+  | 'impactCorridor'
   | 'interceptorSweep'
   | 'bombardWing'
   | 'wardenBastion'
   | 'lancerSpearhead'
-  | 'prismCore';
+  | 'carrierNest'
+  | 'artilleryBastion'
+  | 'prismCore'
+  | 'hiveCarrier';
+
+export type ArenaHazardKind = 'impact';
 
 export type ArenaWeapon = {
   damage: number;
@@ -111,6 +126,7 @@ export type ArenaEnemy = {
   protectedTimer: number;
   protectedByEnemyId: string | null;
   laneTargetX: number | null;
+  deployCharges: number;
   encounterTag: ArenaEncounterScriptId | null;
 };
 
@@ -125,6 +141,9 @@ export type ArenaEncounterSpawnStep = {
   rewardMultiplier?: number;
   attackCooldownMultiplier?: number;
   vxMultiplier?: number;
+  supportCooldownMultiplier?: number;
+  specialCooldownMultiplier?: number;
+  deployChargeBonus?: number;
 };
 
 export type ArenaEncounterScript = {
@@ -138,6 +157,7 @@ export type ArenaEncounterScript = {
   minTier: number;
   requiredCapacity?: number;
   maxBulletPressure?: number;
+  maxHazardPressure?: number;
   selectionWeight?: number;
   steps: ArenaEncounterSpawnStep[];
 };
@@ -162,6 +182,24 @@ export type ArenaEncounter = {
   startedAtTier: number;
   announcement: string;
   bossPhaseIndex: 0 | 1 | 2;
+};
+
+export type ArenaHazard = {
+  id: string;
+  kind: ArenaHazardKind;
+  x: number;
+  y: number;
+  radius: number;
+  damage: number;
+  age: number;
+  warningDuration: number;
+  lingerDuration: number;
+  triggered: boolean;
+  color: string;
+  accentColor: string;
+  sourceEnemyId: string | null;
+  ownerKind: ArenaEnemyKind | null;
+  encounterTag: ArenaEncounterScriptId | null;
 };
 
 export type ArenaEffect = {
@@ -231,12 +269,39 @@ export type ArenaBuildMastery = {
   bossClears: number;
 };
 
+export type ArenaUnlockCategory = 'boss' | 'codex' | 'mastery';
+
+export type ArenaUnlockId =
+  | 'hiveCarrierFirstClear'
+  | 'enemyCodexComplete'
+  | 'railFocusMastery4'
+  | 'railFocusMastery8'
+  | 'novaBloomMastery4'
+  | 'novaBloomMastery8'
+  | 'missileCommandMastery4'
+  | 'missileCommandMastery8'
+  | 'fractureCoreMastery4'
+  | 'fractureCoreMastery8';
+
+export type ArenaUnlockEntry = {
+  id: ArenaUnlockId;
+  label: string;
+  description: string;
+  rewardLabel: string;
+  category: ArenaUnlockCategory;
+  buildId: ArenaBuildId | null;
+  unlocked: boolean;
+  unlockedAt: string | null;
+  sourceMilestoneId: string | null;
+};
+
 export type ArenaMetaState = {
   version: number;
   lastUpdatedAt: string;
   codexEnemies: ArenaEnemyValueMap<ArenaCodexEnemyEntry>;
   codexBuilds: ArenaBuildValueMap<ArenaCodexBuildEntry>;
   mastery: ArenaBuildValueMap<ArenaBuildMastery>;
+  unlocks: ArenaUnlockValueMap<ArenaUnlockEntry>;
 };
 
 export type ArenaRunMetaSummary = {
@@ -245,6 +310,7 @@ export type ArenaRunMetaSummary = {
   tierReached: number;
   miniBossClears: number;
   bossClears: number;
+  bossClearCounts: ArenaEnemyValueMap<number>;
   buildActiveSeconds: ArenaBuildValueMap<number>;
   killCounts: ArenaEnemyValueMap<number>;
   firstSeenTierByEnemy: ArenaEnemyValueMap<number | null>;
@@ -276,6 +342,7 @@ export type ArenaGameState = {
   weapon: ArenaWeapon;
   enemies: ArenaEnemy[];
   drops: ArenaDrop[];
+  hazards: ArenaHazard[];
   playerBullets: ArenaProjectile[];
   enemyBullets: ArenaProjectile[];
   effects: ArenaEffect[];
@@ -289,6 +356,7 @@ export type ArenaGameState = {
   nextBulletId: number;
   nextEnemyId: number;
   nextDropId: number;
+  nextHazardId: number;
   nextEffectId: number;
   pickupMessage: string | null;
   pickupTimer: number;
@@ -300,6 +368,7 @@ export type ArenaGameState = {
   bestTierReached: number;
   runMiniBossClears: number;
   runBossClears: number;
+  runBossClearsByEnemy: ArenaEnemyValueMap<number>;
   runBuildActiveSeconds: ArenaBuildValueMap<number>;
   runSeenTierByEnemy: ArenaEnemyValueMap<number | null>;
   runKillCountsByEnemy: ArenaEnemyValueMap<number>;
