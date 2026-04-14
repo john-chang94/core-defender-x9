@@ -1,597 +1,453 @@
 # Prototype V2 Reference
 
-Snapshot date: `2026-04-11`
+Snapshot date: `2026-04-13`
+Board version: `v0.38`
 
-This document tracks the redesign direction and the implemented state of the arena-combat prototype (`prototypeV2`), separate from the original falling-enemy prototype.
+This document is the current reference for the arena-combat shooter in `/Users/johnchang/Desktop/defender/src/prototype-v2`. It replaces the earlier planning-heavy draft with a snapshot of what is actually implemented today, plus the next major gaps.
 
-## Current Implementation Summary (`v0.21`)
+## Overview
 
-Prototype V2 is playable and active in the app today.
+Prototype V2 is the top-down arena shooter mode in the app. It is currently playable, integrated, and used as the default launch mode.
 
-- `prototypeV2` is integrated as a separate game mode and is currently the default mode on app launch.
-- The run is endless and tier-based (`T1+`) with upper-half enemy combat, player health/shield survival, and automatic player firing.
-- Build selection is live and switchable in-run (`Rail Focus`, `Nova Bloom`, `Missile Command`, `Fracture Core`).
-- Enemy roster currently in production:
-  - `hover`
-  - `burst`
-  - `tank`
-  - `orbiter`
-  - `sniper`
-  - `bomber`
-  - `interceptor` (mini-boss anchor)
-  - `prismBoss` (boss anchor)
-- Enemies spawn from above, descend into a bounded combat band, strafe, and fire pattern-based projectile attacks.
-- Encounter flow is live:
-  - mini-boss and boss checkpoints
-  - board-center encounter announcements
-  - encounter reward salvage and ultimate charge
-- Salvage and armory loop is live:
-  - salvage from kills and drops
-  - standard armory drafts (`1 of 3`)
-  - boss cache drafts (`1 of 4`, free)
-- Drop loop is live:
-  - health patch
-  - shield cell
-  - overclock
-  - salvage burst
-- Build-specific ultimates are live:
-  - `Rail Surge`
-  - `Solar Bloom`
-  - `Missile Barrage`
-  - `Cascade Break`
-- Phase 3 polish is in progress:
-  - stronger per-build passive separation (rail precision, nova burn spread, missile splash cadence, fracture shatter pulse)
-  - build-specific projectile silhouettes and impact read
-  - armory upgrade differentiation tuned (`Rapid Cycle` vs `Accelerator`)
-- HUD/UI is live with:
-  - score + pressure
-  - health/shield/salvage bars with current and max values
-  - compact weapon stats
-  - center flash encounter callouts
-  - armory modal + in-game menu
+Core loop:
 
-## Current Technical State
+- the run is endless and tier-based (`T1+`)
+- the player ship stays in the lower arena and moves left/right only
+- enemies occupy the upper combat band, strafe, bob, and shoot downward
+- the player loses when health reaches `0`
+- the player fires automatically based on the active build
+- salvage, field drops, and armory drafts drive in-run progression
 
-- V2 simulation is fixed-step and runs through `tickArenaState`.
-- Board rendering is Skia-based (`ArenaCanvas`) for enemies, bullets, effects, and arena background layers.
-- Player ship rendering/input is decoupled from Skia and handled via:
-  - `react-native-gesture-handler` pan input
-  - `react-native-reanimated` shared-value visual movement
-- Recent stability/performance fixes:
-  - frame simulation now consumes per-frame delta via bounded substeps, reducing hold-then-jump motion on high-refresh devices
-  - enemy/drop overlay labels now use subpixel coordinates (removed integer rounding), eliminating visible shake
-  - ship movement path remains smooth after shared-value input migration
+This mode is no longer just a redesign concept. It is a production prototype with live combat, encounters, progression, and Skia rendering.
 
-## Changelog (V2)
+## Current Playable State
 
-### 2026-04-11
+### App / mode state
 
-- Continued Phase 3 polish and advanced board label to `v0.21`.
-- Tuned build identity in combat:
-  - rail precision hits now convert into stronger burst value and extra ultimate gain
-  - nova rounds now spread burn pressure to nearby enemies
-  - missile command now escalates to larger missile salvos with stronger splash profile
-  - fracture core now applies clearer shatter pulse behavior and higher-impact fragment outcomes
-- Improved armory readability by separating upgrade identities:
-  - `Rapid Cycle` now focuses on fire-loop throughput and tighter spread
-  - `Accelerator` now focuses on projectile velocity/size and penetration
-- Updated drop economy balance:
-  - reduced health/shield drop weighting from enemy-kill drops to preserve pressure pacing
-- Updated menu behavior/layout polish:
-  - menu panel positioning adjusted for portrait fit and reduced overflow pressure
+- `Prototype V2` is a selectable game mode in the shared menu.
+- It is currently the default mode on app launch.
+- The run supports `Start`, `Pause`, `Resume`, and `Restart`.
+- Opening the armory or menu pauses simulation.
 
-### 2026-04-09
+### Core combat state
 
-- Set `prototypeV2` as default mode on launch.
-- Added board version badge and advanced to `v0.15`.
-- Stabilized ship movement architecture using gesture + shared-value input and decoupled ship visual from Skia board entities.
-- Removed enemy movement jitter by:
-  - changing simulation step scheduling to real frame-delta substeps
-  - removing `Math.round` snapping on enemy/drop overlay positions
-- Verified build health with typecheck/lint/export after movement changes.
-- Added a new enemy family: `bomber` (high-impact burst volleys, heavier projectile profile).
-- Added formation-based regular spawns to reduce repetition:
-  - sniper crossfire sets
-  - orbiter escort screens
-  - wedge pressure packs
-  - late-tier bombard mixes
-- Added a second mini-boss variant, `Bombard Wing`, and cycle logic for mini-boss variety.
-- Added tier-phase atmosphere shifts in `ArenaCanvas` (theme cycling + pulse overlays) for clearer long-run progression feel.
-- Updated enemy readability/VFX:
-  - directional firing tips now track each enemy aim direction
-  - enemy silhouettes now include ship-like wing framing
-  - removed expanding enemy shoot ring telegraph
-- Refined player presentation:
-  - upgraded to a sleeker ship silhouette
-  - compressed top HUD vertical spacing to increase arena real estate
-- Started Phase 3 build conversion:
-  - introduced 4 selectable builds (`Rail Focus`, `Nova Bloom`, `Missile Command`, `Fracture Core`)
-  - added build-shaped weapon profiles and per-build combat passives
-  - added build-specific ultimate behavior and messaging
-  - added missile/shard projectile variants for build readability
-- Advanced board label to `v0.17`.
+- Fixed-step combat simulation runs through `tickArenaState`.
+- The player ship is restricted to the lower section of the board.
+- Enemies are restricted to the upper combat zone.
+- Enemy bullets, player bullets, drops, effects, encounters, and ultimates are all live.
+- The arena is portrait-oriented.
 
-## Purpose
+### HUD / UI state
 
-Prototype V2 exists to solve the main long-term limitations of the current prototype:
+The HUD is compact and live.
 
-- too much difficulty comes from enemy HP inflation
-- enemy identity is still too tied to shape and stat scaling
-- late-game variety is limited
-- the combat loop does not yet support richer enemy weapons, formations, and reactions
+Top-level HUD currently shows:
 
-The new prototype changes the combat model instead of only extending the existing one.
-
-## Core Redesign
-
-### Current Prototype
-
-- enemies fall downward from the top
-- player loses when an enemy reaches the bottom
-- pressure is driven mostly by crowding and health scaling
-
-### Prototype V2
-
-- enemies occupy the upper half of the board
-- enemies move laterally and within bounded vertical space
-- enemies can shoot at the player
-- player loses when health reaches `0`
-- pressure is driven by:
-  - enemy composition
-  - enemy movement
-  - enemy projectile patterns
-  - build decisions
-  - tactical pickup usage
-
-This is a real combat redesign, not just a content update.
-
-## Design Pillars
-
-### 1. Readable arena combat
-
-The player should always understand:
-
-- where enemies are allowed to move
-- where projectiles are coming from
-- what enemy is most dangerous right now
-- how much safe space remains
-
-### 2. Endless but evolving
-
-The game should remain endless, but it cannot rely on “higher HP forever” as its main escalation tool.
-
-Endless progression should come from:
-
-- new enemy families entering the pool
-- harder formations
-- build evolution
-- boss and mini-boss checkpoints
-- biome/theme shifts
-- rare pickups and utility spikes
-
-### 3. Hybrid progression
-
-The game should use multiple progression layers:
-
-- tactical field drops during the run
-- structured run upgrades
-- long-term mastery across runs
-
-This avoids overloading a single system.
-
-### 4. Non-pay-to-win monetization
-
-Monetization should focus on cosmetics, themes, and optional sidegrade content rather than raw stat advantages.
-
-## Combat Space Rules
-
-### Player space
-
-- player ship stays in the lower half
-- movement remains left/right only for now
-- player fires automatically
-
-### Enemy space
-
-- enemies spawn above the screen and settle into the upper half
-- enemies should not move lower than roughly `45-50%` of the board height
-- bosses may visually encroach slightly for tension, but the normal rule remains intact
-
-### Threat model
-
-- enemies are dangerous because they shoot, reposition, and combine with each other
-- losing a run means taking too much damage, not letting a single body cross the bottom
-
-## Health Model
-
-Prototype V2 introduces player survivability as a first-class system.
-
-### Initial direction
-
-- `Hull` or health pool
-- optional `Shield` on top of hull
-- shield can regenerate if the player has not been hit recently
-- enemy bullets damage shield first, then hull
-- the run ends when hull reaches `0`
-
-### Why this matters
-
-This makes the player react to sustained combat pressure rather than only positional failure.
-
-## Enemy Design Direction
-
-The new prototype should separate enemy identity from raw health scaling.
-
-## Initial enemy families
-
-### Hover Shooter
-
-- baseline ranged enemy
-- moves left and right in the upper half
-- fires slow single shots
-- low to medium health
-
-### Burst Striker
-
-- moves into position
-- pauses briefly
-- fires a short spread or burst
-- encourages player repositioning
-
-### Tank Gunner
-
-- slower and sturdier
-- fires fewer but more dangerous shots
-- acts as an anchor unit, not the default enemy
-
-### Splitter
-
-- breaks into weaker enemies on death
-- good for target-priority pressure
-
-## Later enemy candidates
-
-- Orbiter
-- Sniper
-- Bomber
-- Support/Shield unit
-- Summoner/Hive unit
-- Suppression field enemy
-
-## Enemy Density Rules
-
-Because enemies now shoot back, density has to be capped more carefully than in the current prototype.
-
-### Initial target limits
-
-- active enemies: `6-8`
-- late-game soft cap: `10-12`
-- active enemy bullets: `12-20`
-
-These are starting numbers, not final numbers.
-
-The main escalation tool should be formations and behavior, not uncontrolled count.
-
-## Weapon and Upgrade Philosophy
-
-## High-level recommendation
-
-Keep a hybrid system.
-
-### Field pickups
-
-These remain in the game, but shift to tactical functions:
-
-- temporary overclocks
-- shield repair
-- emergency strikes
-- temporary drones
-- projectile clear pulses
-- pickup magnet
-
-These should create moment-to-moment tension and movement.
-
-### Run upgrades
-
-These become the main long-term in-run progression system.
-
-Recommended triggers:
-
-- every `2-3` tiers
-- mini-boss clears
-- boss clears
-- salvage/resource thresholds
-
-Recommended format:
-
-- choose `1 of 3` armory cards
-
-### Meta progression
-
-Across runs, add mastery rather than in-run XP per build.
-
-Good uses for mastery:
-
-- unlock new upgrade cards
-- unlock new enemy families
-- unlock build evolutions
-- unlock new cosmetic tracks
-- unlock codex entries
-
-## Upgrade categories
-
-### Primary
-
+- score
+- current pressure tier (`T#`)
+- active build short label
 - damage
-- fire rate
-- extra barrels
-- spread / cone shaping
-- precision bonuses
+- rate of fire
+- projectile speed
+- health bar with current / max
+- shield bar with current / max
+- salvage bar with current / next draft requirement
+- ultimate charge button / ready state
 
-### Payload
+Other UI behavior:
 
-- pierce
-- explosive impact
-- burn
-- chain
-- shatter
-- armor break
+- center-top status pill shows run state, pickup messages, encounter states, or pause/menu state
+- encounter announcements flash over the arena center
+- enemy health numbers are rendered as floating labels over enemies
+- drop labels are rendered under field pickups
+- the in-game menu allows game switching, build switching, and restart
 
-### Support
+## Current Combat Rules
 
-- missiles
-- drones
-- orbitals
-- mines
-- interceptors
+### Arena space
 
-### Defense
+- Player ship remains in the lower arena.
+- Player movement is horizontal only.
+- Enemies spawn above the screen and settle into the upper combat band.
+- The normal enemy lower movement limit is controlled by `ARENA_ENEMY_ZONE_RATIO = 0.46`.
 
-- shield size
-- repair
-- bullet slow
-- barrier pulse
-- dodge burst
+### Survival model
 
-### Utility
+- The player has `health` and `shield`.
+- Shield absorbs damage first.
+- Shield regenerates after a short delay without damage.
+- If health reaches `0`, the run ends immediately.
 
-- salvage gain
-- pickup magnet
-- ultimate charge
-- rerolls
-- cooldown reduction
+### Progression model
 
-## Build System Direction
+- The run is endless and tier-based.
+- Pressure scales through enemy composition, formations, enemy fire, elite encounters, and boss checkpoints.
+- Difficulty is not only HP inflation anymore, although HP scaling is still part of the balance model.
 
-The four main builds should carry forward, but their identities need to fit the new arena model.
+## Build System
+
+There are four live builds. The active build can be switched in-run from the menu.
+
+Important implementation note:
+
+- the reference below reflects actual live combat behavior
+- some short in-code flavor text may lag behind this document when tuning moves faster than menu copy
 
 ### Rail Focus
 
-- precision deletion of elite threats
-- weakpoint / pierce / long-range identity
+Identity:
+
+- precision / lane-control build
+- fewer guns, tighter spread, higher direct damage, higher pierce
+
+Current behavior:
+
+- normal gun cap: `2`
+- overdrive gun cap: `3`
+- stronger direct-hit scaling than the wider-area builds
+- precision bonus against high-value or high-threat targets
+- fastest-feeling long-lane pressure among the non-missile builds
+
+Ultimate: `Rail Surge`
+
+- marks high-priority targets / lanes
+- drops concentrated rail strikes on those lanes
+- strongest at deleting elites and boss pressure points
 
 ### Nova Bloom
 
-- strongest primary-gun coverage
-- anti-swarm and burn identity
+Identity:
+
+- fan-shaped primary-fire coverage build
+- crowd-control / coverage build
+
+Current behavior:
+
+- normal gun cap: `4`
+- overdrive gun cap: `5`
+- broader spread than the other primary-gun builds
+- slightly lower per-projectile damage than the precision build
+- intended to own screen coverage rather than single-target burst
+
+Ultimate: `Solar Bloom`
+
+- fires a large arena-wide solar sweep
+- heavily damages enemies across the board
+- does not trigger overdrive automatically
 
 ### Missile Command
 
-- lock-on and off-axis pressure
-- strong against formations and evasive enemies
+Identity:
+
+- ordnance-only build
+- homing missile pressure with splash
+
+Current behavior:
+
+- does not use the standard primary-gun volley loop
+- fires missiles one at a time inside a volley window
+- missile count per volley depends on current gun count
+- normal gun cap: `6`
+- overdrive volley count: `12`
+- base volley window: `1.0s`
+- `Rapid Cycle` reduces the window by `0.1s` per step, capped at `0.5s`
+- overdrive forces `12 missiles` in a `0.5s` window
+- missiles are larger and heavier-looking than before and do stronger splash damage
+
+Ultimate: `Missile Barrage`
+
+- launches repeated strike volleys and strike-lane effects
+- built for lane pressure and formation disruption
 
 ### Fracture Core
 
-- fragment storms and area denial
-- should either become much clearer visually or be replaced if the fantasy remains muddy
+Identity:
 
-## Ultimate Direction
+- slow heavy shot into fragmentation build
+- impact-to-shard chain build
 
-Ultimates should stay build-specific.
+Current behavior:
 
-In V2, ultimates should also help solve bullet pressure and board control:
+- slower firing cadence than the other builds
+- normal gun cap: `3`
+- overdrive gun cap: `4`
+- primary shots are large, rock-like projectiles
+- impacts create fragment bursts and shard follow-up damage
+- fragment splash radius is larger than before
+- current VFX now reads as shard spray instead of a soft circular pulse
 
-- targeted deletion
-- projectile clearing
-- formation disruption
-- emergency breathing room
+Ultimate: `Cascade Break`
+
+- spawns randomized fracture fields in the upper arena
+- currently uses one large and one smaller fracture circle
+- positions are randomized, but constrained to stay meaningfully inside the arena and above the lower combat line
+
+## Overdrive
+
+Overdrive is a field drop effect, not a separate build.
+
+Current behavior:
+
+- pickup type: `Overdrive`
+- duration: `6s`
+- temporarily over-maxes the active build’s stats
+- adds stronger screen shake and a warm arena overlay
+- adds lava-crack / neon-crack background styling during the effect
+
+Current visual behavior:
+
+- crack positions randomize on each new overdrive activation
+- cracks remain fixed during that activation
+- brightness still subtly fluctuates while active
+
+## Armory / Progression Loop
+
+### Salvage economy
+
+- enemies grant score and salvage on kill
+- `salvageBurst` field drops grant additional salvage
+- salvage progress is always visible in the HUD
+
+### Standard armory drafts
+
+- the first draft threshold starts at `120`
+- each next standard draft increases by `80`
+- when salvage reaches the threshold, the game opens an armory modal and pauses
+
+### Boss cache drafts
+
+- boss clears award a free premium-style armory choice
+- boss cache selection also pauses the run
+
+### Current armory upgrade set
+
+Live upgrades:
+
+- `Damage Matrix`
+- `Rapid Cycle`
+- `Twin Array`
+- `Phase Pierce`
+- `Shield Capacitor`
+- `Reinforced Plating`
+- `Accelerator`
+
+Current behavior:
+
+- the armory shows all available upgrades
+- upgrades that are maxed are disabled instead of disappearing
+- maxed upgrades show a `MAX` overlay in the modal
+
+Practical meanings:
+
+- `Damage Matrix`: raw damage increase
+- `Rapid Cycle`: faster fire loop and slightly tighter spread
+- `Twin Array`: more barrels / projectiles
+- `Phase Pierce`: more target pass-through
+- `Shield Capacitor`: more max shield
+- `Reinforced Plating`: more max health
+- `Accelerator`: faster, larger projectiles with added pierce
+
+## Drops
+
+Current live drop types:
+
+- `Health` patch
+- `Shield` cell
+- `Overdrive`
+- `Salvage` burst
+
+Current live effects:
+
+- health patch restores health
+- shield cell restores shield
+- overdrive activates the temporary over-max combat state
+- salvage burst adds a flat salvage chunk and can immediately trigger an armory draft if the threshold is crossed
+
+## Enemy Roster
+
+Current live enemy families:
+
+- `hover`
+- `burst`
+- `tank`
+- `orbiter`
+- `sniper`
+- `bomber`
+- `interceptor`
+- `prismBoss`
+
+### Current enemy identity summary
+
+- `hover`: baseline ranged pressure, lighter body, orb-style fire
+- `burst`: spread / burst pressure, faster read, bolt-style shots
+- `tank`: sturdier anchor unit, heavier bomb-like projectiles
+- `orbiter`: drifting pattern unit, wave-style projectiles and mirrored motion
+- `sniper`: tighter, faster needle shots and more direct threat lines
+- `bomber`: heavier bombardment profile and more punishing projectile clusters
+- `interceptor`: mini-boss / elite anchor with faster attack pacing
+- `prismBoss`: boss anchor with the heaviest health and multi-pattern pressure
+
+### Enemy presentation state
+
+Enemy visuals are no longer basic circles and squares only.
+
+Current presentation improvements:
+
+- hull silhouettes are ship-like rather than raw geometry only
+- enemy aim direction rotates the firing tip / gun direction
+- enemy wing panels, canopy shapes, and hull accents are rendered in Skia
+- enemy projectile styles now vary by family (`orb`, `bolt`, `needle`, `bomb`, `wave`)
 
 ## Encounter Structure
 
-Prototype V2 should keep the endless tier structure but evolve the encounter format.
+### Current live cadence
 
-### Recommended cadence
+- mini-boss encounter every `3` tiers
+- boss encounter every `6` tiers
 
-- every `2-3` tiers: upgrade checkpoint
-- every `5` tiers: boss
-- every `8-10` tiers: environment or enemy-pool shift
-- ongoing: occasional special encounters or mini-bosses
+### Current live encounter anchors
 
-### Example encounter types
+- `Interceptor Sweep`
+  - anchor: `interceptor`
+- `Bombard Wing`
+  - anchor: `bomber`
+- `Prism Core`
+  - anchor: `prismBoss`
 
-- sniper formation
-- swarm carrier rush
-- suppression zone
-- missile volley gauntlet
-- salvage storm
+### Encounter reward behavior
 
-## Boss Direction
+- mini-boss clear awards salvage and ultimate charge
+- boss clear awards more salvage, more ultimate charge, clears enemy bullets, and opens a boss cache draft
+- encounter announcements flash in the arena center rather than taking a fixed HUD row
 
-Bosses should become pattern-driven rather than mostly health-driven.
+## Theme / Visual State
 
-Each boss should have:
+### Arena rendering
 
-- movement identity
-- attack identity
-- phase changes
-- safe windows
-- interaction with support enemies
+The arena board is rendered with Skia.
 
-Bosses should not simply be giant enemies with escorts.
+Current Skia-rendered layers include:
 
-## Technical Direction
+- static background snapshot
+- moving background streaks / plates / atmosphere layers
+- enemy hulls
+- enemy bullets
+- player bullets
+- hit effects
+- ultimate effects
+- overdrive arena treatment
 
-## Separate third mode
+### Theme progression
 
-Prototype V2 should live as its own third game screen rather than replacing the current prototype immediately.
+- arena theme changes every `5` tiers
+- each theme shifts color balance and background atmosphere
+- overdrive adds an additional warm overlay pass on top of the current theme
 
-Recommended app mode list:
+### Screen shake
 
-- `Defender`
-- `Prototype`
-- `Arena Prototype` or `Prototype V2`
+- shake is active during overdrive and ultimates only
+- it is not used as a constant ambient combat effect
 
-### Why
+## Performance / Technical State
 
-- preserves the current prototype for comparison
-- reduces rewrite risk
-- allows tuning V2 without destabilizing the current shooter
+### Simulation architecture
 
-## Suggested file structure
+- fixed-step simulation with bounded catch-up stepping
+- real frame delta is converted into capped substeps
+- this removed the earlier ship movement and enemy jitter issues
+
+### Input architecture
+
+- player input uses `react-native-gesture-handler`
+- ship visual movement uses `react-native-reanimated` shared values
+- the ship movement path is intentionally decoupled from the Skia board render path
+
+### Current performance protections
+
+- effect list is capped
+- render sampling is used for effects and projectile layers
+- dense-effect mode reduces visual complexity when the board is saturated
+- impact bursts are throttled under heavy load
+- fracture fragment effects were recently reduced again for performance (`8` normal, `6` dense)
+
+### Current known performance hotspots
+
+The build is playable, but these are still the most expensive combat situations:
+
+- high-threat screens with maxed `Nova Bloom`
+- maxed `Missile Command` during overdrive
+- dense enemy clustering plus frequent simultaneous hit effects
+- boss overlaps with large projectile counts and active arena effects
+
+## Current File Map
+
+Primary implementation files:
 
 - `/Users/johnchang/Desktop/defender/src/prototype-v2/types.ts`
 - `/Users/johnchang/Desktop/defender/src/prototype-v2/config.ts`
+- `/Users/johnchang/Desktop/defender/src/prototype-v2/builds.ts`
+- `/Users/johnchang/Desktop/defender/src/prototype-v2/upgrades.ts`
 - `/Users/johnchang/Desktop/defender/src/prototype-v2/engine.ts`
+- `/Users/johnchang/Desktop/defender/src/prototype-v2/ArenaCanvas.tsx`
 - `/Users/johnchang/Desktop/defender/src/prototype-v2/ArenaPrototypeScreen.tsx`
 
-Possible future files:
+## Changelog Snapshot
 
-- `/Users/johnchang/Desktop/defender/src/prototype-v2/enemies.ts`
-- `/Users/johnchang/Desktop/defender/src/prototype-v2/upgrades.ts`
-- `/Users/johnchang/Desktop/defender/src/prototype-v2/builds.ts`
-- `/Users/johnchang/Desktop/defender/src/prototype-v2/ultimates.ts`
-- `/Users/johnchang/Desktop/defender/src/prototype-v2/ArenaCanvas.tsx`
+### 2026-04-13
 
-## Renderer direction
+- Advanced arena board label to `v0.38`.
+- Synced Arena V2 behavior around the current four-build model.
+- Fixed `Solar Bloom` so it no longer triggers overdrive as part of the ultimate.
+- Reworked `Missile Command` into a true missile-only ordnance profile with sequential volley timing.
+- Increased missile threat through stronger direct damage, stronger splash, larger silhouettes, and heavier missile art.
+- Reworked `Fracture Core` into slower heavy shots with clearer shard-burst visuals and larger fragment impact radius.
+- Randomized `Cascade Break` fracture-field placement while keeping the effect constrained to the upper arena.
+- Improved overdrive environment treatment with randomized lava-crack placement per activation.
+- Reduced repeated hit-effect pressure by throttling burst effects under dense combat load.
+- Reduced fracture fragment render count again to preserve performance while keeping the burst readable.
 
-Recommended long-term split:
+### 2026-04-11 to 2026-04-12
 
-- React Native:
-  - shell UI
-  - menus
-  - modal flows
-  - HUD
-- Skia:
-  - playfield
-  - enemies
-  - player projectiles
-  - enemy projectiles
-  - telegraphs
-  - VFX
+- Stabilized portrait-mode ship input and removed the major first-tap / teleport movement issues.
+- Removed enemy sideways/upward shake by cleaning up motion interpolation and simulation cadence.
+- Added build switching, build-specific ultimates, and stronger build identity in live combat.
+- Added enemy ship silhouettes, family-specific projectile styles, and a stronger Skia VFX pass.
+- Added mini-boss and boss encounter structure with center-board encounter callouts.
+- Added theme cycling, overdrive color treatment, and stronger arena atmosphere.
+- Refined HUD layout to keep the arena as the visual focus.
 
-### Current implementation stance
+## What Is Still Missing
 
-It is acceptable to start the skeleton without a full Skia migration, but V2 makes Skia more valuable than before because:
+These are the major areas that still remain after the current polish pass.
 
-- enemy bullets add another dense projectile layer
-- enemy movement adds more simultaneous motion
-- telegraphs and hit effects matter more
-- the prototype needs room to grow visually
+### Content expansion
 
-## Monetization Direction
+- more enemy families with clearly different jobs
+- more encounter scripts beyond the current anchor-cycle structure
+- additional boss pattern phases and support-enemy interactions
 
-Monetization should not sell direct combat advantage.
+### Progression expansion
 
-### Strong candidates
+- codex / enemy log / build reference outside the run
+- long-term mastery or unlock structure across runs
+- more premium-feeling armory picks beyond the current base set
 
-- ship skins
-- projectile/trail skins
-- ultimate VFX skins
-- arena/biome themes
-- UI themes
-- music packs
-- cosmetic bundles
-- seasonal cosmetic track
+### Retention / presentation
 
-### Acceptable but sensitive
+- more arena biomes and environment-specific visual language
+- more audio layering and event-specific sound design
+- cosmetic surface area for later monetization
 
-- alternate starting ships as balanced sidegrades
+## Current Next Step Recommendation
 
-### Avoid
+The immediate next step should be content expansion, not another major systems rewrite.
 
-- premium guns with higher stats
-- paid permanent combat power
-- paywalled progression strength
+Recommended order:
 
-## Development Roadmap
-
-### Phase 1: Combat Skeleton (`Complete`)
-
-- separate third game screen
-- player HP and shield
-- enemy bullets
-- top-half enemy movement boundary
-- `2-3` basic enemy archetypes
-- lose condition based on health
-
-### Phase 2: Hybrid Progression (`Complete`)
-
-- salvage/resource loop
-- armory draft system
-- keep tactical field drops
-- boss reward flow
-
-### Phase 3: Build Conversion (`In Polish Pass`)
-
-- adapt the 4 builds to the arena model
-- build-specific ultimates
-- improve special-fire readability
-- improve build-specific passive readability and damage-loop differentiation
-- tune armory upgrades so picks change combat feel immediately
-- finalize build-specific projectile language (shape, impact, VFX timing)
-
-### Phase 4: Content Expansion (`Next Major`)
-
-- more enemy families
-- mini-bosses
-- biome/theme changes
-- more encounter types
-- encounter scripting variants (rush, artillery lock, shield convoy, split-lane pressure)
-
-### Phase 5: Retention (`Planned`)
-
-- codex
-- mastery
-- unlock tracks
-- milestone rewards
-
-### Phase 6: Monetization (`Planned`)
-
-- cosmetics
-- themes
-- VFX packs
-- premium cosmetic bundles
-
-## Initial Implementation Goal
-
-The first playable V2 slice should prove the new combat model, not the full progression system.
-
-That means the first version should include:
-
-- player movement
-- player health/shield
-- enemy movement in the upper half
-- enemy bullets
-- player bullets
-- a small enemy cap
-- a simple start/pause/restart loop
-- enough UI to read the game state
-
-It does not need full armory drafts, mastery, or monetization systems yet.
-
-## Current Next Step
-
-The immediate next step is to close Phase 3 polish and transition into Phase 4 content expansion.
-
-Execution order:
-
-1. Lock final Phase 3 tuning targets:
-   - build-specific combat identity deltas are obvious within a single run
-   - each armory pick has visible output within `5-10s`
-   - projectile and impact readability is stable at high threat density
-2. Start Phase 4 enemy/encounter rollout:
-   - add `2` enemy families with distinct movement/fire jobs
-   - add at least `2` new encounter scripts beyond current mini-boss/boss cadence
-   - attach one additional arena theme/biome transition to pressure tiers
-3. Rebalance pressure pacing around the new content:
-   - preserve readability while increasing run variety and replay value.
+1. Add more encounter scripts and at least `2` more enemy jobs.
+2. Expand boss behavior so bosses are more pattern-driven than health-driven.
+3. Add one deeper progression layer outside the current run loop:
+   - codex
+   - mastery
+   - unlock track
+4. Continue targeted performance passes only where live playtesting shows saturation.

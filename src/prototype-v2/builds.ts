@@ -23,7 +23,7 @@ export const ARENA_BUILD_META: Record<
     label: 'Rail Focus',
     shortLabel: 'Rail',
     accent: '#9BCBFF',
-    summary: 'Precision profile. Heavy single-shot pressure with high pierce.',
+    summary: 'Precision profile. Tight, high-pierce pressure for elites and bosses.',
     description:
       'Concentrates power into tight, high-pierce lances that punish elites and bosses. Lower spread, stronger direct impact, and cleaner long-lane control.',
     ultimateLabel: 'Rail Surge',
@@ -34,33 +34,33 @@ export const ARENA_BUILD_META: Record<
     label: 'Nova Bloom',
     shortLabel: 'Nova',
     accent: '#FFB8D9',
-    summary: 'Spread profile. Fast volley pressure with burn stacking.',
+    summary: 'Spread profile. Wide fan pressure built for crowd control.',
     description:
-      'Accelerates primary fire into a broad spread that continuously layers burn damage. Excellent for crowd control and area denial against dense waves.',
+      'Pushes the primary guns into a wide bloom pattern that covers lanes and chews through clustered enemies. Best when pressure comes from density rather than a single elite target.',
     ultimateLabel: 'Solar Bloom',
     ultimateDescription:
-      'Unleashes a wide solar sweep, overdrives the ship, and applies heavy lingering burn across the field.',
+      'Unleashes a wide solar sweep that slams the whole field without triggering overdrive.',
   },
   missileCommand: {
     label: 'Missile Command',
     shortLabel: 'Missile',
     accent: '#FFD097',
-    summary: 'Ordnance profile. Primary fire plus auto-homing missile pressure.',
+    summary: 'Ordnance profile. Sequential homing volleys with strong splash.',
     description:
-      'Pairs core gunfire with autonomous homing missiles and splash impact. Best for tracking evasive targets and stabilizing multi-lane pressure.',
+      'Drops the standard gun loop and fires homing missiles one at a time inside each volley window. Built for off-axis pressure, splash damage, and chasing evasive targets.',
     ultimateLabel: 'Missile Barrage',
     ultimateDescription:
-      'Launches a synchronized barrage pattern with repeated strike lanes and high splash pressure.',
+      'Launches repeated strike volleys and layered lane barrages for heavy ordnance pressure.',
   },
   fractureCore: {
     label: 'Fracture Core',
     shortLabel: 'Fracture',
     accent: '#B9D5FF',
-    summary: 'Fragment profile. Impact shatter chains into shard bursts.',
+    summary: 'Fragment profile. Heavy impacts split into shard bursts.',
     description:
-      'Converts impacts into fragmentation chains that split into secondary shard hits. Excels when enemies cluster and chip damage can cascade.',
+      'Fires slower, heavier core shots that crack apart on impact and throw damaging fragments through clustered enemies. Best when targets overlap and shatter damage can chain.',
     ultimateLabel: 'Cascade Break',
     ultimateDescription:
-      'Triggers field-wide shatter pulses that erupt into fragment storms across multiple enemy groups.',
+      'Detonates randomized fracture fields across the upper arena and erupts into chained shard storms.',
   },
 };

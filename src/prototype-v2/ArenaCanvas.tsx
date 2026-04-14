@@ -1285,7 +1285,7 @@ export function ArenaCanvas({ boardWidth, boardHeight, state, vfxQuality }: Aren
         }
 
         if (effect.kind === 'fractureBits') {
-          const shardCount = denseEffectMode ? 6 : 8;
+          const shardCount = 3;
           const seedBase = (effect.angle ?? 0) + effect.x * 0.012 + effect.y * 0.009;
           return (
             <Group key={effect.id} opacity={opacity}>

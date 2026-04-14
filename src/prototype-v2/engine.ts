@@ -325,7 +325,7 @@ export function getArenaActiveWeapon(state: ArenaGameState): ArenaWeapon {
       nextWeapon = {
         ...nextWeapon,
         damage: Math.round(nextWeapon.damage * 1.64),
-        fireInterval: Math.max(0.48, nextWeapon.fireInterval * 3.08),
+        fireInterval: Math.max(0.44, nextWeapon.fireInterval * 2.9),
         shotCount: Math.min(3, Math.max(1, nextWeapon.shotCount)),
         pierce: Math.min(4, nextWeapon.pierce + 1),
         bulletSpeed: Math.min(1500, nextWeapon.bulletSpeed + 20),
