@@ -1,7 +1,7 @@
 # Prototype V2 Reference
 
 Snapshot date: `2026-04-13`
-Board version: `v0.38`
+Board version: `v0.39`
 
 This document is the current reference for the arena-combat shooter in `/Users/johnchang/Desktop/defender/src/prototype-v2`. It replaces the earlier planning-heavy draft with a snapshot of what is actually implemented today, plus the next major gaps.
 
@@ -52,6 +52,7 @@ Top-level HUD currently shows:
 - health bar with current / max
 - shield bar with current / max
 - salvage bar with current / next draft requirement
+- armory button with available upgrade count / ready glow
 - ultimate charge button / ready state
 
 Other UI behavior:
@@ -60,6 +61,7 @@ Other UI behavior:
 - encounter announcements flash over the arena center
 - enemy health numbers are rendered as floating labels over enemies
 - drop labels are rendered under field pickups
+- the armory is opened manually from an in-arena button instead of auto-opening on threshold hit
 - the in-game menu allows game switching, build switching, and restart
 
 ## Current Combat Rules
@@ -190,7 +192,7 @@ Current behavior:
 
 - pickup type: `Overdrive`
 - duration: `6s`
-- temporarily over-maxes the active build’s stats
+- temporarily boosts the active build’s stats to `1` level above their normal caps
 - adds stronger screen shake and a warm arena overlay
 - adds lava-crack / neon-crack background styling during the effect
 
@@ -212,12 +214,14 @@ Current visual behavior:
 
 - the first draft threshold starts at `120`
 - each next standard draft increases by `80`
-- when salvage reaches the threshold, the game opens an armory modal and pauses
+- when salvage reaches the threshold, the run banks an available armory upgrade instead of interrupting the fight
+- the armory button lights up when one or more upgrades are available
+- multiple armory upgrades can queue if the player keeps collecting salvage before opening the armory
 
 ### Boss cache drafts
 
-- boss clears award a free premium-style armory choice
-- boss cache selection also pauses the run
+- boss clears add a free armory upgrade to the same available-upgrade queue
+- boss rewards no longer force an immediate armory pause
 
 ### Current armory upgrade set
 
@@ -395,7 +399,7 @@ Primary implementation files:
 
 ### 2026-04-13
 
-- Advanced arena board label to `v0.38`.
+- Advanced arena board label to `v0.39`.
 - Synced Arena V2 behavior around the current four-build model.
 - Fixed `Solar Bloom` so it no longer triggers overdrive as part of the ultimate.
 - Reworked `Missile Command` into a true missile-only ordnance profile with sequential volley timing.
@@ -403,6 +407,8 @@ Primary implementation files:
 - Reworked `Fracture Core` into slower heavy shots with clearer shard-burst visuals and larger fragment impact radius.
 - Randomized `Cascade Break` fracture-field placement while keeping the effect constrained to the upper arena.
 - Improved overdrive environment treatment with randomized lava-crack placement per activation.
+- Increased `Fracture Core` overdrive cadence so the fire-rate boost now reads clearly in play.
+- Reworked armory flow so upgrade choices queue on the armory button instead of interrupting combat immediately.
 - Reduced repeated hit-effect pressure by throttling burst effects under dense combat load.
 - Reduced fracture fragment render count again to preserve performance while keeping the burst readable.
 
@@ -438,6 +444,18 @@ These are the major areas that still remain after the current polish pass.
 - more audio layering and event-specific sound design
 - cosmetic surface area for later monetization
 
+### Monetization direction
+
+- monetization should stay strictly non-pay-to-win
+- no paid combat power, stronger builds, stat boosts, better drops, or armory advantages
+- focus monetization on cosmetics and presentation instead:
+  - ship skins / hull variants
+  - projectile, impact, overdrive, and ultimate VFX skins
+  - arena biome themes / visual packs
+  - profile, banner, badge, or codex cosmetics
+  - season-pass style cosmetic reward tracks
+- the full gameplay power curve should remain earnable through normal play
+
 ## Current Next Step Recommendation
 
 The immediate next step should be content expansion, not another major systems rewrite.
@@ -450,4 +468,5 @@ Recommended order:
    - codex
    - mastery
    - unlock track
-4. Continue targeted performance passes only where live playtesting shows saturation.
+4. Define the first non-pay-to-win monetization layer around cosmetics, presentation, and optional reward-track content.
+5. Continue targeted performance passes only where live playtesting shows saturation.

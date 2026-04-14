@@ -144,6 +144,7 @@ export type ArenaGameState = {
   score: number;
   salvage: number;
   nextArmoryCost: number;
+  availableArmoryChoices: number;
   activeBuild: ArenaBuildId;
   playerX: number;
   hull: number;
@@ -182,5 +183,4 @@ export type ArenaGameState = {
   encounterAnnouncement: string | null;
   encounterAnnouncementColor: string | null;
   encounterAnnouncementTimer: number;
-  pendingArmoryChoice: ArenaArmoryChoice | null;
 };

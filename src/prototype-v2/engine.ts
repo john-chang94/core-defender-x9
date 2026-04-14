@@ -31,8 +31,6 @@ import type {
 } from './types';
 import {
   ARENA_ARMORY_UPGRADES,
-  createArenaArmoryChoice,
-  createArenaBossArmoryChoice,
   isArenaArmoryUpgradeMaxed,
 } from './upgrades';
 
@@ -202,6 +200,10 @@ function addUltimateCharge(state: ArenaGameState, amount: number) {
   state.ultimateCharge = Math.min(ARENA_MAX_ULTIMATE_CHARGE, state.ultimateCharge + amount);
 }
 
+function getArmoryReadyMessage(availableChoices: number) {
+  return availableChoices > 1 ? `Armory x${availableChoices} ready` : 'Armory install ready';
+}
+
 function buildUltimateColumns(enemies: ArenaEnemy[], boardWidth: number) {
   const fallbackColumns = [0.16, 0.34, 0.5, 0.66, 0.84].map((ratio) => boardWidth * ratio);
   const priorityColumns = enemies
@@ -337,7 +339,7 @@ export function getArenaActiveWeapon(state: ArenaGameState): ArenaWeapon {
 
   if (overdriveActive) {
     const projectileCap = getBuildProjectileCap(state.activeBuild, true);
-    const overdriveFireMultiplier = state.activeBuild === 'fractureCore' ? 0.9 : 0.74;
+    const overdriveFireMultiplier = state.activeBuild === 'fractureCore' ? 0.72 : 0.74;
     const overdriveFireFloor = state.activeBuild === 'fractureCore' ? 0.26 : 0.065;
     const overdriveBulletSizeCap = state.activeBuild === 'fractureCore' ? 26.5 : 14.2;
     nextWeapon = {
@@ -1176,27 +1178,20 @@ function maybeSpawnEnemyDrop(state: ArenaGameState, enemy: ArenaEnemy) {
   createDrop(state, enemy.x, enemy.y, type);
 }
 
-function maybeQueueArmoryChoice(state: ArenaGameState) {
-  if (state.pendingArmoryChoice || state.salvage < state.nextArmoryCost) {
-    return;
+function awardAffordableArmoryChoices(state: ArenaGameState) {
+  let grantedChoices = 0;
+  while (state.salvage >= state.nextArmoryCost) {
+    state.salvage -= state.nextArmoryCost;
+    state.nextArmoryCost += 80;
+    state.availableArmoryChoices += 1;
+    grantedChoices += 1;
   }
-
-  const cost = state.nextArmoryCost;
-  state.salvage -= cost;
-  state.nextArmoryCost += 80;
-  state.pendingArmoryChoice = createArenaArmoryChoice(cost);
-  state.pickupMessage = 'Armory draft ready';
-  state.pickupTimer = 1.6;
+  return grantedChoices;
 }
 
-function queueBossRewardChoice(state: ArenaGameState) {
-  if (state.pendingArmoryChoice) {
-    return;
-  }
-
-  state.pendingArmoryChoice = createArenaBossArmoryChoice();
-  state.pickupMessage = 'Boss cache recovered';
-  state.pickupTimer = 1.9;
+function awardBossArmoryChoice(state: ArenaGameState) {
+  state.availableArmoryChoices += 1;
+  return 1;
 }
 
 function applyDamageToEnemy(
@@ -1262,7 +1257,11 @@ function applyDamageToEnemy(
   }
 
   if (options?.allowDrafts && !state.activeEncounter) {
-    maybeQueueArmoryChoice(state);
+    const grantedChoices = awardAffordableArmoryChoices(state);
+    if (grantedChoices > 0) {
+      state.pickupMessage = getArmoryReadyMessage(state.availableArmoryChoices);
+      state.pickupTimer = 1.6;
+    }
   }
 }
 
@@ -1539,6 +1538,7 @@ export function createInitialArenaState(boardWidth: number): ArenaGameState {
     score: 0,
     salvage: 0,
     nextArmoryCost: 120,
+    availableArmoryChoices: 0,
     activeBuild: ARENA_BUILD_DEFAULT,
     playerX: boardWidth / 2,
     hull: 100,
@@ -1577,7 +1577,6 @@ export function createInitialArenaState(boardWidth: number): ArenaGameState {
     encounterAnnouncement: 'Arena live',
     encounterAnnouncementColor: '#8BCBFF',
     encounterAnnouncementTimer: 1.5,
-    pendingArmoryChoice: null,
   };
 }
 
@@ -1760,7 +1759,7 @@ export function applyArenaArmoryUpgrade(
   previousState: ArenaGameState,
   key: ArenaArmoryUpgradeKey
 ): ArenaGameState {
-  if (isArenaArmoryUpgradeMaxed(key, previousState.weapon)) {
+  if (previousState.availableArmoryChoices <= 0 || isArenaArmoryUpgradeMaxed(key, previousState.weapon)) {
     return previousState;
   }
 
@@ -1768,6 +1767,11 @@ export function applyArenaArmoryUpgrade(
   const hullBonus = definition.applyMeta?.hullBonus ?? 0;
   const shieldBonus = definition.applyMeta?.shieldBonus ?? 0;
   const nextWeapon = definition.apply(previousState.weapon);
+  const remainingChoices = Math.max(0, previousState.availableArmoryChoices - 1);
+  const nextMissileState = {
+    ...previousState,
+    weapon: nextWeapon,
+  };
 
   return {
     ...previousState,
@@ -1776,9 +1780,19 @@ export function applyArenaArmoryUpgrade(
     hull: Math.min(previousState.maxHull + hullBonus, previousState.hull + hullBonus),
     maxShield: previousState.maxShield + shieldBonus,
     shield: Math.min(previousState.maxShield + shieldBonus, previousState.shield + shieldBonus),
-    fireCooldown: Math.min(previousState.fireCooldown, nextWeapon.fireInterval),
-    pendingArmoryChoice: null,
-    pickupMessage: `${definition.label} installed`,
+    availableArmoryChoices: remainingChoices,
+    fireCooldown:
+      previousState.activeBuild === 'missileCommand'
+        ? previousState.fireCooldown
+        : Math.min(previousState.fireCooldown, nextWeapon.fireInterval),
+    missileCooldown:
+      previousState.activeBuild === 'missileCommand'
+        ? Math.min(previousState.missileCooldown, getMissileIntervalSeconds(nextMissileState))
+        : previousState.missileCooldown,
+    pickupMessage:
+      remainingChoices > 0
+        ? `${definition.label} installed. ${getArmoryReadyMessage(remainingChoices)}`
+        : `${definition.label} installed`,
     pickupTimer: 2,
   };
 }
@@ -2330,13 +2344,17 @@ export function tickArenaState(
         nextState.pickupMessage = 'Shield cell absorbed';
       } else if (drop.type === 'overdrive') {
         nextState.overclockTimer = Math.max(nextState.overclockTimer, 6);
+        if (nextState.activeBuild === 'missileCommand') {
+          nextState.missileCooldown = Math.min(nextState.missileCooldown, getMissileIntervalSeconds(nextState));
+        } else {
+          nextState.fireCooldown = Math.min(nextState.fireCooldown, getArenaActiveWeapon(nextState).fireInterval);
+        }
         nextState.pickupMessage = 'Overdrive engaged';
       } else {
         nextState.salvage += 55;
-        nextState.pickupMessage = 'Salvage burst secured';
-        if (!nextState.activeEncounter) {
-          maybeQueueArmoryChoice(nextState);
-        }
+        const grantedChoices = !nextState.activeEncounter ? awardAffordableArmoryChoices(nextState) : 0;
+        nextState.pickupMessage =
+          grantedChoices > 0 ? getArmoryReadyMessage(nextState.availableArmoryChoices) : 'Salvage burst secured';
       }
       nextState.pickupTimer = 1.6;
       queueEffect(nextState, 'pickup', drop.x, drop.y, drop.size * 1.1, drop.color, {
@@ -2358,16 +2376,24 @@ export function tickArenaState(
       nextState.activeEncounter = null;
       nextState.salvage += completedEncounter.rewardSalvage;
       addUltimateCharge(nextState, completedEncounter.type === 'boss' ? 30 : 16);
+      const salvageChoicesGranted = awardAffordableArmoryChoices(nextState);
+      let bonusChoicesGranted = 0;
       if (completedEncounter.type === 'boss') {
         nextState.enemyBullets = [];
-        queueBossRewardChoice(nextState);
-      } else {
-        maybeQueueArmoryChoice(nextState);
+        bonusChoicesGranted = awardBossArmoryChoice(nextState);
       }
+      const armoryReadyMessage =
+        salvageChoicesGranted + bonusChoicesGranted > 0
+          ? getArmoryReadyMessage(nextState.availableArmoryChoices)
+          : null;
       nextState.pickupMessage =
         completedEncounter.type === 'boss'
-          ? `${completedEncounter.label} cache unlocked`
-          : `${completedEncounter.label} cleared`;
+          ? armoryReadyMessage
+            ? `${completedEncounter.label} cache secured. ${armoryReadyMessage}`
+            : `${completedEncounter.label} cache secured`
+          : armoryReadyMessage
+            ? `${completedEncounter.label} cleared. ${armoryReadyMessage}`
+            : `${completedEncounter.label} cleared`;
       nextState.pickupTimer = 1.9;
       queueEncounterAnnouncement(
         nextState,

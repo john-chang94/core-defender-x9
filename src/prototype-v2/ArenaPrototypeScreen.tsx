@@ -110,10 +110,11 @@ export function ArenaPrototypeScreen({ onSwitchGame }: ArenaPrototypeScreenProps
   const [hasStarted, setHasStarted] = useState(false);
   const [isPaused, setIsPaused] = useState(true);
   const [isMenuOpen, setIsMenuOpen] = useState(false);
+  const [isArmoryOpen, setIsArmoryOpen] = useState(false);
   const [vfxQuality, setVfxQuality] = useState<ArenaVfxQuality>('high');
   const hasInitializedBoardRef = useRef(false);
+  const armoryResumeOnCloseRef = useRef(false);
   const playerVisualX = useSharedValue(900 / 2);
-  const isArmoryOpen = gameState.pendingArmoryChoice !== null;
   const playerShellAnimatedStyle = useAnimatedStyle(() => ({
     transform: [{ translateX: playerVisualX.value - ARENA_PLAYER_RENDER_HALF_WIDTH }],
   }));
@@ -217,15 +218,10 @@ export function ArenaPrototypeScreen({ onSwitchGame }: ArenaPrototypeScreenProps
   useEffect(() => {
     if (gameState.status === 'lost') {
       setIsPaused(true);
+      setIsArmoryOpen(false);
+      armoryResumeOnCloseRef.current = false;
     }
   }, [gameState.status]);
-
-  useEffect(() => {
-    if (isArmoryOpen && hasStarted && gameState.status === 'running') {
-      setIsPaused(true);
-      setIsMenuOpen(false);
-    }
-  }, [gameState.pendingArmoryChoice, gameState.status, hasStarted, isArmoryOpen]);
 
   const displayTier = getArenaDisplayTier(gameState.elapsed);
   const activeEnemyCap = getArenaActiveEnemyCap(displayTier);
@@ -237,6 +233,11 @@ export function ArenaPrototypeScreen({ onSwitchGame }: ArenaPrototypeScreenProps
   const activeEncounterAnchor = gameState.activeEncounter
     ? gameState.enemies.find((enemy) => enemy.kind === gameState.activeEncounter?.anchorKind) ?? null
     : null;
+  const hasArmoryChoices = gameState.availableArmoryChoices > 0;
+  const armoryAvailabilityLabel =
+    gameState.availableArmoryChoices === 1
+      ? '1 upgrade available'
+      : `${gameState.availableArmoryChoices} upgrades available`;
   const healthProgress = clamp(gameState.hull / Math.max(1, gameState.maxHull), 0, 1);
   const shieldProgress = clamp(gameState.shield / Math.max(1, gameState.maxShield), 0, 1);
   const salvageProgress = clamp(gameState.salvage / Math.max(1, gameState.nextArmoryCost), 0, 1);
@@ -256,11 +257,16 @@ export function ArenaPrototypeScreen({ onSwitchGame }: ArenaPrototypeScreenProps
   const encounterAnnouncementOpacity = hasEncounterAnnouncement
     ? Math.sin(Math.min(1, encounterAnnouncementProgress) * Math.PI)
     : 0;
+  const sideControlTop =
+    boardSize.height > 0
+      ? clamp(boardSize.height * 0.75 - 34, 72, Math.max(72, boardSize.height - 112))
+      : 72;
+  const armoryReadyPulse = hasArmoryChoices ? 0.5 + Math.sin(gameState.elapsed * 4.2) * 0.5 : 0;
   const statusText =
     !hasStarted
       ? 'Press Start to deploy the arena test.'
       : isArmoryOpen
-        ? 'Armory draft ready.'
+        ? `Armory open. ${armoryAvailabilityLabel}.`
       : isMenuOpen
         ? 'Menu open. Simulation paused.'
       : gameState.status === 'lost'
@@ -275,10 +281,7 @@ export function ArenaPrototypeScreen({ onSwitchGame }: ArenaPrototypeScreenProps
                 : gameState.overclockTimer > 0
                   ? `${activeBuildMeta.shortLabel} Overdrive ${gameState.overclockTimer.toFixed(1)}s. Threat ${gameState.enemies.length}/${activeEnemyCap}`
                   : `${activeBuildMeta.shortLabel} Build online. Threat ${gameState.enemies.length}/${activeEnemyCap}`);
-  const armorySubtitle =
-    gameState.pendingArmoryChoice?.source === 'boss'
-      ? 'Boss cache unlocked. Pick one premium install.'
-      : `Salvage spent ${gameState.pendingArmoryChoice?.cost}. Next draft ${gameState.nextArmoryCost}.`;
+  const armorySubtitle = `${armoryAvailabilityLabel}. Next standard unlock ${gameState.nextArmoryCost} salvage.`;
   const armoryUpgrades = ARENA_ARMORY_UPGRADE_ORDER.map((key) => {
     const definition = ARENA_ARMORY_UPGRADES[key];
     const isMaxed = isArenaArmoryUpgradeMaxed(key, gameState.weapon);
@@ -322,6 +325,25 @@ export function ArenaPrototypeScreen({ onSwitchGame }: ArenaPrototypeScreenProps
     }
   };
 
+  const closeArmoryPanel = () => {
+    setIsArmoryOpen(false);
+    const shouldResume = armoryResumeOnCloseRef.current && hasStarted && gameState.status === 'running';
+    armoryResumeOnCloseRef.current = false;
+    if (shouldResume) {
+      setIsPaused(false);
+    }
+  };
+
+  const handleOpenArmory = () => {
+    if (!hasStarted || gameState.status !== 'running' || isMenuOpen || !hasArmoryChoices) {
+      return;
+    }
+    armoryResumeOnCloseRef.current = !isPaused;
+    setIsPaused(true);
+    setIsMenuOpen(false);
+    setIsArmoryOpen(true);
+  };
+
   const handleRestart = () => {
     if (boardSize.width <= 0) {
       return;
@@ -332,6 +354,8 @@ export function ArenaPrototypeScreen({ onSwitchGame }: ArenaPrototypeScreenProps
     setHasStarted(false);
     setIsPaused(true);
     setIsMenuOpen(false);
+    setIsArmoryOpen(false);
+    armoryResumeOnCloseRef.current = false;
   };
 
   const handleSelectBuild = (buildId: ArenaBuildId) => {
@@ -339,27 +363,31 @@ export function ArenaPrototypeScreen({ onSwitchGame }: ArenaPrototypeScreenProps
   };
 
   const handleSelectArmoryUpgrade = (key: keyof typeof ARENA_ARMORY_UPGRADES) => {
-    if (!gameState.pendingArmoryChoice) {
+    if (!hasArmoryChoices) {
       return;
     }
     if (isArenaArmoryUpgradeMaxed(key, gameState.weapon)) {
       return;
     }
 
+    const shouldCloseAfterInstall = gameState.availableArmoryChoices <= 1;
+
     setGameState((previousState) => {
-      if (!previousState.pendingArmoryChoice) {
+      if (previousState.availableArmoryChoices <= 0) {
         return previousState;
       }
       return applyArenaArmoryUpgrade(previousState, key);
     });
 
-    if (hasStarted && gameState.status === 'running') {
+    if (shouldCloseAfterInstall) {
       requestAnimationFrame(() => {
-        setIsPaused(false);
+        closeArmoryPanel();
       });
     }
   };
   const hullRatio = gameState.hull / gameState.maxHull;
+  const armoryButtonDisabled = !hasStarted || gameState.status !== 'running' || isMenuOpen || isArmoryOpen || !hasArmoryChoices;
+  const ultimateButtonDisabled = isPaused || isArmoryOpen || isMenuOpen || gameState.status !== 'running';
   const handleActivateUltimate = () => {
     if (
       boardSize.width <= 0 ||
@@ -584,11 +612,48 @@ export function ArenaPrototypeScreen({ onSwitchGame }: ArenaPrototypeScreenProps
           ))}
 
           <Pressable
-            onPress={handleActivateUltimate}
+            onPress={handleOpenArmory}
+            disabled={armoryButtonDisabled}
             style={[
+              arenaStyles.sideControlButton,
+              arenaStyles.sideControlButtonLeft,
+              hasArmoryChoices && arenaStyles.armoryButtonReady,
+              armoryButtonDisabled && arenaStyles.sideControlButtonDisabled,
+              {
+                top: sideControlTop,
+                borderColor: hasArmoryChoices
+                  ? hexToRgba('#D7EDFF', 0.42 + armoryReadyPulse * 0.22)
+                  : '#385673',
+                backgroundColor: hasArmoryChoices
+                  ? hexToRgba('#173654', 0.84 + armoryReadyPulse * 0.1)
+                  : 'rgba(10, 20, 30, 0.9)',
+              },
+            ]}>
+            <View
+              pointerEvents="none"
+              style={[
+                arenaStyles.armoryButtonGlow,
+                {
+                  opacity: hasArmoryChoices ? 0.16 + armoryReadyPulse * 0.2 : 0,
+                },
+              ]}
+            />
+            <Text style={arenaStyles.armoryButtonLabel}>ARMORY</Text>
+            <Text style={[arenaStyles.armoryButtonValue, hasArmoryChoices && arenaStyles.armoryButtonValueReady]}>
+              {hasArmoryChoices ? `x${gameState.availableArmoryChoices}` : '0'}
+            </Text>
+          </Pressable>
+
+          <Pressable
+            onPress={handleActivateUltimate}
+            disabled={ultimateButtonDisabled}
+            style={[
+              arenaStyles.sideControlButton,
+              arenaStyles.sideControlButtonRight,
               arenaStyles.ultimateButton,
               ultimateReady && arenaStyles.ultimateButtonReady,
-              (isPaused || isArmoryOpen || isMenuOpen || gameState.status !== 'running') && arenaStyles.ultimateButtonDisabled,
+              ultimateButtonDisabled && arenaStyles.sideControlButtonDisabled,
+              { top: sideControlTop },
             ]}>
             <View style={arenaStyles.ultimateButtonMeter}>
               <View style={[arenaStyles.ultimateButtonFill, { width: `${ultimateChargeProgress * 100}%` }]} />
@@ -601,9 +666,21 @@ export function ArenaPrototypeScreen({ onSwitchGame }: ArenaPrototypeScreenProps
         {isArmoryOpen ? (
           <View style={arenaStyles.armoryOverlay}>
             <View style={arenaStyles.armoryPanel}>
-              <Text style={arenaStyles.armoryTitle}>{gameState.pendingArmoryChoice?.title}</Text>
-              <Text style={arenaStyles.armorySubtitle}>{armorySubtitle}</Text>
-              <Text style={arenaStyles.armoryPrompt}>{gameState.pendingArmoryChoice?.prompt}</Text>
+              <View style={arenaStyles.armoryHeaderRow}>
+                <View style={arenaStyles.armoryHeaderCopy}>
+                  <Text style={arenaStyles.armoryTitle}>Armory</Text>
+                  <Text style={arenaStyles.armorySubtitle}>{armorySubtitle}</Text>
+                </View>
+                <Pressable onPress={closeArmoryPanel} style={arenaStyles.armoryCloseButton}>
+                  <Text style={arenaStyles.armoryCloseButtonText}>Close</Text>
+                </Pressable>
+              </View>
+              <Text style={arenaStyles.armoryPrompt}>
+                Pick one permanent install. Remaining upgrades stay banked until you open the armory again.
+              </Text>
+              <View style={arenaStyles.armoryCountChip}>
+                <Text style={arenaStyles.armoryCountChipText}>{armoryAvailabilityLabel}</Text>
+              </View>
 
               <ScrollView style={arenaStyles.armoryOptionsScroll} contentContainerStyle={arenaStyles.armoryOptions}>
                 {armoryUpgrades.map(({ key, definition, isMaxed }) => (
@@ -1372,6 +1449,16 @@ const arenaStyles = StyleSheet.create({
     paddingVertical: 14,
     gap: 8,
   },
+  armoryHeaderRow: {
+    flexDirection: 'row',
+    alignItems: 'flex-start',
+    justifyContent: 'space-between',
+    gap: 10,
+  },
+  armoryHeaderCopy: {
+    flex: 1,
+    gap: 4,
+  },
   armoryTitle: {
     color: '#F5FAFF',
     fontSize: 17,
@@ -1386,6 +1473,34 @@ const arenaStyles = StyleSheet.create({
     color: '#B9CCDF',
     fontSize: 11.5,
     lineHeight: 16,
+  },
+  armoryCloseButton: {
+    borderRadius: 9,
+    borderWidth: 1,
+    borderColor: '#36526F',
+    backgroundColor: '#122133',
+    paddingHorizontal: 10,
+    paddingVertical: 7,
+  },
+  armoryCloseButtonText: {
+    color: '#E8F2FF',
+    fontSize: 11,
+    fontWeight: '800',
+  },
+  armoryCountChip: {
+    alignSelf: 'flex-start',
+    borderRadius: 999,
+    borderWidth: 1,
+    borderColor: '#4B6B8A',
+    backgroundColor: '#102233',
+    paddingHorizontal: 10,
+    paddingVertical: 5,
+  },
+  armoryCountChipText: {
+    color: '#D9ECFF',
+    fontSize: 10.5,
+    fontWeight: '800',
+    textTransform: 'uppercase',
   },
   armoryOptionsScroll: {
     maxHeight: 360,
@@ -1614,11 +1729,10 @@ const arenaStyles = StyleSheet.create({
     fontSize: 13,
     lineHeight: 19,
   },
-  ultimateButton: {
+  sideControlButton: {
     position: 'absolute',
-    right: 14,
-    bottom: 16,
     width: 72,
+    minHeight: 60,
     borderRadius: 14,
     borderWidth: 1,
     borderColor: '#385673',
@@ -1626,14 +1740,50 @@ const arenaStyles = StyleSheet.create({
     paddingHorizontal: 10,
     paddingVertical: 8,
     alignItems: 'center',
+    justifyContent: 'center',
     overflow: 'hidden',
+    zIndex: 6,
+  },
+  sideControlButtonLeft: {
+    left: 14,
+  },
+  sideControlButtonRight: {
+    right: 14,
+  },
+  sideControlButtonDisabled: {
+    opacity: 0.74,
+  },
+  armoryButtonReady: {
+    shadowColor: '#96D2FF',
+    shadowOffset: { width: 0, height: 0 },
+    shadowOpacity: 0.22,
+    shadowRadius: 10,
+  },
+  armoryButtonGlow: {
+    ...StyleSheet.absoluteFillObject,
+    backgroundColor: '#8BCBFF',
+  },
+  armoryButtonLabel: {
+    color: '#EAF5FF',
+    fontSize: 10,
+    fontWeight: '900',
+    letterSpacing: 0.6,
+  },
+  armoryButtonValue: {
+    marginTop: 2,
+    color: '#96B5D6',
+    fontSize: 14,
+    fontWeight: '900',
+  },
+  armoryButtonValueReady: {
+    color: '#F2FAFF',
+  },
+  ultimateButton: {
+    justifyContent: 'center',
   },
   ultimateButtonReady: {
     borderColor: '#FFE2A8',
     backgroundColor: 'rgba(56, 40, 14, 0.94)',
-  },
-  ultimateButtonDisabled: {
-    opacity: 0.78,
   },
   ultimateButtonMeter: {
     position: 'absolute',
