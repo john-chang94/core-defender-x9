@@ -8,6 +8,7 @@ import {
   ARENA_FIXED_STEP_SECONDS,
   ARENA_MAX_CATCH_UP_STEPS,
   ARENA_MAX_FRAME_DELTA_SECONDS,
+  ARENA_ENEMY_ORDER,
   ARENA_PLAYER_FLOOR_OFFSET,
   ARENA_PLAYER_HALF_WIDTH,
   ARENA_PLAYER_MARGIN,
@@ -27,14 +28,26 @@ import {
 } from './engine';
 import { ArenaCanvas } from './ArenaCanvas';
 import { ARENA_BUILD_META, ARENA_BUILD_ORDER } from './builds';
+import {
+  ARENA_ENEMY_LABELS,
+  applyArenaDiscoveryProgress,
+  applyArenaRunSummary,
+  createArenaMetaState,
+  createArenaRunMetaSummary,
+  getArenaMasteryProgress,
+  loadArenaMetaState,
+  saveArenaMetaState,
+} from './meta';
 import { ARENA_ARMORY_UPGRADES, ARENA_ARMORY_UPGRADE_ORDER, isArenaArmoryUpgradeMaxed } from './upgrades';
-import type { ArenaBuildId, ArenaDrop, ArenaEnemy, ArenaVfxQuality } from './types';
+import type { ArenaBuildId, ArenaDrop, ArenaEnemy, ArenaMetaState, ArenaVfxQuality } from './types';
 
 type AppGameId = 'defender' | 'prototype' | 'prototypeV2';
 
 type ArenaPrototypeScreenProps = {
   onSwitchGame: (game: AppGameId) => void;
 };
+
+type ArenaMenuTab = 'run' | 'codex' | 'mastery';
 
 function clamp(value: number, min: number, max: number) {
   return Math.max(min, Math.min(max, value));
@@ -178,12 +191,36 @@ export function ArenaPrototypeScreen({ onSwitchGame }: ArenaPrototypeScreenProps
   const [isMenuOpen, setIsMenuOpen] = useState(false);
   const [isArmoryOpen, setIsArmoryOpen] = useState(false);
   const [vfxQuality, setVfxQuality] = useState<ArenaVfxQuality>('high');
+  const [menuTab, setMenuTab] = useState<ArenaMenuTab>('run');
+  const [arenaMeta, setArenaMeta] = useState<ArenaMetaState>(() => createArenaMetaState());
+  const [isMetaReady, setIsMetaReady] = useState(false);
   const hasInitializedBoardRef = useRef(false);
   const armoryResumeOnCloseRef = useRef(false);
+  const persistedDiscoveryKeyRef = useRef('');
+  const runMetaCommittedRef = useRef(false);
   const playerVisualX = useSharedValue(900 / 2);
   const playerShellAnimatedStyle = useAnimatedStyle(() => ({
     transform: [{ translateX: playerVisualX.value - ARENA_PLAYER_RENDER_HALF_WIDTH }],
   }));
+
+  useEffect(() => {
+    let cancelled = false;
+
+    const hydrateArenaMeta = async () => {
+      const loadedMetaState = await loadArenaMetaState();
+      if (cancelled) {
+        return;
+      }
+      setArenaMeta(loadedMetaState);
+      setIsMetaReady(true);
+    };
+
+    void hydrateArenaMeta();
+
+    return () => {
+      cancelled = true;
+    };
+  }, []);
 
   useEffect(() => {
     if (boardSize.width <= 0 || boardSize.height <= 0) {
@@ -196,6 +233,7 @@ export function ArenaPrototypeScreen({ onSwitchGame }: ArenaPrototypeScreenProps
       setGameState(createInitialArenaState(boardSize.width));
       setHasStarted(false);
       setIsPaused(true);
+      runMetaCommittedRef.current = false;
       return;
     }
 
@@ -289,6 +327,25 @@ export function ArenaPrototypeScreen({ onSwitchGame }: ArenaPrototypeScreenProps
     }
   }, [gameState.status]);
 
+  const discoverySignature = ARENA_ENEMY_ORDER.map((kind) => `${kind}:${gameState.runSeenTierByEnemy[kind] ?? '-'}`).join('|');
+
+  useEffect(() => {
+    if (!isMetaReady) {
+      return;
+    }
+    if (discoverySignature === persistedDiscoveryKeyRef.current) {
+      return;
+    }
+    persistedDiscoveryKeyRef.current = discoverySignature;
+    setArenaMeta((previousMetaState) => {
+      const nextMetaState = applyArenaDiscoveryProgress(previousMetaState, gameState.runSeenTierByEnemy);
+      if (nextMetaState !== previousMetaState) {
+        void saveArenaMetaState(nextMetaState);
+      }
+      return nextMetaState;
+    });
+  }, [discoverySignature, gameState.runSeenTierByEnemy, isMetaReady]);
+
   const displayTier = getArenaDisplayTier(gameState.elapsed);
   const activeEnemyCap = getArenaActiveEnemyCap(displayTier);
   const activeWeapon = getArenaActiveWeapon(gameState);
@@ -358,6 +415,18 @@ export function ArenaPrototypeScreen({ onSwitchGame }: ArenaPrototypeScreenProps
       isMaxed,
     };
   });
+  const codexEnemyEntries = ARENA_ENEMY_ORDER.map((kind) => arenaMeta.codexEnemies[kind]);
+  const masteryCards = ARENA_BUILD_ORDER.map((buildId) => {
+    const buildMeta = ARENA_BUILD_META[buildId];
+    const mastery = arenaMeta.mastery[buildId];
+    const progress = getArenaMasteryProgress(mastery.xp);
+    return {
+      buildId,
+      buildMeta,
+      mastery,
+      progress,
+    };
+  });
 
   const canControlShip = boardSize.width > 0 && boardSize.height > 0 && !isMenuOpen && !isArmoryOpen && hasStarted && !isPaused && gameState.status === 'running';
   const panGesture = useMemo(
@@ -392,6 +461,68 @@ export function ArenaPrototypeScreen({ onSwitchGame }: ArenaPrototypeScreenProps
     }
   };
 
+  const finalizeRunMetaProgress = () => {
+    if (!hasStarted || runMetaCommittedRef.current || !isMetaReady) {
+      return;
+    }
+
+    runMetaCommittedRef.current = true;
+    const totalKills = ARENA_ENEMY_ORDER.reduce(
+      (sum, kind) => sum + gameState.runKillCountsByEnemy[kind],
+      0
+    );
+    const hasMeaningfulRun =
+      gameState.elapsed >= 3 ||
+      totalKills > 0 ||
+      gameState.runMiniBossClears > 0 ||
+      gameState.runBossClears > 0 ||
+      gameState.bestTierReached > 1;
+
+    if (!hasMeaningfulRun) {
+      return;
+    }
+
+    const runSummary = createArenaRunMetaSummary(gameState);
+    setArenaMeta((previousMetaState) => {
+      const nextMetaState = applyArenaRunSummary(previousMetaState, runSummary);
+      if (nextMetaState !== previousMetaState) {
+        void saveArenaMetaState(nextMetaState);
+      }
+      return nextMetaState;
+    });
+  };
+
+  useEffect(() => {
+    if (gameState.status !== 'lost' || !isMetaReady || !hasStarted || runMetaCommittedRef.current) {
+      return;
+    }
+
+    runMetaCommittedRef.current = true;
+    const totalKills = ARENA_ENEMY_ORDER.reduce(
+      (sum, kind) => sum + gameState.runKillCountsByEnemy[kind],
+      0
+    );
+    const hasMeaningfulRun =
+      gameState.elapsed >= 3 ||
+      totalKills > 0 ||
+      gameState.runMiniBossClears > 0 ||
+      gameState.runBossClears > 0 ||
+      gameState.bestTierReached > 1;
+
+    if (!hasMeaningfulRun) {
+      return;
+    }
+
+    const runSummary = createArenaRunMetaSummary(gameState);
+    setArenaMeta((previousMetaState) => {
+      const nextMetaState = applyArenaRunSummary(previousMetaState, runSummary);
+      if (nextMetaState !== previousMetaState) {
+        void saveArenaMetaState(nextMetaState);
+      }
+      return nextMetaState;
+    });
+  }, [gameState, hasStarted, isMetaReady]);
+
   const closeArmoryPanel = () => {
     setIsArmoryOpen(false);
     const shouldResume = armoryResumeOnCloseRef.current && hasStarted && gameState.status === 'running';
@@ -415,6 +546,7 @@ export function ArenaPrototypeScreen({ onSwitchGame }: ArenaPrototypeScreenProps
     if (boardSize.width <= 0) {
       return;
     }
+    finalizeRunMetaProgress();
     const nextState = createInitialArenaState(boardSize.width);
     playerVisualX.value = boardSize.width / 2;
     setGameState(setArenaBuild(nextState, gameState.activeBuild));
@@ -422,11 +554,18 @@ export function ArenaPrototypeScreen({ onSwitchGame }: ArenaPrototypeScreenProps
     setIsPaused(true);
     setIsMenuOpen(false);
     setIsArmoryOpen(false);
+    setMenuTab('run');
     armoryResumeOnCloseRef.current = false;
+    runMetaCommittedRef.current = false;
   };
 
   const handleSelectBuild = (buildId: ArenaBuildId) => {
     setGameState((previousState) => setArenaBuild(previousState, buildId));
+  };
+
+  const handleSwitchGame = (nextGame: AppGameId) => {
+    finalizeRunMetaProgress();
+    onSwitchGame(nextGame);
   };
 
   const handleSelectArmoryUpgrade = (key: keyof typeof ARENA_ARMORY_UPGRADES) => {
@@ -821,71 +960,209 @@ export function ArenaPrototypeScreen({ onSwitchGame }: ArenaPrototypeScreenProps
         {isMenuOpen ? (
           <View style={arenaStyles.menuPanel}>
             <Text style={arenaStyles.menuTitle}>Arena Prototype Menu</Text>
-
-            <Text style={arenaStyles.menuLabel}>Game</Text>
-            <View style={arenaStyles.menuRow}>
-              <Pressable style={[arenaStyles.menuButton, arenaStyles.menuButtonActive]}>
-                <Text style={arenaStyles.menuButtonText}>Arena V2</Text>
-              </Pressable>
-              <Pressable onPress={() => onSwitchGame('prototype')} style={arenaStyles.menuButton}>
-                <Text style={arenaStyles.menuButtonText}>Shooter Test</Text>
-              </Pressable>
-              <Pressable onPress={() => onSwitchGame('defender')} style={arenaStyles.menuButton}>
-                <Text style={arenaStyles.menuButtonText}>Defender</Text>
-              </Pressable>
+            <View style={arenaStyles.menuSegmentRow}>
+              {(['run', 'codex', 'mastery'] as ArenaMenuTab[]).map((tab) => (
+                <Pressable
+                  key={`menu-tab-${tab}`}
+                  onPress={() => setMenuTab(tab)}
+                  style={[arenaStyles.menuSegmentButton, menuTab === tab && arenaStyles.menuSegmentButtonActive]}>
+                  <Text style={[arenaStyles.menuSegmentText, menuTab === tab && arenaStyles.menuSegmentTextActive]}>
+                    {tab === 'run' ? 'Run' : tab === 'codex' ? 'Codex' : 'Mastery'}
+                  </Text>
+                </Pressable>
+              ))}
             </View>
 
-            <Text style={arenaStyles.menuLabel}>VFX</Text>
-            <View style={arenaStyles.menuRow}>
-              <Pressable
-                onPress={() => setVfxQuality('balanced')}
-                style={[arenaStyles.menuButton, vfxQuality === 'balanced' && arenaStyles.menuButtonActive]}>
-                <Text style={arenaStyles.menuButtonText}>Balanced</Text>
-              </Pressable>
-              <Pressable
-                onPress={() => setVfxQuality('high')}
-                style={[arenaStyles.menuButton, vfxQuality === 'high' && arenaStyles.menuButtonActive]}>
-                <Text style={arenaStyles.menuButtonText}>High</Text>
-              </Pressable>
-            </View>
-
-            <Text style={arenaStyles.menuLabel}>Build</Text>
-            <View style={arenaStyles.menuBuildGrid}>
-              {ARENA_BUILD_ORDER.map((buildId) => {
-                const buildMeta = ARENA_BUILD_META[buildId];
-                const isActive = gameState.activeBuild === buildId;
-                return (
-                  <Pressable
-                    key={`build-${buildId}`}
-                    onPress={() => handleSelectBuild(buildId)}
-                    style={[arenaStyles.menuBuildButton, isActive && arenaStyles.menuBuildButtonActive]}>
-                    <Text style={[arenaStyles.menuBuildTitle, isActive && { color: buildMeta.accent }]}>
-                      {buildMeta.label}
-                    </Text>
-                    <Text numberOfLines={2} style={arenaStyles.menuBuildText}>
-                      {buildMeta.summary}
-                    </Text>
+            {menuTab === 'run' ? (
+              <>
+                <Text style={arenaStyles.menuLabel}>Game</Text>
+                <View style={arenaStyles.menuRow}>
+                  <Pressable style={[arenaStyles.menuButton, arenaStyles.menuButtonActive]}>
+                    <Text style={arenaStyles.menuButtonText}>Arena V2</Text>
                   </Pressable>
-                );
-              })}
-            </View>
+                  <Pressable onPress={() => handleSwitchGame('prototype')} style={arenaStyles.menuButton}>
+                    <Text style={arenaStyles.menuButtonText}>Shooter Test</Text>
+                  </Pressable>
+                  <Pressable onPress={() => handleSwitchGame('defender')} style={arenaStyles.menuButton}>
+                    <Text style={arenaStyles.menuButtonText}>Defender</Text>
+                  </Pressable>
+                </View>
 
-            <Text style={arenaStyles.menuLabel}>Notes</Text>
-            <View style={arenaStyles.menuBuildDetailsCard}>
-              <Text style={[arenaStyles.menuBuildDetailsTitle, { color: activeBuildMeta.accent }]}>
-                {activeBuildMeta.label}
-              </Text>
-              <Text style={arenaStyles.menuBuildDetailsText}>{activeBuildMeta.description}</Text>
-              <Text style={arenaStyles.menuBuildDetailsText}>
-                Ultimate: {activeBuildMeta.ultimateLabel}. {activeBuildMeta.ultimateDescription}
-              </Text>
-            </View>
+                <Text style={arenaStyles.menuLabel}>VFX</Text>
+                <View style={arenaStyles.menuRow}>
+                  <Pressable
+                    onPress={() => setVfxQuality('balanced')}
+                    style={[arenaStyles.menuButton, vfxQuality === 'balanced' && arenaStyles.menuButtonActive]}>
+                    <Text style={arenaStyles.menuButtonText}>Balanced</Text>
+                  </Pressable>
+                  <Pressable
+                    onPress={() => setVfxQuality('high')}
+                    style={[arenaStyles.menuButton, vfxQuality === 'high' && arenaStyles.menuButtonActive]}>
+                    <Text style={arenaStyles.menuButtonText}>High</Text>
+                  </Pressable>
+                </View>
 
-            <View style={arenaStyles.menuActions}>
-              <Pressable onPress={handleRestart} style={[arenaStyles.menuActionButton, arenaStyles.menuActionPrimary]}>
-                <Text style={arenaStyles.menuActionText}>Restart Run</Text>
-              </Pressable>
-            </View>
+                <Text style={arenaStyles.menuLabel}>Build</Text>
+                <View style={arenaStyles.menuBuildGrid}>
+                  {ARENA_BUILD_ORDER.map((buildId) => {
+                    const buildMeta = ARENA_BUILD_META[buildId];
+                    const isActive = gameState.activeBuild === buildId;
+                    return (
+                      <Pressable
+                        key={`build-${buildId}`}
+                        onPress={() => handleSelectBuild(buildId)}
+                        style={[arenaStyles.menuBuildButton, isActive && arenaStyles.menuBuildButtonActive]}>
+                        <Text style={[arenaStyles.menuBuildTitle, isActive && { color: buildMeta.accent }]}>
+                          {buildMeta.label}
+                        </Text>
+                        <Text numberOfLines={2} style={arenaStyles.menuBuildText}>
+                          {buildMeta.summary}
+                        </Text>
+                      </Pressable>
+                    );
+                  })}
+                </View>
+
+                <Text style={arenaStyles.menuLabel}>Notes</Text>
+                <View style={arenaStyles.menuBuildDetailsCard}>
+                  <Text style={[arenaStyles.menuBuildDetailsTitle, { color: activeBuildMeta.accent }]}>
+                    {activeBuildMeta.label}
+                  </Text>
+                  <Text style={arenaStyles.menuBuildDetailsText}>{activeBuildMeta.description}</Text>
+                  <Text style={arenaStyles.menuBuildDetailsText}>
+                    Ultimate: {activeBuildMeta.ultimateLabel}. {activeBuildMeta.ultimateDescription}
+                  </Text>
+                </View>
+
+                <View style={arenaStyles.menuActions}>
+                  <Pressable onPress={handleRestart} style={[arenaStyles.menuActionButton, arenaStyles.menuActionPrimary]}>
+                    <Text style={arenaStyles.menuActionText}>Restart Run</Text>
+                  </Pressable>
+                </View>
+              </>
+            ) : menuTab === 'codex' ? (
+              <ScrollView style={arenaStyles.menuScroll} contentContainerStyle={arenaStyles.menuScrollContent}>
+                {!isMetaReady ? (
+                  <Text style={arenaStyles.menuBuildDetailsText}>Loading persistent codex data...</Text>
+                ) : (
+                  <>
+                    <Text style={arenaStyles.menuLabel}>Enemy Log</Text>
+                    <View style={arenaStyles.codexGrid}>
+                      {codexEnemyEntries.map((entry) => {
+                        const isLocked = !entry.discovered;
+                        return (
+                          <View key={`codex-enemy-${entry.kind}`} style={[arenaStyles.codexCard, isLocked && arenaStyles.codexCardLocked]}>
+                            <View style={arenaStyles.codexCardHeader}>
+                              <Text style={[arenaStyles.codexCardTitle, isLocked && arenaStyles.codexCardTitleLocked]}>
+                                {isLocked ? 'Locked Signal' : entry.label}
+                              </Text>
+                              <Text style={arenaStyles.codexCardMeta}>
+                                {isLocked ? 'Awaiting encounter' : `Seen T${entry.firstSeenTier ?? '-'}`}
+                              </Text>
+                            </View>
+                            <Text style={[arenaStyles.codexCardText, isLocked && arenaStyles.codexCardTextLocked]}>
+                              {isLocked
+                                ? `Encounter ${ARENA_ENEMY_LABELS[entry.kind]} once to unlock this log entry.`
+                                : entry.summary}
+                            </Text>
+                            {!isLocked ? (
+                              <View style={arenaStyles.codexStatRow}>
+                                <Text style={arenaStyles.codexStatText}>Kills {entry.totalKills}</Text>
+                                <Text style={arenaStyles.codexStatText}>
+                                  {entry.firstKillTier ? `First kill T${entry.firstKillTier}` : 'No kill logged'}
+                                </Text>
+                                <Text style={arenaStyles.codexStatText}>
+                                  {entry.bossClears > 0
+                                    ? `Boss clears ${entry.bossClears}`
+                                    : entry.firstClearTier
+                                      ? `First clear T${entry.firstClearTier}`
+                                      : 'No clear logged'}
+                                </Text>
+                              </View>
+                            ) : null}
+                          </View>
+                        );
+                      })}
+                    </View>
+
+                    <Text style={arenaStyles.menuLabel}>Build Log</Text>
+                    <View style={arenaStyles.codexGrid}>
+                      {ARENA_BUILD_ORDER.map((buildId) => {
+                        const buildEntry = arenaMeta.codexBuilds[buildId];
+                        const masteryEntry = arenaMeta.mastery[buildId];
+                        return (
+                          <View key={`codex-build-${buildId}`} style={arenaStyles.codexCard}>
+                            <View style={arenaStyles.codexCardHeader}>
+                              <Text style={[arenaStyles.codexCardTitle, { color: ARENA_BUILD_META[buildId].accent }]}>
+                                {buildEntry.label}
+                              </Text>
+                              <Text style={arenaStyles.codexCardMeta}>
+                                L{masteryEntry.level} {masteryEntry.title}
+                              </Text>
+                            </View>
+                            <Text style={arenaStyles.codexCardText}>{buildEntry.description}</Text>
+                            <Text style={arenaStyles.codexStatText}>
+                              Ultimate: {buildEntry.ultimateLabel}. {buildEntry.ultimateDescription}
+                            </Text>
+                          </View>
+                        );
+                      })}
+                    </View>
+                  </>
+                )}
+              </ScrollView>
+            ) : (
+              <ScrollView style={arenaStyles.menuScroll} contentContainerStyle={arenaStyles.menuScrollContent}>
+                {!isMetaReady ? (
+                  <Text style={arenaStyles.menuBuildDetailsText}>Loading mastery records...</Text>
+                ) : (
+                  <>
+                    <View style={arenaStyles.masteryIntroCard}>
+                      <Text style={arenaStyles.masteryIntroText}>
+                        Mastery XP is granted at run end to the build with the most active time. Ties resolve to the build you finish on.
+                      </Text>
+                    </View>
+                    {masteryCards.map(({ buildId, buildMeta, mastery, progress }) => (
+                      <View
+                        key={`mastery-${buildId}`}
+                        style={[arenaStyles.masteryCard, gameState.activeBuild === buildId && arenaStyles.masteryCardActive]}>
+                        <View style={arenaStyles.masteryHeaderRow}>
+                          <View style={arenaStyles.masteryHeaderCopy}>
+                            <Text style={[arenaStyles.masteryTitle, { color: buildMeta.accent }]}>{buildMeta.label}</Text>
+                            <Text style={arenaStyles.masterySubtitle}>
+                              Level {mastery.level} • {mastery.title}
+                            </Text>
+                          </View>
+                          <Text style={arenaStyles.masteryXpText}>{mastery.xp} XP</Text>
+                        </View>
+                        <View style={arenaStyles.masteryMeter}>
+                          <View
+                            style={[
+                              arenaStyles.masteryMeterFill,
+                              {
+                                width: `${progress.progress * 100}%`,
+                                backgroundColor: hexToRgba(buildMeta.accent, 0.72),
+                              },
+                            ]}
+                          />
+                        </View>
+                        <Text style={arenaStyles.masteryThresholdText}>
+                          {progress.nextThreshold > progress.currentThreshold
+                            ? `${progress.currentThreshold} / ${progress.nextThreshold} threshold`
+                            : 'Top rank reached'}
+                        </Text>
+                        <View style={arenaStyles.masteryStatRow}>
+                          <Text style={arenaStyles.masteryStatText}>Best tier T{mastery.bestTier}</Text>
+                          <Text style={arenaStyles.masteryStatText}>Mini-boss {mastery.miniBossClears}</Text>
+                          <Text style={arenaStyles.masteryStatText}>Boss {mastery.bossClears}</Text>
+                          <Text style={arenaStyles.masteryStatText}>Runs {mastery.runs}</Text>
+                        </View>
+                      </View>
+                    ))}
+                  </>
+                )}
+              </ScrollView>
+            )}
           </View>
         ) : null}
       </View>
@@ -901,7 +1178,7 @@ export function ArenaPrototypeScreen({ onSwitchGame }: ArenaPrototypeScreenProps
               <Pressable onPress={handleRestart} style={[arenaStyles.menuActionButton, arenaStyles.menuActionPrimary]}>
                 <Text style={arenaStyles.menuActionText}>Retry</Text>
               </Pressable>
-              <Pressable onPress={() => onSwitchGame('prototype')} style={[arenaStyles.menuActionButton, arenaStyles.menuActionSecondary]}>
+              <Pressable onPress={() => handleSwitchGame('prototype')} style={[arenaStyles.menuActionButton, arenaStyles.menuActionSecondary]}>
                 <Text style={arenaStyles.menuActionText}>Back to Prototype</Text>
               </Pressable>
             </View>
@@ -1691,6 +1968,7 @@ const arenaStyles = StyleSheet.create({
     top: 56,
     left: 18,
     right: 18,
+    bottom: 18,
     borderRadius: 16,
     borderWidth: 1,
     borderColor: '#294563',
@@ -1704,11 +1982,44 @@ const arenaStyles = StyleSheet.create({
     fontSize: 16,
     fontWeight: '900',
   },
+  menuSegmentRow: {
+    flexDirection: 'row',
+    gap: 8,
+  },
+  menuSegmentButton: {
+    flex: 1,
+    borderRadius: 10,
+    borderWidth: 1,
+    borderColor: '#304A66',
+    backgroundColor: '#10202F',
+    paddingVertical: 8,
+    alignItems: 'center',
+  },
+  menuSegmentButtonActive: {
+    borderColor: '#8BC5FF',
+    backgroundColor: '#173654',
+  },
+  menuSegmentText: {
+    color: '#9FB9D7',
+    fontSize: 11.5,
+    fontWeight: '800',
+    textTransform: 'uppercase',
+  },
+  menuSegmentTextActive: {
+    color: '#F1F8FF',
+  },
   menuLabel: {
     color: '#8DA8C8',
     fontSize: 10,
     fontWeight: '800',
     textTransform: 'uppercase',
+  },
+  menuScroll: {
+    flex: 1,
+  },
+  menuScrollContent: {
+    gap: 10,
+    paddingBottom: 2,
   },
   menuRow: {
     flexDirection: 'row',
@@ -1805,6 +2116,137 @@ const arenaStyles = StyleSheet.create({
     color: '#F0F7FF',
     fontSize: 13,
     fontWeight: '800',
+  },
+  codexGrid: {
+    flexDirection: 'row',
+    flexWrap: 'wrap',
+    gap: 8,
+  },
+  codexCard: {
+    width: '48%',
+    borderRadius: 12,
+    borderWidth: 1,
+    borderColor: '#33526F',
+    backgroundColor: '#0F1E2E',
+    paddingHorizontal: 10,
+    paddingVertical: 9,
+    gap: 5,
+  },
+  codexCardLocked: {
+    borderColor: '#293F57',
+    backgroundColor: '#0C1723',
+  },
+  codexCardHeader: {
+    gap: 3,
+  },
+  codexCardTitle: {
+    color: '#F0F7FF',
+    fontSize: 12,
+    fontWeight: '800',
+  },
+  codexCardTitleLocked: {
+    color: '#A3B7CB',
+  },
+  codexCardMeta: {
+    color: '#7F9EBC',
+    fontSize: 10,
+    fontWeight: '700',
+  },
+  codexCardText: {
+    color: '#B3C7DB',
+    fontSize: 10.5,
+    lineHeight: 14,
+  },
+  codexCardTextLocked: {
+    color: '#7D93A9',
+  },
+  codexStatRow: {
+    gap: 3,
+  },
+  codexStatText: {
+    color: '#D8E7F7',
+    fontSize: 10,
+    fontWeight: '700',
+  },
+  masteryIntroCard: {
+    borderRadius: 12,
+    borderWidth: 1,
+    borderColor: '#32506B',
+    backgroundColor: '#10202F',
+    paddingHorizontal: 12,
+    paddingVertical: 10,
+  },
+  masteryIntroText: {
+    color: '#B5C9DE',
+    fontSize: 11,
+    lineHeight: 16,
+  },
+  masteryCard: {
+    borderRadius: 12,
+    borderWidth: 1,
+    borderColor: '#34536F',
+    backgroundColor: '#102030',
+    paddingHorizontal: 12,
+    paddingVertical: 10,
+    gap: 7,
+  },
+  masteryCardActive: {
+    borderColor: '#7FBFFF',
+    backgroundColor: '#13273A',
+  },
+  masteryHeaderRow: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    gap: 10,
+    alignItems: 'flex-start',
+  },
+  masteryHeaderCopy: {
+    flex: 1,
+    gap: 3,
+  },
+  masteryTitle: {
+    fontSize: 13,
+    fontWeight: '900',
+  },
+  masterySubtitle: {
+    color: '#BDD0E3',
+    fontSize: 10.5,
+    fontWeight: '700',
+  },
+  masteryXpText: {
+    color: '#E8F3FF',
+    fontSize: 11,
+    fontWeight: '800',
+  },
+  masteryMeter: {
+    height: 12,
+    borderRadius: 999,
+    borderWidth: 1,
+    borderColor: '#33506B',
+    backgroundColor: '#0C1926',
+    overflow: 'hidden',
+  },
+  masteryMeterFill: {
+    position: 'absolute',
+    left: 0,
+    top: 0,
+    bottom: 0,
+    borderRadius: 999,
+  },
+  masteryThresholdText: {
+    color: '#9AB3CD',
+    fontSize: 10,
+    fontWeight: '700',
+  },
+  masteryStatRow: {
+    flexDirection: 'row',
+    flexWrap: 'wrap',
+    gap: 8,
+  },
+  masteryStatText: {
+    color: '#D9E8F7',
+    fontSize: 10,
+    fontWeight: '700',
   },
   overlay: {
     ...StyleSheet.absoluteFillObject,

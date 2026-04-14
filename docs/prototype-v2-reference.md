@@ -1,7 +1,7 @@
 # Prototype V2 Reference
 
 Snapshot date: `2026-04-14`
-Board version: `v0.40`
+Board version: `v0.41`
 
 This document is the current reference for the arena-combat shooter in `/Users/johnchang/Desktop/defender/src/prototype-v2`. It replaces the earlier planning-heavy draft with a snapshot of what is actually implemented today, plus the next major gaps.
 
@@ -24,6 +24,8 @@ Core loop:
 - salvage, field drops, and armory drafts drive in-run progression
 
 This mode is no longer just a redesign concept. It is a production prototype with live combat, encounters, progression, and Skia rendering.
+
+The current build also includes persistent between-run `Codex + Mastery` data stored locally, plus a scripted combat pass that expands encounter variety beyond the original hard-coded tier branches.
 
 ## Current Playable State
 
@@ -67,7 +69,9 @@ Other UI behavior:
 - enemy health numbers are rendered as floating labels over enemies
 - drop labels are rendered under field pickups
 - the armory is opened manually from an in-arena button instead of auto-opening on threshold hit
-- the in-game menu allows game switching, build switching, and restart
+- the in-game menu now includes `Run`, `Codex`, and `Mastery` tabs
+- codex and mastery state persist across relaunches through a versioned AsyncStorage blob
+- the in-game menu still allows game switching, build switching, and restart
 
 ## Current Combat Rules
 
@@ -404,6 +408,14 @@ Primary implementation files:
 
 ### 2026-04-14
 
+- Advanced arena board label to `v0.41`.
+- Replaced hard-coded encounter branching with a script registry for formation, mini-boss, and boss encounters.
+- Added two new enemy jobs: `Warden` support ships and `Lancer` lane-control strikers.
+- Added three regular formation scripts: `Shield Screen`, `Lancer Sweep`, and `Fortified Bombard`.
+- Expanded the mini-boss pool with `Warden Bastion` and `Lancer Spearhead`.
+- Reworked `Prism Core` into a three-phase boss with `70%` and `35%` health transitions.
+- Added persistent `Codex + Mastery` progression with dominant-build run attribution and run-end mastery XP.
+- Extended the Arena V2 menu with segmented `Run`, `Codex`, and `Mastery` panels.
 - Advanced arena board label to `v0.40`.
 - Replaced in-arena armory and ultimate text buttons with icon-first controls.
 - Enhanced the armory ready-state glow and slightly reduced side-control size.
@@ -441,14 +453,13 @@ These are the major areas that still remain after the current polish pass.
 
 ### Content expansion
 
-- more enemy families with clearly different jobs
-- more encounter scripts beyond the current anchor-cycle structure
-- additional boss pattern phases and support-enemy interactions
+- more enemy families beyond the current core roster plus `Warden` / `Lancer`
+- more encounter scripts once the new registry has broader content authored for it
+- additional bosses after the now phase-driven `Prism Core`
 
 ### Progression expansion
 
-- codex / enemy log / build reference outside the run
-- long-term mastery or unlock structure across runs
+- unlock tracks or cosmetic reward hooks layered on top of the current codex/mastery base
 - more premium-feeling armory picks beyond the current base set
 
 ### Retention / presentation

@@ -6,6 +6,8 @@ export type ArenaEnemyKind =
   | 'sniper'
   | 'bomber'
   | 'interceptor'
+  | 'warden'
+  | 'lancer'
   | 'prismBoss';
 
 export type ArenaEnemyShape = 'circle' | 'square' | 'diamond';
@@ -15,6 +17,8 @@ export type ArenaProjectileKind = 'primary' | 'missile' | 'shard' | 'enemy';
 export type ArenaBuildId = 'railFocus' | 'novaBloom' | 'missileCommand' | 'fractureCore';
 export type ArenaVfxQuality = 'balanced' | 'high';
 export type ArenaEffectFlavor = ArenaBuildId | 'enemy' | 'neutral';
+export type ArenaBuildValueMap<T> = Record<ArenaBuildId, T>;
+export type ArenaEnemyValueMap<T> = Record<ArenaEnemyKind, T>;
 
 export type ArenaEffectKind =
   | 'burst'
@@ -38,7 +42,16 @@ export type ArenaArmoryUpgradeKey =
   | 'hullWeave'
   | 'accelerator';
 
-export type ArenaEncounterType = 'miniBoss' | 'boss';
+export type ArenaEncounterType = 'formation' | 'miniBoss' | 'boss';
+export type ArenaEncounterScriptId =
+  | 'shieldScreen'
+  | 'lancerSweep'
+  | 'fortifiedBombard'
+  | 'interceptorSweep'
+  | 'bombardWing'
+  | 'wardenBastion'
+  | 'lancerSpearhead'
+  | 'prismCore';
 
 export type ArenaWeapon = {
   damage: number;
@@ -93,15 +106,62 @@ export type ArenaEnemy = {
   phase: number;
   color: string;
   reward: number;
+  supportCooldown: number;
+  specialCooldown: number;
+  protectedTimer: number;
+  protectedByEnemyId: string | null;
+  laneTargetX: number | null;
+  encounterTag: ArenaEncounterScriptId | null;
+};
+
+export type ArenaEncounterSpawnStep = {
+  kind: ArenaEnemyKind;
+  anchor?: boolean;
+  laneIndex?: number;
+  laneOffset?: number;
+  xRatio?: number;
+  cruiseYRatio?: number;
+  healthMultiplier?: number;
+  rewardMultiplier?: number;
+  attackCooldownMultiplier?: number;
+  vxMultiplier?: number;
+};
+
+export type ArenaEncounterScript = {
+  id: ArenaEncounterScriptId;
+  type: ArenaEncounterType;
+  label: string;
+  announcement: string;
+  accentColor: string;
+  rewardSalvage: number;
+  anchorKind?: ArenaEnemyKind;
+  minTier: number;
+  requiredCapacity?: number;
+  maxBulletPressure?: number;
+  selectionWeight?: number;
+  steps: ArenaEncounterSpawnStep[];
+};
+
+export type ArenaBossPhaseDefinition = {
+  phaseIndex: 0 | 1 | 2;
+  threshold: number;
+  label: string;
+  announcement: string;
+  accentColor: string;
+  steps: ArenaEncounterSpawnStep[];
 };
 
 export type ArenaEncounter = {
-  type: ArenaEncounterType;
+  type: Extract<ArenaEncounterType, 'miniBoss' | 'boss'>;
+  scriptId: ArenaEncounterScriptId;
   label: string;
   accentColor: string;
   anchorKind: ArenaEnemyKind;
+  anchorEnemyId: string | null;
   rewardSalvage: number;
   startedAtTier: number;
+  announcement: string;
+  bossPhaseIndex: 0 | 1 | 2;
 };
 
 export type ArenaEffect = {
@@ -136,6 +196,60 @@ export type ArenaArmoryChoice = {
   cost: number;
   options: ArenaArmoryUpgradeKey[];
   source: 'standard' | 'boss';
+};
+
+export type ArenaCodexEnemyEntry = {
+  kind: ArenaEnemyKind;
+  label: string;
+  discovered: boolean;
+  firstSeenTier: number | null;
+  firstKillTier: number | null;
+  firstClearTier: number | null;
+  totalKills: number;
+  bossClears: number;
+  summary: string;
+};
+
+export type ArenaCodexBuildEntry = {
+  buildId: ArenaBuildId;
+  label: string;
+  shortLabel: string;
+  summary: string;
+  description: string;
+  ultimateLabel: string;
+  ultimateDescription: string;
+};
+
+export type ArenaBuildMastery = {
+  buildId: ArenaBuildId;
+  xp: number;
+  level: number;
+  title: string;
+  runs: number;
+  bestTier: number;
+  miniBossClears: number;
+  bossClears: number;
+};
+
+export type ArenaMetaState = {
+  version: number;
+  lastUpdatedAt: string;
+  codexEnemies: ArenaEnemyValueMap<ArenaCodexEnemyEntry>;
+  codexBuilds: ArenaBuildValueMap<ArenaCodexBuildEntry>;
+  mastery: ArenaBuildValueMap<ArenaBuildMastery>;
+};
+
+export type ArenaRunMetaSummary = {
+  dominantBuild: ArenaBuildId;
+  currentBuild: ArenaBuildId;
+  tierReached: number;
+  miniBossClears: number;
+  bossClears: number;
+  buildActiveSeconds: ArenaBuildValueMap<number>;
+  killCounts: ArenaEnemyValueMap<number>;
+  firstSeenTierByEnemy: ArenaEnemyValueMap<number | null>;
+  firstKillTierByEnemy: ArenaEnemyValueMap<number | null>;
+  firstClearTierByEnemy: ArenaEnemyValueMap<number | null>;
 };
 
 export type ArenaGameState = {
@@ -183,4 +297,12 @@ export type ArenaGameState = {
   encounterAnnouncement: string | null;
   encounterAnnouncementColor: string | null;
   encounterAnnouncementTimer: number;
+  bestTierReached: number;
+  runMiniBossClears: number;
+  runBossClears: number;
+  runBuildActiveSeconds: ArenaBuildValueMap<number>;
+  runSeenTierByEnemy: ArenaEnemyValueMap<number | null>;
+  runKillCountsByEnemy: ArenaEnemyValueMap<number>;
+  runFirstKillTierByEnemy: ArenaEnemyValueMap<number | null>;
+  runFirstClearTierByEnemy: ArenaEnemyValueMap<number | null>;
 };

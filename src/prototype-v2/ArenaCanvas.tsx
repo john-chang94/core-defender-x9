@@ -474,6 +474,26 @@ const ENEMY_HULL_POINTS: Record<ArenaEnemy['kind'], readonly EnemyLocalPoint[]> 
     [-0.58, -0.44],
     [0.28, -0.72],
   ],
+  warden: [
+    [0.92, 0.54],
+    [1.04, 0.12],
+    [0.88, -0.46],
+    [0.16, -0.76],
+    [-0.78, -0.54],
+    [-1, 0],
+    [-0.78, 0.54],
+    [0.16, 0.76],
+  ],
+  lancer: [
+    [1.12, 0],
+    [0.34, 0.46],
+    [-0.16, 0.9],
+    [-0.82, 0.46],
+    [-1, 0],
+    [-0.82, -0.46],
+    [-0.16, -0.9],
+    [0.34, -0.46],
+  ],
   prismBoss: [
     [1.1, 0],
     [0.42, 0.92],
@@ -720,6 +740,7 @@ function renderEnemyCore(enemy: ArenaEnemy) {
   const enemyPath = createEnemyHullPath(enemy);
   const isElite = enemy.kind === 'interceptor';
   const isBoss = enemy.kind === 'prismBoss';
+  const isProtected = enemy.protectedTimer > 0;
   const auraColor = isBoss ? '#FF89C0' : isElite ? '#CBBFFF' : enemy.color;
 
   return (
@@ -731,6 +752,24 @@ function renderEnemyCore(enemy: ArenaEnemy) {
           r={enemy.size * (isBoss ? 0.82 : 0.68)}
           color={withAlpha(auraColor, isBoss ? 0.12 : 0.08)}
         />
+      ) : null}
+      {isProtected ? (
+        <>
+          <Circle
+            cx={enemy.x}
+            cy={enemy.y}
+            r={enemy.size * 0.64}
+            color={withAlpha('#9EEFFF', 0.12)}
+          />
+          <Circle
+            cx={enemy.x}
+            cy={enemy.y}
+            r={enemy.size * 0.64}
+            style="stroke"
+            strokeWidth={2}
+            color={withAlpha('#D9FAFF', 0.72)}
+          />
+        </>
       ) : null}
       <PathOrFallback path={enemyPath} fillColor={enemy.color} strokeColor={enemy.windupTimer > 0 ? '#FFF0C7' : isBoss ? '#FFE8BE' : isElite ? '#E5DDFF' : '#0D1726'} strokeWidth={isBoss ? 2.4 : isElite ? 1.8 : 1.4} />
       {renderEnemyShipDetails(enemy)}
