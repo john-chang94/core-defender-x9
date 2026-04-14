@@ -343,7 +343,7 @@ function createMissileBodyPath(
   rightY: number,
   size: number
 ) {
-  return createOrientedRectPath(x, y, forwardX, forwardY, rightX, rightY, size * 0.9, size * 0.45);
+  return createOrientedRectPath(x, y, forwardX, forwardY, rightX, rightY, size * 1.02, size * 0.5);
 }
 
 function createMissileNosePath(
@@ -355,11 +355,11 @@ function createMissileNosePath(
   rightY: number,
   size: number
 ) {
-  const tipX = x + forwardX * (size * 1.7);
-  const tipY = y + forwardY * (size * 1.7);
-  const baseX = x + forwardX * (size * 0.9);
-  const baseY = y + forwardY * (size * 0.9);
-  const halfWidth = size * 0.43;
+  const tipX = x + forwardX * (size * 1.92);
+  const tipY = y + forwardY * (size * 1.92);
+  const baseX = x + forwardX * (size * 1.02);
+  const baseY = y + forwardY * (size * 1.02);
+  const halfWidth = size * 0.47;
 
   const path = Skia.Path.Make();
   path.moveTo(tipX, tipY);
@@ -379,12 +379,12 @@ function createMissileFinPath(
   size: number,
   side: -1 | 1
 ) {
-  const rootX = x + forwardX * (size * 0.26) + rightX * side * (size * 0.44);
-  const rootY = y + forwardY * (size * 0.26) + rightY * side * (size * 0.44);
-  const outerX = x + forwardX * (size * 0.1) + rightX * side * (size * 0.82);
-  const outerY = y + forwardY * (size * 0.1) + rightY * side * (size * 0.82);
-  const tipX = x + forwardX * (size * 0.7) + rightX * side * (size * 0.5);
-  const tipY = y + forwardY * (size * 0.7) + rightY * side * (size * 0.5);
+  const rootX = x + forwardX * (size * 0.3) + rightX * side * (size * 0.48);
+  const rootY = y + forwardY * (size * 0.3) + rightY * side * (size * 0.48);
+  const outerX = x + forwardX * (size * 0.02) + rightX * side * (size * 0.94);
+  const outerY = y + forwardY * (size * 0.02) + rightY * side * (size * 0.94);
+  const tipX = x + forwardX * (size * 0.86) + rightX * side * (size * 0.58);
+  const tipY = y + forwardY * (size * 0.86) + rightY * side * (size * 0.58);
 
   const path = Skia.Path.Make();
   path.moveTo(rootX, rootY);
@@ -787,14 +787,14 @@ export function ArenaCanvas({ boardWidth, boardHeight, state, vfxQuality }: Aren
     }
     wasOverdriveActiveRef.current = isOverdriveActive;
   }, [overdriveBlend]);
-  const overdriveCrackPhase = overdriveBlend > 0.08 ? Math.floor(state.elapsed * 2) : 0;
+  const overdriveCrackPhase = overdriveBlend > 0.08 ? Math.floor(state.elapsed * 5 + overdrivePulse * 4) : 0;
   const overdriveCrackSegments = useMemo(
     () =>
       createOverdriveCrackSegments(
         boardWidth,
         boardHeight,
         isHighVfx,
-        overdriveCrackSeed + overdriveCrackPhase * 7919
+        overdriveCrackSeed * 31 + overdriveCrackPhase * 104729
       ),
     [boardHeight, boardWidth, isHighVfx, overdriveCrackSeed, overdriveCrackPhase]
   );
@@ -838,6 +838,7 @@ export function ArenaCanvas({ boardWidth, boardHeight, state, vfxQuality }: Aren
   const sampledEffects = useMemo(() => sampleForRender(state.effects, maxRenderedEffects), [maxRenderedEffects, state.effects]);
   const sampledPlayerBullets = useMemo(() => sampleForRender(state.playerBullets, maxRenderedPlayerBullets), [maxRenderedPlayerBullets, state.playerBullets]);
   const sampledEnemyBullets = useMemo(() => sampleForRender(state.enemyBullets, maxRenderedEnemyBullets), [maxRenderedEnemyBullets, state.enemyBullets]);
+  const denseEffectMode = sampledEffects.length > (isHighVfx ? 24 : 18);
   const ultimateStrength = Math.max(0, Math.min(1, state.ultimateTimer / 1.6));
   const ultimatePulse = 0.5 + Math.sin(state.elapsed * 16) * 0.5;
   const ultimateScreenPalette = getUltimateScreenPalette(state.ultimateBuild);
@@ -1252,14 +1253,23 @@ export function ArenaCanvas({ boardWidth, boardHeight, state, vfxQuality }: Aren
         }
 
         if (effect.kind === 'ultimateFracture') {
+          const ringRadius = size * 0.4;
+          const baseAngle = effect.angle ?? effect.x * 0.01;
+          const rayCount = denseEffectMode ? (isHighVfx ? 6 : 5) : isHighVfx ? 8 : 6;
           return (
             <Group key={effect.id} opacity={opacity}>
-              <Circle cx={effect.x} cy={effect.y} r={size * 0.4} color={withAlpha(effect.color, 0.15)} />
-              <Circle cx={effect.x} cy={effect.y} r={size * 0.4} style="stroke" strokeWidth={2.2} color={withAlpha('#EAF4FF', 0.7)} />
-              {[0, 1, 2, 3, 4, 5].map((index) => {
-                const angle = (Math.PI * 2 * index) / 6 + progress * 0.9;
-                const inner = size * 0.1;
-                const outer = size * 0.46;
+              <Circle cx={effect.x} cy={effect.y} r={ringRadius} color={withAlpha(effect.color, 0.15)} />
+              <Circle cx={effect.x} cy={effect.y} r={ringRadius} style="stroke" strokeWidth={2.2} color={withAlpha('#EAF4FF', 0.7)} />
+              <Circle
+                cx={effect.x}
+                cy={effect.y}
+                r={ringRadius * 0.46}
+                color={withAlpha('#F4FBFF', 0.08 + opacity * 0.06)}
+              />
+              {Array.from({ length: rayCount }, (_, index) => {
+                const angle = baseAngle + (Math.PI * 2 * index) / rayCount + progress * 1.1;
+                const inner = size * (0.08 + (index % 2) * 0.02);
+                const outer = size * (0.42 + (index % 3) * 0.04);
                 return (
                   <Line
                     key={`${effect.id}-fracture-${index}`}
@@ -1276,24 +1286,52 @@ export function ArenaCanvas({ boardWidth, boardHeight, state, vfxQuality }: Aren
         }
 
         if (effect.kind === 'fractureBits') {
-          const shardCount = 10;
-          const shardBase = Math.max(1.4, effect.size * 0.06);
+          const shardCount = denseEffectMode ? (isHighVfx ? 8 : 6) : isHighVfx ? 14 : 10;
+          const seedBase = (effect.angle ?? 0) + effect.x * 0.012 + effect.y * 0.009;
           return (
             <Group key={effect.id} opacity={opacity}>
+              <Circle
+                cx={effect.x}
+                cy={effect.y}
+                r={effect.size * (0.08 + progress * 0.04)}
+                color={withAlpha('#F6FBFF', 0.12 + opacity * 0.12)}
+              />
               {Array.from({ length: shardCount }, (_, index) => {
-                const angle = (Math.PI * 2 * index) / shardCount + effect.x * 0.01;
-                const distance = effect.size * (0.12 + progress * 0.78);
-                const shardX = effect.x + Math.cos(angle) * distance;
-                const shardY = effect.y + Math.sin(angle) * distance;
-                const shardSize = Math.max(0.9, shardBase * (1 - progress * 0.62));
+                const jitter = Math.sin(seedBase * 1.9 + index * 1.47) * 0.34;
+                const angle = seedBase + (Math.PI * 2 * index) / shardCount + jitter;
+                const forwardX = Math.cos(angle);
+                const forwardY = Math.sin(angle);
+                const rightX = -forwardY;
+                const rightY = forwardX;
+                const distance = effect.size * (0.1 + progress * (0.4 + (index % 3) * 0.1));
+                const shardX = effect.x + forwardX * distance;
+                const shardY = effect.y + forwardY * distance;
+                const shardLength = Math.max(4, effect.size * (0.12 + (index % 4) * 0.026) * (1 - progress * 0.22));
+                const shardHalfWidth = Math.max(1.4, effect.size * (0.018 + (index % 2) * 0.006) * (1 - progress * 0.28));
+                const shardPath = createOrientedShardPath(
+                  shardX,
+                  shardY,
+                  forwardX,
+                  forwardY,
+                  rightX,
+                  rightY,
+                  shardLength,
+                  shardHalfWidth
+                );
                 return (
-                  <Circle
+                  <Group
                     key={`${effect.id}-bit-${index}`}
-                    cx={shardX}
-                    cy={shardY}
-                    r={shardSize}
-                    color={withAlpha(index % 2 === 0 ? '#F4FAFF' : effect.color, 0.85)}
-                  />
+                  >
+                    <Line
+                      p1={vec(effect.x + forwardX * effect.size * 0.08, effect.y + forwardY * effect.size * 0.08)}
+                      p2={vec(shardX - forwardX * shardLength * 0.34, shardY - forwardY * shardLength * 0.34)}
+                      color={withAlpha(index % 2 === 0 ? '#F4FAFF' : effect.color, 0.24 + opacity * 0.2)}
+                      strokeWidth={Math.max(1, shardHalfWidth * 0.72)}
+                      strokeCap="round"
+                    />
+                    <Path path={shardPath} color={withAlpha(index % 2 === 0 ? '#F7FCFF' : effect.color, 0.84)} />
+                    <Path path={shardPath} style="stroke" strokeWidth={1} color={withAlpha('#F6FBFF', 0.78)} />
+                  </Group>
                 );
               })}
             </Group>
@@ -1321,6 +1359,7 @@ export function ArenaCanvas({ boardWidth, boardHeight, state, vfxQuality }: Aren
                   : isHighVfx
                     ? 7
                     : 5;
+          const adjustedSparkCount = Math.max(3, denseEffectMode ? Math.ceil(sparkCount * 0.58) : sparkCount);
           const ringColor =
             flavor === 'railFocus'
               ? '#D6E7FF'
@@ -1355,8 +1394,8 @@ export function ArenaCanvas({ boardWidth, boardHeight, state, vfxQuality }: Aren
             <Group key={effect.id}>
               <Circle cx={effect.x} cy={effect.y} r={size * 0.56 * (0.9 + intensity * 0.2)} color={withAlpha(ringColor, 0.05 + opacity * 0.1)} />
               <Circle cx={effect.x} cy={effect.y} r={ringRadius} style="stroke" strokeWidth={(2.2 - progress * 0.8) * (0.92 + intensity * 0.16)} color={withAlpha(ringColor, 0.42 + opacity * 0.4)} />
-              <Circle cx={effect.x} cy={effect.y} r={innerRadius} color={withAlpha('#FFF3DA', 0.48 + opacity * 0.34)} />
-              {flavor === 'missileCommand' ? (
+              {!denseEffectMode ? <Circle cx={effect.x} cy={effect.y} r={innerRadius} color={withAlpha('#FFF3DA', 0.48 + opacity * 0.34)} /> : null}
+              {flavor === 'missileCommand' && !denseEffectMode ? (
                 <Circle
                   cx={effect.x + Math.sin(progress * Math.PI * 2 + effect.x * 0.01) * 4}
                   cy={effect.y + Math.cos(progress * Math.PI * 2 + effect.y * 0.01) * 4}
@@ -1364,8 +1403,8 @@ export function ArenaCanvas({ boardWidth, boardHeight, state, vfxQuality }: Aren
                   color={withAlpha('#FFB988', 0.2 + opacity * 0.24)}
                 />
               ) : null}
-              {Array.from({ length: sparkCount }, (_, index) => {
-                const angle = (Math.PI * 2 * index) / sparkCount + effect.x * 0.013 + effect.y * 0.009;
+              {Array.from({ length: adjustedSparkCount }, (_, index) => {
+                const angle = (Math.PI * 2 * index) / adjustedSparkCount + effect.x * 0.013 + effect.y * 0.009;
                 const sparkStart = size * (0.12 + progress * 0.2);
                 const sparkEnd =
                   flavor === 'railFocus'
@@ -1388,7 +1427,7 @@ export function ArenaCanvas({ boardWidth, boardHeight, state, vfxQuality }: Aren
                   />
                 );
               })}
-              {flavor === 'novaBloom'
+              {flavor === 'novaBloom' && !denseEffectMode
                 ? Array.from({ length: isHighVfx ? 6 : 4 }, (_, index) => {
                     const angle = (Math.PI * 2 * index) / (isHighVfx ? 6 : 4) + progress * 0.8;
                     const petalX = effect.x + Math.cos(angle) * size * (0.18 + progress * 0.18);
@@ -1576,7 +1615,7 @@ export function ArenaCanvas({ boardWidth, boardHeight, state, vfxQuality }: Aren
           {(() => {
             const basis = getProjectileBasis(bullet.vx, bullet.vy);
             const launchScale = 1 + Math.max(0, 0.18 - bullet.age) * 1.15;
-            const sizeScale = bullet.kind === 'missile' ? 0.82 : 1;
+            const sizeScale = bullet.kind === 'missile' ? 0.94 : 1;
             const renderSize = bullet.size * launchScale * sizeScale;
             const trailLength = bullet.kind === 'missile' ? renderSize * 2.8 : bullet.kind === 'shard' ? renderSize * 2.8 : renderSize * 3.9;
             const trailTailX = bullet.x - basis.forwardX * trailLength;
@@ -1628,8 +1667,18 @@ export function ArenaCanvas({ boardWidth, boardHeight, state, vfxQuality }: Aren
                 basis.forwardY,
                 basis.rightX,
                 basis.rightY,
-                renderSize * 0.42,
-                renderSize * 0.16
+                renderSize * 0.52,
+                renderSize * 0.18
+              );
+              const missileBandPath = createOrientedRectPath(
+                bullet.x - basis.forwardX * renderSize * 0.08,
+                bullet.y - basis.forwardY * renderSize * 0.08,
+                basis.forwardX,
+                basis.forwardY,
+                basis.rightX,
+                basis.rightY,
+                renderSize * 0.2,
+                renderSize * 0.46
               );
 
               return (
@@ -1637,29 +1686,30 @@ export function ArenaCanvas({ boardWidth, boardHeight, state, vfxQuality }: Aren
                   <Line
                     p1={vec(trailTailX, trailTailY)}
                     p2={vec(bullet.x - basis.forwardX * renderSize * 0.84, bullet.y - basis.forwardY * renderSize * 0.84)}
-                    color={withAlpha('#FFD4A2', 0.32)}
-                    strokeWidth={renderSize * 0.52}
+                    color={withAlpha('#FFB261', 0.34)}
+                    strokeWidth={renderSize * 0.58}
                     strokeCap="round"
                   />
                   <Line
                     p1={vec(trailTailX, trailTailY)}
                     p2={vec(bullet.x - basis.forwardX * renderSize * 0.9, bullet.y - basis.forwardY * renderSize * 0.9)}
-                    color={withAlpha('#FFF6E3', 0.5)}
-                    strokeWidth={renderSize * 0.2}
+                    color={withAlpha('#FFF7E9', 0.58)}
+                    strokeWidth={renderSize * 0.24}
                     strokeCap="round"
                   />
-                  <Path path={missileBodyPath} color={bullet.color} />
+                  <Path path={missileBodyPath} color={withAlpha('#E69A62', 0.98)} />
                   <Path path={missileBodyPath} style="stroke" strokeWidth={1.25} color={withAlpha('#FFEED5', 0.92)} />
+                  <Path path={missileBandPath} color={withAlpha('#8A4734', 0.64)} />
                   <Path path={missileNosePath} color={withAlpha('#FFF4E1', 0.96)} />
                   <Path path={missileNosePath} style="stroke" strokeWidth={1.1} color={withAlpha('#FFFDF6', 0.9)} />
-                  <Path path={missileFinLeftPath} color={withAlpha('#FFD9B3', 0.92)} />
-                  <Path path={missileFinRightPath} color={withAlpha('#FFD9B3', 0.92)} />
-                  <Path path={missileCorePath} color={withAlpha('#FFF0D2', 0.74)} />
+                  <Path path={missileFinLeftPath} color={withAlpha('#FFC58F', 0.94)} />
+                  <Path path={missileFinRightPath} color={withAlpha('#FFC58F', 0.94)} />
+                  <Path path={missileCorePath} color={withAlpha('#FFF0D2', 0.78)} />
                   <Circle
                     cx={bullet.x - basis.forwardX * renderSize * 1.04}
                     cy={bullet.y - basis.forwardY * renderSize * 1.04}
-                    r={renderSize * 0.27}
-                    color={withAlpha('#FFE8BD', 0.78)}
+                    r={renderSize * 0.32}
+                    color={withAlpha('#FFE0AA', 0.82)}
                   />
                 </>
               );

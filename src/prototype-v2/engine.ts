@@ -64,7 +64,7 @@ function getBuildProjectileCap(build: ArenaBuildId, overdrive = false) {
       case 'novaBloom':
         return 5;
       case 'missileCommand':
-        return 8;
+        return 12;
       case 'fractureCore':
         return 4;
     }
@@ -161,6 +161,37 @@ function queueEffect(
   state.nextEffectId += 1;
 }
 
+function shouldRenderCombatHitEffect(
+  state: ArenaGameState,
+  emphasis = 1,
+  flavor: ArenaEffectFlavor = 'neutral'
+) {
+  const visualLoad =
+    state.effects.length +
+    Math.min(12, Math.floor(state.playerBullets.length / 6)) +
+    Math.min(10, Math.floor(state.enemyBullets.length / 4));
+
+  if (visualLoad < 24) {
+    return true;
+  }
+
+  const emphasisBonus =
+    flavor === 'missileCommand' || flavor === 'fractureCore'
+      ? 0.16
+      : flavor === 'railFocus'
+        ? 0.08
+        : 0;
+  const weightedEmphasis = emphasis + emphasisBonus;
+
+  if (visualLoad < 30) {
+    return weightedEmphasis >= 1.18 || state.nextEffectId % 2 === 0;
+  }
+  if (visualLoad < 36) {
+    return weightedEmphasis >= 1.24 ? state.nextEffectId % 2 === 0 : state.nextEffectId % 3 === 0;
+  }
+  return weightedEmphasis >= 1.32 ? state.nextEffectId % 3 === 0 : state.nextEffectId % 4 === 0;
+}
+
 function queueEncounterAnnouncement(state: ArenaGameState, label: string, accentColor: string) {
   state.encounterAnnouncement = label;
   state.encounterAnnouncementColor = accentColor;
@@ -191,6 +222,53 @@ function buildUltimateColumns(enemies: ArenaEnemy[], boardWidth: number) {
   }
 
   return columns;
+}
+
+function getFractureUltimateEffectSize(boardWidth: number, boardHeight: number, scale = 1) {
+  const enemyZoneMaxY = getEnemyZoneMaxY(boardHeight);
+  const radius = Math.min(boardWidth * 0.31 * scale, enemyZoneMaxY * 0.33 * scale, boardHeight * 0.18 * scale);
+  return radius / 0.4;
+}
+
+function getRandomFractureUltimateCenter(
+  boardWidth: number,
+  boardHeight: number,
+  radius: number,
+  avoid?: { x: number; y: number; radius: number }
+) {
+  const padding = 18;
+  const enemyZoneMaxY = getEnemyZoneMaxY(boardHeight) - 8;
+  const minX = radius + padding;
+  const maxX = Math.max(minX, boardWidth - radius - padding);
+  const minY = radius + padding;
+  const maxY = Math.max(minY, enemyZoneMaxY - radius - padding);
+
+  let fallback = {
+    x: clamp(boardWidth * 0.5, minX, maxX),
+    y: clamp(enemyZoneMaxY * 0.54, minY, maxY),
+  };
+
+  for (let attempt = 0; attempt < 8; attempt += 1) {
+    const candidate = {
+      x: lerp(minX, maxX, Math.random()),
+      y: lerp(minY, maxY, Math.random()),
+    };
+    if (!avoid) {
+      return candidate;
+    }
+
+    const distance = Math.hypot(candidate.x - avoid.x, candidate.y - avoid.y);
+    if (distance >= radius + avoid.radius * 0.42) {
+      return candidate;
+    }
+
+    const fallbackDistance = Math.hypot(fallback.x - avoid.x, fallback.y - avoid.y);
+    if (distance > fallbackDistance) {
+      fallback = candidate;
+    }
+  }
+
+  return fallback;
 }
 
 export function getArenaDisplayTier(elapsedSeconds: number) {
@@ -234,7 +312,7 @@ export function getArenaActiveWeapon(state: ArenaGameState): ArenaWeapon {
     case 'missileCommand':
       nextWeapon = {
         ...nextWeapon,
-        damage: Math.round(nextWeapon.damage * 1.08),
+        damage: Math.round(nextWeapon.damage * 1.2),
         fireInterval: Math.max(0.062, nextWeapon.fireInterval * 0.86),
         shotCount: Math.min(6, Math.max(2, nextWeapon.shotCount + 1)),
         pierce: Math.min(4, nextWeapon.pierce + 1),
@@ -247,7 +325,7 @@ export function getArenaActiveWeapon(state: ArenaGameState): ArenaWeapon {
       nextWeapon = {
         ...nextWeapon,
         damage: Math.round(nextWeapon.damage * 1.64),
-        fireInterval: Math.max(0.32, nextWeapon.fireInterval * 2.45),
+        fireInterval: Math.max(0.48, nextWeapon.fireInterval * 3.08),
         shotCount: Math.min(3, Math.max(1, nextWeapon.shotCount)),
         pierce: Math.min(4, nextWeapon.pierce + 1),
         bulletSpeed: Math.min(1500, nextWeapon.bulletSpeed + 20),
@@ -1141,7 +1219,14 @@ function applyDamageToEnemy(
 
   enemy.health = Math.max(0, enemy.health - damage);
   enemy.flash = 1;
-  if (!options?.silentEffect) {
+  if (
+    !options?.silentEffect &&
+    shouldRenderCombatHitEffect(
+      state,
+      options?.effectIntensity ?? 1,
+      options?.effectFlavor ?? 'neutral'
+    )
+  ) {
     queueEffect(
       state,
       'burst',
@@ -1210,7 +1295,7 @@ function applyPlayerDamage(state: ArenaGameState, damage: number, boardHeight: n
 
 function getMissileLaunchOffsets(state: ArenaGameState, weapon: ArenaWeapon) {
   if (state.overclockTimer > 0) {
-    return [-46, -34, -22, -10, 10, 22, 34, 46];
+    return [-58, -48, -38, -28, -18, -8, 8, 18, 28, 38, 48, 58];
   }
 
   const volleyCount = Math.max(1, Math.min(6, weapon.shotCount));
@@ -1236,7 +1321,7 @@ function getMissileBurstWindowSeconds(state: ArenaGameState) {
     return 0.5;
   }
   const rapidCycleCount = getRapidCycleUpgradeCount(state.weapon);
-  return Math.max(0.6, 1.3 - rapidCycleCount * 0.1);
+  return Math.max(0.5, 1 - rapidCycleCount * 0.1);
 }
 
 function orderMissileOffsetsForBurst(offsets: number[]) {
@@ -1263,8 +1348,8 @@ function createPlayerMissile(
       vx: offset === 0 ? 0 : offset < 0 ? -120 : 120,
       vy: -560,
       homing: 6.4,
-      damage: Math.max(12, Math.round(weapon.damage * 2.7 * damageScale)),
-      size: Math.min(10.4, weapon.bulletSize + 0.5),
+      damage: Math.max(14, Math.round(weapon.damage * 3.35 * damageScale)),
+      size: Math.min(state.overclockTimer > 0 ? 13.2 : 11.4, weapon.bulletSize + (state.overclockTimer > 0 ? 1.4 : 0.9)),
       color: '#FFD8A6',
       age: 0,
       maxAge: 3.4,
@@ -1282,7 +1367,16 @@ function queuePlayerMissileVolley(state: ArenaGameState) {
   const weapon = getArenaActiveWeapon(state);
   const launchOffsets = orderMissileOffsetsForBurst(getMissileLaunchOffsets(state, weapon));
   const salvoCount = launchOffsets.length;
-  const salvoDamageScale = salvoCount >= 6 ? 0.8 : salvoCount >= 4 ? 0.88 : salvoCount === 3 ? 0.94 : 1;
+  const salvoDamageScale =
+    state.overclockTimer > 0
+      ? 0.82
+      : salvoCount >= 6
+        ? 0.9
+        : salvoCount >= 4
+          ? 0.95
+          : salvoCount === 3
+            ? 0.98
+            : 1;
   const burstWindow = getMissileBurstWindowSeconds(state);
   const burstInterval = salvoCount <= 1 ? 0 : burstWindow / (salvoCount - 1);
 
@@ -1319,7 +1413,16 @@ function createPlayerMissileVolleyInstant(state: ArenaGameState, boardHeight: nu
   const weapon = getArenaActiveWeapon(state);
   const launchOffsets = orderMissileOffsetsForBurst(getMissileLaunchOffsets(state, weapon));
   const salvoCount = launchOffsets.length;
-  const salvoDamageScale = salvoCount >= 6 ? 0.8 : salvoCount >= 4 ? 0.88 : salvoCount === 3 ? 0.94 : 1;
+  const salvoDamageScale =
+    state.overclockTimer > 0
+      ? 0.82
+      : salvoCount >= 6
+        ? 0.9
+        : salvoCount >= 4
+          ? 0.95
+          : salvoCount === 3
+            ? 0.98
+            : 1;
   for (const offset of launchOffsets) {
     createPlayerMissile(state, boardHeight, offset, salvoDamageScale);
   }
@@ -1354,9 +1457,10 @@ function createFractureShards(state: ArenaGameState, x: number, y: number, baseD
     state.nextBulletId += 1;
   }
   state.playerBullets = bullets;
-  queueEffect(state, 'burst', x, y, 28, '#CDE5FF', {
+  queueEffect(state, 'fractureBits', x, y, 34, '#CDE5FF', {
     flavor: 'fractureCore',
-    intensity: 1.08,
+    intensity: 1.16,
+    angle: Math.random() * Math.PI * 2,
   });
 }
 
@@ -1527,7 +1631,6 @@ export function activateArenaUltimate(
     }
   } else if (previousState.activeBuild === 'novaBloom') {
     nextState.ultimateTimer = 1.56;
-    nextState.overclockTimer = Math.max(nextState.overclockTimer, 8.4);
     queueEffect(
       nextState,
       'ultimateNova',
@@ -1587,16 +1690,39 @@ export function activateArenaUltimate(
     }
   } else {
     nextState.ultimateTimer = 1.38;
+    const primaryFractureSize = getFractureUltimateEffectSize(boardWidth, boardHeight);
+    const primaryFractureRadius = primaryFractureSize * 0.4;
+    const primaryFractureCenter = getRandomFractureUltimateCenter(boardWidth, boardHeight, primaryFractureRadius);
+    const echoFractureSize = primaryFractureSize * 0.54;
+    const echoFractureRadius = echoFractureSize * 0.4;
+    const echoFractureCenter = getRandomFractureUltimateCenter(boardWidth, boardHeight, echoFractureRadius, {
+      ...primaryFractureCenter,
+      radius: primaryFractureRadius,
+    });
     queueEffect(
       nextState,
       'ultimateFracture',
-      boardWidth * 0.5,
-      boardHeight * 0.44,
-      Math.max(boardWidth, boardHeight) * 0.9,
+      primaryFractureCenter.x,
+      primaryFractureCenter.y,
+      primaryFractureSize,
       '#C7DCFF',
       {
         flavor: 'fractureCore',
         intensity: 1.5,
+        angle: Math.random() * Math.PI * 2,
+      }
+    );
+    queueEffect(
+      nextState,
+      'ultimateFracture',
+      echoFractureCenter.x,
+      echoFractureCenter.y,
+      echoFractureSize,
+      '#D5E7FF',
+      {
+        flavor: 'fractureCore',
+        intensity: 1.18,
+        angle: Math.random() * Math.PI * 2,
       }
     );
     let shatterBursts = 0;
@@ -2008,6 +2134,7 @@ export function tickArenaState(
       if (nextState.activeBuild === 'fractureCore' && activeBullet.kind === 'primary') {
         hitDamage *= 1.16;
       }
+      const useCustomImpactEffect = activeBullet.kind === 'missile' || activeBullet.buildFlavor === 'fractureCore';
 
       applyDamageToEnemy(nextState, enemy, hitDamage, {
         allowDrafts: !nextState.activeEncounter,
@@ -2022,41 +2149,8 @@ export function tickArenaState(
                 : '#FFE5B3',
         effectFlavor: activeBullet.buildFlavor ?? 'neutral',
         effectIntensity: activeBullet.kind === 'missile' ? 1.12 : activeBullet.kind === 'shard' ? 0.92 : 1,
+        silentEffect: useCustomImpactEffect,
       });
-
-      if (activeBullet.kind !== 'missile') {
-        const impactSize =
-          activeBullet.buildFlavor === 'fractureCore'
-            ? activeBullet.size * 4.5
-            : activeBullet.kind === 'shard'
-              ? activeBullet.size * 3.7
-              : activeBullet.size * 3.1;
-        queueEffect(
-          nextState,
-          'burst',
-          activeBullet.x,
-          activeBullet.y,
-          impactSize,
-          activeBullet.buildFlavor === 'fractureCore'
-            ? '#D4E7FF'
-            : activeBullet.buildFlavor === 'novaBloom'
-              ? '#FFD3E8'
-              : activeBullet.kind === 'shard'
-                ? '#DCEBFF'
-                : '#FFE4B1',
-          {
-            flavor: activeBullet.buildFlavor ?? 'neutral',
-            intensity:
-              activeBullet.buildFlavor === 'railFocus'
-                ? 1.06
-                : activeBullet.buildFlavor === 'novaBloom'
-                  ? 1.12
-                  : activeBullet.buildFlavor === 'fractureCore'
-                    ? 1.2
-                    : 1,
-          }
-        );
-      }
 
       if (railPrecisionHit) {
         addUltimateCharge(nextState, 0.45);
@@ -2064,12 +2158,13 @@ export function tickArenaState(
 
       if (nextState.activeBuild === 'fractureCore' && activeBullet.kind === 'primary' && !triggeredFracture) {
         triggeredFracture = true;
-        queueEffect(nextState, 'fractureBits', activeBullet.x, activeBullet.y, activeBullet.size * 4.2, '#D4E8FF', {
+        queueEffect(nextState, 'fractureBits', activeBullet.x, activeBullet.y, activeBullet.size * 5.8, '#D4E8FF', {
           flavor: 'fractureCore',
-          intensity: 1.26,
+          intensity: 1.36,
+          angle: Math.random() * Math.PI * 2,
         });
         createFractureShards(nextState, activeBullet.x, activeBullet.y, hitDamage * 1.1);
-        const fracturePulseRadius = 48;
+        const fracturePulseRadius = 66;
         for (const pulseTarget of survivingEnemies) {
           if (pulseTarget === enemy || pulseTarget.health <= 0) {
             continue;
@@ -2084,16 +2179,13 @@ export function tickArenaState(
             effectColor: '#D4E8FF',
             effectFlavor: 'fractureCore',
             effectIntensity: 1.08,
+            silentEffect: true,
           });
         }
-        queueEffect(nextState, 'burst', activeBullet.x, activeBullet.y, 58, '#CCE4FF', {
-          flavor: 'fractureCore',
-          intensity: 1.24,
-        });
       }
 
       if (activeBullet.kind === 'shard') {
-        const fragmentSplashRadius = 30;
+        const fragmentSplashRadius = 44;
         for (const fragmentTarget of survivingEnemies) {
           if (fragmentTarget === enemy || fragmentTarget.health <= 0) {
             continue;
@@ -2117,17 +2209,19 @@ export function tickArenaState(
             effectColor: '#D8EAFF',
             effectFlavor: 'fractureCore',
             effectIntensity: 0.96,
+            silentEffect: true,
           });
         }
-        queueEffect(nextState, 'fractureBits', activeBullet.x, activeBullet.y, activeBullet.size * 3.2, '#D8EAFF', {
+        queueEffect(nextState, 'fractureBits', activeBullet.x, activeBullet.y, activeBullet.size * 4.6, '#D8EAFF', {
           flavor: 'fractureCore',
-          intensity: 1.08,
+          intensity: 1.18,
+          angle: Math.random() * Math.PI * 2,
         });
       }
 
       if (activeBullet.kind === 'missile') {
         const splashRadius = nextState.activeBuild === 'missileCommand' ? 66 : 52;
-        const splashDamageScale = nextState.activeBuild === 'missileCommand' ? 0.7 : 0.5;
+        const splashDamageScale = nextState.activeBuild === 'missileCommand' ? 0.84 : 0.58;
         for (const splashTarget of survivingEnemies) {
           if (splashTarget === enemy || splashTarget.health <= 0) {
             continue;
@@ -2142,12 +2236,15 @@ export function tickArenaState(
             effectColor: '#FFD9AE',
             effectFlavor: 'missileCommand',
             effectIntensity: 1.08,
+            silentEffect: true,
           });
         }
-        queueEffect(nextState, 'burst', activeBullet.x, activeBullet.y, 44, '#FFD9AE', {
-          flavor: 'missileCommand',
-          intensity: 1.2,
-        });
+        if (shouldRenderCombatHitEffect(nextState, 1.22, 'missileCommand')) {
+          queueEffect(nextState, 'burst', activeBullet.x, activeBullet.y, 44, '#FFD9AE', {
+            flavor: 'missileCommand',
+            intensity: 1.2,
+          });
+        }
       }
 
       if (activeBullet.kind === 'missile') {
