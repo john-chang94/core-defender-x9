@@ -67,7 +67,7 @@ function randomChoice<T>(items: readonly T[]): T {
 }
 
 function isBossKind(kind: ArenaEnemyKind) {
-  return kind === 'prismBoss' || kind === 'hiveCarrierBoss';
+  return kind === 'prismBoss' || kind === 'hiveCarrierBoss' || kind === 'vectorLoomBoss';
 }
 
 function createBuildValueMap<T>(factory: (buildId: ArenaBuildId) => T): ArenaBuildValueMap<T> {
@@ -332,6 +332,14 @@ function clearEncounterHazards(state: ArenaGameState, encounterTag?: ArenaEncoun
   state.hazards = state.hazards.filter((hazard) => hazard.encounterTag !== encounterTag);
 }
 
+function pushArenaHazard(state: ArenaGameState, hazard: ArenaHazard) {
+  if (state.hazards.length >= ARENA_MAX_HAZARDS) {
+    state.hazards = state.hazards.slice(state.hazards.length - ARENA_MAX_HAZARDS + 1);
+  }
+  state.hazards = [...state.hazards, hazard];
+  state.nextHazardId += 1;
+}
+
 function createImpactHazard(
   state: ArenaGameState,
   x: number,
@@ -348,30 +356,60 @@ function createImpactHazard(
     encounterTag?: ArenaEncounterScriptId | null;
   }
 ) {
-  if (state.hazards.length >= ARENA_MAX_HAZARDS) {
-    state.hazards = state.hazards.slice(state.hazards.length - ARENA_MAX_HAZARDS + 1);
+  pushArenaHazard(state, {
+    id: `HZ${state.nextHazardId}`,
+    kind: 'impact',
+    x,
+    y,
+    radius,
+    damage,
+    age: 0,
+    warningDuration: options?.warningDuration ?? 0.82,
+    lingerDuration: options?.lingerDuration ?? 0.18,
+    triggered: false,
+    color: options?.color ?? '#FFB98A',
+    accentColor: options?.accentColor ?? '#FFE2C4',
+    sourceEnemyId: options?.sourceEnemyId ?? null,
+    ownerKind: options?.ownerKind ?? null,
+    encounterTag: options?.encounterTag ?? null,
+  });
+}
+
+function createLaneBandHazard(
+  state: ArenaGameState,
+  x: number,
+  y: number,
+  width: number,
+  height: number,
+  damage: number,
+  options?: {
+    warningDuration?: number;
+    lingerDuration?: number;
+    color?: string;
+    accentColor?: string;
+    sourceEnemyId?: string | null;
+    ownerKind?: ArenaEnemyKind | null;
+    encounterTag?: ArenaEncounterScriptId | null;
   }
-  state.hazards = [
-    ...state.hazards,
-    {
-      id: `HZ${state.nextHazardId}`,
-      kind: 'impact',
-      x,
-      y,
-      radius,
-      damage,
-      age: 0,
-      warningDuration: options?.warningDuration ?? 0.82,
-      lingerDuration: options?.lingerDuration ?? 0.18,
-      triggered: false,
-      color: options?.color ?? '#FFB98A',
-      accentColor: options?.accentColor ?? '#FFE2C4',
-      sourceEnemyId: options?.sourceEnemyId ?? null,
-      ownerKind: options?.ownerKind ?? null,
-      encounterTag: options?.encounterTag ?? null,
-    },
-  ];
-  state.nextHazardId += 1;
+) {
+  pushArenaHazard(state, {
+    id: `HZ${state.nextHazardId}`,
+    kind: 'laneBand',
+    x,
+    y,
+    width,
+    height,
+    damage,
+    age: 0,
+    warningDuration: options?.warningDuration ?? 0.74,
+    lingerDuration: options?.lingerDuration ?? 0.26,
+    triggered: false,
+    color: options?.color ?? '#CBD3FF',
+    accentColor: options?.accentColor ?? '#F0F4FF',
+    sourceEnemyId: options?.sourceEnemyId ?? null,
+    ownerKind: options?.ownerKind ?? null,
+    encounterTag: options?.encounterTag ?? null,
+  });
 }
 
 function queueImpactHazardPattern(
@@ -389,14 +427,19 @@ function queueImpactHazardPattern(
   }
 ) {
   const count = options?.count ?? 1;
+  const displayTier = getArenaDisplayTier(state.elapsed);
+  const cappedCount = Math.min(count, Math.max(0, getArenaHazardCap(displayTier) - state.hazards.length));
+  if (cappedCount <= 0) {
+    return;
+  }
   const radius = options?.radius ?? 42;
   const damageScale = options?.damageScale ?? 1;
   const spread = options?.spread ?? 76;
   const baseY = clamp(boardHeight * 0.74, getEnemyZoneMaxY(boardHeight) + 32, boardHeight - 72);
   const centerX = clamp(state.playerX + (options?.patternOffset ?? 0), radius + 18, boardWidth - radius - 18);
-  const stepCount = Math.max(1, count - 1);
+  const stepCount = Math.max(1, cappedCount - 1);
 
-  for (let index = 0; index < count; index += 1) {
+  for (let index = 0; index < cappedCount; index += 1) {
     const lane = index - stepCount / 2;
     const hazardX = clamp(centerX + lane * spread, radius + 18, boardWidth - radius - 18);
     createImpactHazard(state, hazardX, baseY + Math.abs(lane) * 10, radius, ARENA_ENEMY_CONFIG[enemy.kind].bulletDamage * damageScale, {
@@ -411,6 +454,187 @@ function queueImpactHazardPattern(
   }
 }
 
+function getPlayerLaneIndex(playerX: number, boardWidth: number) {
+  const lanes = getSpawnLanes(boardWidth);
+  return lanes.reduce((bestIndex, laneX, laneIndex) => {
+    const bestDistance = Math.abs(lanes[bestIndex] - playerX);
+    const nextDistance = Math.abs(laneX - playerX);
+    return nextDistance < bestDistance ? laneIndex : bestIndex;
+  }, 0);
+}
+
+function getLaneBandMetrics(boardWidth: number, boardHeight: number) {
+  const lanes = getSpawnLanes(boardWidth);
+  const laneSpacing = lanes.length > 1 ? lanes[1] - lanes[0] : boardWidth;
+  const width = Math.min(74, laneSpacing * 0.86);
+  const y = clamp(boardHeight * 0.57, getEnemyZoneMaxY(boardHeight) + 14, boardHeight - 128);
+  const height = Math.max(94, boardHeight - y - 30);
+  return { lanes, width, y, height };
+}
+
+function queueLaneBandPattern(
+  state: ArenaGameState,
+  enemy: ArenaEnemy,
+  boardWidth: number,
+  boardHeight: number,
+  laneIndices: number[],
+  options?: {
+    warningDuration?: number;
+    beatSpacing?: number;
+    lingerDuration?: number;
+    damageScale?: number;
+    widthScale?: number;
+    heightScale?: number;
+    color?: string;
+    accentColor?: string;
+  }
+) {
+  const { lanes, width, y, height } = getLaneBandMetrics(boardWidth, boardHeight);
+  const displayTier = getArenaDisplayTier(state.elapsed);
+  const hazardBudget = Math.max(0, getArenaHazardCap(displayTier) - state.hazards.length);
+  if (hazardBudget <= 0) {
+    return;
+  }
+  const damage = ARENA_ENEMY_CONFIG[enemy.kind].bulletDamage * (options?.damageScale ?? 1);
+  const seenLaneIndices = new Set<number>();
+
+  laneIndices.forEach((laneIndex, index) => {
+    if (seenLaneIndices.size >= hazardBudget) {
+      return;
+    }
+    const clampedLaneIndex = clamp(laneIndex, 0, lanes.length - 1);
+    if (seenLaneIndices.has(clampedLaneIndex)) {
+      return;
+    }
+    seenLaneIndices.add(clampedLaneIndex);
+    createLaneBandHazard(
+      state,
+      lanes[clampedLaneIndex],
+      y,
+      width * (options?.widthScale ?? 1),
+      height * (options?.heightScale ?? 1),
+      damage,
+      {
+        warningDuration: (options?.warningDuration ?? 0.74) + index * (options?.beatSpacing ?? 0),
+        lingerDuration: options?.lingerDuration ?? 0.28,
+        color: options?.color,
+        accentColor: options?.accentColor,
+        sourceEnemyId: enemy.id,
+        ownerKind: enemy.kind,
+        encounterTag: enemy.encounterTag,
+      }
+    );
+  });
+}
+
+function queueWeaverLaneBands(
+  state: ArenaGameState,
+  enemy: ArenaEnemy,
+  boardWidth: number,
+  boardHeight: number,
+  options?: {
+    blockedCount?: number;
+    warningDuration?: number;
+    lingerDuration?: number;
+    damageScale?: number;
+    widthScale?: number;
+  }
+) {
+  const lanes = getSpawnLanes(boardWidth);
+  const playerLaneIndex = getPlayerLaneIndex(state.playerX, boardWidth);
+  const safeLaneIndex =
+    Math.random() < 0.5
+      ? playerLaneIndex
+      : clamp(playerLaneIndex + (playerLaneIndex < lanes.length / 2 ? 1 : -1), 0, lanes.length - 1);
+  const blockedCount = Math.min(lanes.length - 1, options?.blockedCount ?? 2);
+  const blockedLaneIndices: number[] = [];
+  const offsets = [1, -1, 2, -2, 3, -3];
+
+  for (const offset of offsets) {
+    const candidateLaneIndex = clamp(safeLaneIndex + offset, 0, lanes.length - 1);
+    if (candidateLaneIndex === safeLaneIndex || blockedLaneIndices.includes(candidateLaneIndex)) {
+      continue;
+    }
+    blockedLaneIndices.push(candidateLaneIndex);
+    if (blockedLaneIndices.length >= blockedCount) {
+      break;
+    }
+  }
+
+  queueLaneBandPattern(state, enemy, boardWidth, boardHeight, blockedLaneIndices, {
+    warningDuration: options?.warningDuration ?? 0.72,
+    lingerDuration: options?.lingerDuration ?? 0.3,
+    damageScale: options?.damageScale ?? 1,
+    widthScale: options?.widthScale ?? 1,
+    color:
+      enemy.kind === 'vectorLoomBoss'
+        ? '#C7D6FF'
+        : enemy.kind === 'weaver'
+          ? '#BAC9FF'
+          : '#D6DCFF',
+    accentColor:
+      enemy.kind === 'vectorLoomBoss'
+        ? '#F0F4FF'
+        : '#EDF2FF',
+  });
+}
+
+function queueConductorSweep(
+  state: ArenaGameState,
+  enemy: ArenaEnemy,
+  boardWidth: number,
+  boardHeight: number,
+  options?: {
+    beats?: number;
+    warningDuration?: number;
+    beatSpacing?: number;
+    lingerDuration?: number;
+    damageScale?: number;
+    widthScale?: number;
+  }
+) {
+  const lanes = getSpawnLanes(boardWidth);
+  const beats = Math.max(2, Math.min(options?.beats ?? 3, lanes.length - 1));
+  const playerLaneIndex = getPlayerLaneIndex(state.playerX, boardWidth);
+  const direction = playerLaneIndex >= lanes.length / 2 ? -1 : 1;
+  const startLaneIndex =
+    direction > 0
+      ? clamp(playerLaneIndex - 1, 0, lanes.length - beats)
+      : clamp(playerLaneIndex + 1, beats - 1, lanes.length - 1);
+  const laneIndices = Array.from({ length: beats }, (_, index) =>
+    direction > 0 ? startLaneIndex + index : startLaneIndex - index
+  );
+
+  queueLaneBandPattern(state, enemy, boardWidth, boardHeight, laneIndices, {
+    warningDuration: options?.warningDuration ?? 0.6,
+    beatSpacing: options?.beatSpacing ?? 0.18,
+    lingerDuration: options?.lingerDuration ?? 0.24,
+    damageScale: options?.damageScale ?? 1,
+    widthScale: options?.widthScale ?? 0.96,
+    color:
+      enemy.kind === 'vectorLoomBoss'
+        ? '#D6E0FF'
+        : '#FFE5A0',
+    accentColor:
+      enemy.kind === 'vectorLoomBoss'
+        ? '#FFF6D9'
+        : '#FFF3C8',
+  });
+}
+
+function hitTestRectangles(
+  leftA: number,
+  topA: number,
+  rightA: number,
+  bottomA: number,
+  leftB: number,
+  topB: number,
+  rightB: number,
+  bottomB: number
+) {
+  return leftA <= rightB && rightA >= leftB && topA <= bottomB && bottomA >= topB;
+}
+
 function tickHazards(state: ArenaGameState, boardWidth: number, boardHeight: number, deltaSeconds: number) {
   const playerHitbox = getPlayerHitbox(state, boardHeight);
   const nextHazards: ArenaHazard[] = [];
@@ -420,13 +644,31 @@ function tickHazards(state: ArenaGameState, boardWidth: number, boardHeight: num
     const triggered = hazard.triggered || nextAge >= hazard.warningDuration;
 
     if (!hazard.triggered && triggered) {
-      queueEffect(state, 'burst', hazard.x, hazard.y, hazard.radius * 1.8, hazard.color, {
+      const effectX = hazard.x;
+      const effectY = hazard.kind === 'impact' ? hazard.y : hazard.y + hazard.height * 0.5;
+      const effectSize = hazard.kind === 'impact' ? hazard.radius * 1.8 : Math.max(hazard.width, hazard.height) * 0.7;
+      queueEffect(state, 'burst', effectX, effectY, effectSize, hazard.color, {
         flavor: 'enemy',
         intensity: 1.14,
       });
-      const closestX = clamp(hazard.x, playerHitbox.left, playerHitbox.right);
-      const closestY = clamp(hazard.y, playerHitbox.top, playerHitbox.bottom);
-      if (hitTestCircle(hazard.x, hazard.y, hazard.radius, closestX, closestY, 2)) {
+      const playerHit =
+        hazard.kind === 'impact'
+          ? (() => {
+              const closestX = clamp(hazard.x, playerHitbox.left, playerHitbox.right);
+              const closestY = clamp(hazard.y, playerHitbox.top, playerHitbox.bottom);
+              return hitTestCircle(hazard.x, hazard.y, hazard.radius, closestX, closestY, 2);
+            })()
+          : hitTestRectangles(
+              hazard.x - hazard.width / 2,
+              hazard.y,
+              hazard.x + hazard.width / 2,
+              hazard.y + hazard.height,
+              playerHitbox.left,
+              playerHitbox.top,
+              playerHitbox.right,
+              playerHitbox.bottom
+            );
+      if (playerHit) {
         applyPlayerDamage(state, hazard.damage, boardHeight);
         if (state.status !== 'running') {
           state.playerBullets = [];
@@ -438,12 +680,17 @@ function tickHazards(state: ArenaGameState, boardWidth: number, boardHeight: num
       }
     }
 
-    if (
-      nextAge >= hazard.warningDuration + hazard.lingerDuration ||
-      hazard.x + hazard.radius < -32 ||
-      hazard.x - hazard.radius > boardWidth + 32 ||
-      hazard.y - hazard.radius > boardHeight + 32
-    ) {
+    const expiredByBounds =
+      hazard.kind === 'impact'
+        ? hazard.x + hazard.radius < -32 ||
+          hazard.x - hazard.radius > boardWidth + 32 ||
+          hazard.y - hazard.radius > boardHeight + 32
+        : hazard.x + hazard.width / 2 < -32 ||
+          hazard.x - hazard.width / 2 > boardWidth + 32 ||
+          hazard.y > boardHeight + 32 ||
+          hazard.y + hazard.height < -32;
+
+    if (nextAge >= hazard.warningDuration + hazard.lingerDuration || expiredByBounds) {
       continue;
     }
 
@@ -728,6 +975,12 @@ function getEnemyKindPool(displayTier: number): ArenaEnemyKind[] {
   if (displayTier >= 14) {
     addWeighted('artillery', displayTier <= 22 ? 1 : 2);
   }
+  if (displayTier >= 16) {
+    addWeighted('weaver', displayTier <= 24 ? 1 : 2);
+  }
+  if (displayTier >= 18) {
+    addWeighted('conductor', displayTier <= 26 ? 1 : 2);
+  }
   if (displayTier >= 15) {
     addWeighted('interceptor', 1);
   }
@@ -753,8 +1006,11 @@ function getEnemyAttackCooldown(
     lancer: 0.018,
     carrier: 0.014,
     artillery: 0.012,
+    weaver: 0.013,
+    conductor: 0.017,
     prismBoss: 0.014,
     hiveCarrierBoss: 0.013,
+    vectorLoomBoss: 0.013,
   };
   const floorByKind: Record<ArenaEnemyKind, number> = {
     hover: 0.92,
@@ -768,8 +1024,11 @@ function getEnemyAttackCooldown(
     lancer: 1.48,
     carrier: 1.52,
     artillery: 1.8,
+    weaver: 1.62,
+    conductor: 1.54,
     prismBoss: 1.15,
     hiveCarrierBoss: 1.24,
+    vectorLoomBoss: 1.2,
   };
   const tierReduction = Math.min(0.75, Math.max(0, displayTier - 1) * tierReductionPerTier[kind]);
   const bulletBackPressure = Math.min(0.44, Math.max(0, activeEnemyBulletCount - 8) * 0.025);
@@ -799,6 +1058,12 @@ function getEnemyTierHealthMultiplier(displayTier: number, kind: ArenaEnemyKind)
   }
   if (kind === 'artillery') {
     return postT10Multiplier * 1.18;
+  }
+  if (kind === 'weaver') {
+    return postT10Multiplier * 1.16;
+  }
+  if (kind === 'conductor') {
+    return postT10Multiplier * 1.14;
   }
   if (kind === 'lancer') {
     return postT10Multiplier * 1.15;
@@ -949,18 +1214,24 @@ function getEnemyAimAngle(enemy: ArenaEnemy, playerX: number, boardHeight: numbe
       : enemy.kind === 'interceptor'
         ? 0.24
         : enemy.kind === 'lancer'
-          ? 0.14
+        ? 0.14
         : enemy.kind === 'prismBoss'
           ? 0.22
           : enemy.kind === 'hiveCarrierBoss'
-          ? 0.22
+            ? 0.22
+            : enemy.kind === 'vectorLoomBoss'
+              ? 0.2
           : enemy.kind === 'warden'
             ? 0.06
             : enemy.kind === 'carrier'
               ? 0.08
               : enemy.kind === 'artillery'
                 ? 0.04
-          : 0.08;
+                : enemy.kind === 'weaver'
+                  ? 0.05
+                  : enemy.kind === 'conductor'
+                    ? 0.11
+                    : 0.08;
   const targetX = enemy.kind === 'lancer' && enemy.laneTargetX !== null ? enemy.laneTargetX : playerX;
   const leadX = targetX + enemy.vx * leadFactor;
   let angle = Math.atan2(leadX - enemy.x, targetY - enemy.y);
@@ -984,6 +1255,9 @@ function getEnemyAimAngle(enemy: ArenaEnemy, playerX: number, boardHeight: numbe
   }
   if (enemy.kind === 'hiveCarrierBoss') {
     angle += Math.sin(enemy.phase * 0.84) * 0.08;
+  }
+  if (enemy.kind === 'vectorLoomBoss') {
+    angle += Math.sin(enemy.phase * 0.92) * 0.07;
   }
   if (enemy.kind === 'bomber') {
     angle += Math.sin(enemy.phase * 0.8) * 0.06;
@@ -1030,8 +1304,14 @@ function createEnemyProjectile(
         return '#FFE0B9';
       case 'carrier':
         return '#D8FFE6';
+      case 'weaver':
+        return '#DCE4FF';
+      case 'conductor':
+        return '#FFF0BA';
       case 'hiveCarrierBoss':
         return '#CFFFF0';
+      case 'vectorLoomBoss':
+        return '#E3EAFF';
       case 'prismBoss':
         return '#FFC2DF';
       default:
@@ -1049,13 +1329,17 @@ function createEnemyProjectile(
         case 'bomber':
         case 'artillery':
         case 'hiveCarrierBoss':
+        case 'vectorLoomBoss':
           return 'bomb' as const;
         case 'orbiter':
           return 'wave' as const;
         case 'hover':
         case 'warden':
         case 'carrier':
+        case 'weaver':
           return 'orb' as const;
+        case 'conductor':
+          return 'wave' as const;
         default:
           return 'bolt' as const;
       }
@@ -1116,6 +1400,8 @@ function createEnemyLaneStrike(
             ? '#FFD8E9'
             : enemy.kind === 'hiveCarrierBoss'
               ? '#D4FFF0'
+              : enemy.kind === 'vectorLoomBoss'
+                ? '#E5EDFF'
               : '#FFE8C8',
         age: 0,
         maxAge: Math.max(1.8, (boardHeight - enemy.y) / Math.max(220, config.bulletSpeed) + 0.8),
@@ -1246,6 +1532,42 @@ function fireEnemyPattern(state: ArenaGameState, enemy: ArenaEnemy, boardWidth: 
       }
       if (pressureRatio < 0.7) {
         fireShot(desiredAngle, 1.06, 0.9, 1.08, { style: 'bomb' });
+      }
+      break;
+    case 'weaver':
+      if (remainingHazardBudget > 0) {
+        queueWeaverLaneBands(state, enemy, boardWidth, boardHeight, {
+          blockedCount: remainingHazardBudget >= 3 && displayTier >= 24 ? 3 : 2,
+          warningDuration: 0.7,
+          lingerDuration: 0.32,
+          damageScale: 1.02,
+          widthScale: remainingHazardBudget >= 3 ? 0.94 : 1,
+        });
+      }
+      if (pressureRatio < 0.76) {
+        fireShot(desiredAngle, 0.94, 0.98, 0.94, {
+          style: 'orb',
+          driftAmp: 8,
+          driftFreq: 5.6,
+        });
+      }
+      break;
+    case 'conductor':
+      if (remainingHazardBudget > 0) {
+        queueConductorSweep(state, enemy, boardWidth, boardHeight, {
+          beats: remainingHazardBudget >= 3 ? 3 : 2,
+          warningDuration: 0.58,
+          beatSpacing: 0.18,
+          lingerDuration: 0.24,
+          damageScale: 1.04,
+        });
+      }
+      if (pressureRatio < 0.78) {
+        fireFan(2, 0.13, 0.9, 1.06, 0.86, {
+          style: 'wave',
+          driftAmp: 12,
+          driftFreq: 5.2,
+        });
       }
       break;
     case 'tank':
@@ -1382,6 +1704,65 @@ function fireEnemyPattern(state: ArenaGameState, enemy: ArenaEnemy, boardWidth: 
         }
       }
       break;
+    case 'vectorLoomBoss':
+      if (bossPhase === 0) {
+        if (remainingHazardBudget > 0) {
+          queueWeaverLaneBands(state, enemy, boardWidth, boardHeight, {
+            blockedCount: remainingHazardBudget >= 3 ? 3 : 2,
+            warningDuration: 0.66,
+            lingerDuration: 0.32,
+            damageScale: 1.04,
+            widthScale: 0.98,
+          });
+        }
+        if (pressureRatio < 0.82) {
+          fireFan(scaledCount(4, 2), 0.16, 0.92, 1.02, 0.92, {
+            style: 'wave',
+            driftAmp: 15,
+            driftFreq: 5.1,
+          });
+        }
+      } else if (bossPhase === 1) {
+        if (remainingHazardBudget > 0) {
+          queueConductorSweep(state, enemy, boardWidth, boardHeight, {
+            beats: remainingHazardBudget >= 3 ? 3 : 2,
+            warningDuration: 0.54,
+            beatSpacing: 0.16,
+            lingerDuration: 0.24,
+            damageScale: 1.08,
+            widthScale: 0.98,
+          });
+        }
+        if (pressureRatio < 0.84) {
+          fireFan(scaledCount(4, 2), 0.18, 0.96, 1.06, 0.9, {
+            style: 'needle',
+          });
+        }
+      } else {
+        if (remainingHazardBudget > 0) {
+          queueWeaverLaneBands(state, enemy, boardWidth, boardHeight, {
+            blockedCount: remainingHazardBudget >= 4 ? 3 : 2,
+            warningDuration: 0.62,
+            lingerDuration: 0.3,
+            damageScale: 1.08,
+            widthScale: 1,
+          });
+          if (state.hazards.length < getArenaHazardCap(displayTier)) {
+            queueConductorSweep(state, enemy, boardWidth, boardHeight, {
+              beats: Math.min(2, Math.max(1, getArenaHazardCap(displayTier) - state.hazards.length)),
+              warningDuration: 0.7,
+              beatSpacing: 0.16,
+              lingerDuration: 0.22,
+              damageScale: 1.02,
+              widthScale: 0.94,
+            });
+          }
+        }
+        if (pressureRatio < 0.84) {
+          fireFan(scaledCount(5, 3), 0.16, 0.98, 1.08, 0.92, { style: 'bolt' });
+        }
+      }
+      break;
     default:
       if (config.burstCount <= 1) {
         fireShot(desiredAngle, 1, 1, 1);
@@ -1412,6 +1793,10 @@ function beginEnemyAttackWindup(
         ? 0.94
       : enemy.kind === 'lancer'
         ? 0.92
+        : enemy.kind === 'conductor'
+          ? 0.94
+          : enemy.kind === 'weaver'
+            ? 0.96
         : 1;
 
   enemy.windupTimer = config.windupDuration;
@@ -1482,6 +1867,8 @@ function spawnEnemy(
     isBossKind(kind)
       ? kind === 'hiveCarrierBoss'
         ? 2.45
+        : kind === 'vectorLoomBoss'
+          ? 2.5
         : 2.3
       : kind === 'interceptor'
         ? 1.4
@@ -1489,6 +1876,10 @@ function spawnEnemy(
           ? 1.12
           : kind === 'artillery'
             ? 1.1
+            : kind === 'weaver'
+              ? 1.08
+              : kind === 'conductor'
+                ? 1.06
             : 1;
   const tierHealthMultiplier = getEnemyTierHealthMultiplier(displayTier, kind);
   const health = Math.round(
@@ -1541,6 +1932,8 @@ function spawnEnemy(
             ? (1.3 + Math.random() * 0.4) * (options?.specialCooldownMultiplier ?? 1)
             : kind === 'hiveCarrierBoss'
               ? (1.45 + Math.random() * 0.35) * (options?.specialCooldownMultiplier ?? 1)
+              : kind === 'vectorLoomBoss'
+                ? (1.35 + Math.random() * 0.3) * (options?.specialCooldownMultiplier ?? 1)
               : 0,
     protectedTimer: 0,
     protectedByEnemyId: null,
@@ -1592,8 +1985,11 @@ function spawnEnemyGroup(state: ArenaGameState, boardWidth: number, boardHeight:
     lancer: 0.16,
     carrier: 0.14,
     artillery: 0.1,
+    weaver: 0.14,
+    conductor: 0.12,
     prismBoss: 0,
     hiveCarrierBoss: 0,
+    vectorLoomBoss: 0,
   };
   const wingmanChance = Math.max(0.08, wingmanChanceByKind[primaryKind] - bulletPressure * 0.24);
   if (displayTier >= 4 && Math.random() < wingmanChance) {
@@ -1669,10 +2065,14 @@ function maybeSpawnEnemyDrop(state: ArenaGameState, enemy: ArenaEnemy) {
       ? 0.14
       : enemy.kind === 'bomber'
         ? 0.1
-        : enemy.kind === 'carrier'
+      : enemy.kind === 'carrier'
           ? 0.09
           : enemy.kind === 'artillery'
             ? 0.08
+            : enemy.kind === 'weaver'
+              ? 0.08
+              : enemy.kind === 'conductor'
+                ? 0.075
         : enemy.kind === 'burst'
           ? 0.07
           : 0.045;
@@ -1713,6 +2113,22 @@ function maybeSpawnEnemyDrop(state: ArenaGameState, enemy: ArenaEnemy) {
             ? 'shieldCell'
             : roll < 0.68
               ? 'overdrive'
+              : 'hullPatch'
+      : enemy.kind === 'weaver'
+        ? roll < 0.32
+          ? 'salvageBurst'
+          : roll < 0.54
+            ? 'shieldCell'
+            : roll < 0.68
+              ? 'overdrive'
+              : 'hullPatch'
+      : enemy.kind === 'conductor'
+        ? roll < 0.26
+          ? 'salvageBurst'
+          : roll < 0.44
+            ? 'overdrive'
+            : roll < 0.62
+              ? 'shieldCell'
               : 'hullPatch'
       : roll < 0.12
         ? 'shieldCell'
@@ -1905,7 +2321,7 @@ function maybeAdvanceBossPhase(
   }
 
   const nextPhaseDefinition = getArenaBossPhaseDefinition(
-    state.activeEncounter.scriptId as Extract<ArenaEncounter['scriptId'], 'prismCore' | 'hiveCarrier'>,
+    state.activeEncounter.scriptId as Extract<ArenaEncounter['scriptId'], 'prismCore' | 'hiveCarrier' | 'vectorLoom'>,
     nextPhaseIndex as 1 | 2
   );
   const anchorHealthRatio = anchorEnemy.health / Math.max(1, anchorEnemy.maxHealth);
@@ -2819,16 +3235,22 @@ export function tickArenaState(
                         ? 1.05
                         : enemy.kind === 'lancer'
                           ? 1.9
-                          : enemy.kind === 'carrier'
+                      : enemy.kind === 'carrier'
                             ? 0.92
                             : enemy.kind === 'artillery'
                               ? 0.62
+                              : enemy.kind === 'weaver'
+                                ? 0.88
+                                : enemy.kind === 'conductor'
+                                  ? 1.35
                               : enemy.kind === 'interceptor'
                                 ? 2.6
                                 : enemy.kind === 'prismBoss'
                                   ? 0.75
                                   : enemy.kind === 'hiveCarrierBoss'
                                     ? 0.68
+                                    : enemy.kind === 'vectorLoomBoss'
+                                      ? 0.72
                                     : 1),
     };
     if (nextEnemy.protectedTimer <= 0) {
@@ -2872,6 +3294,13 @@ export function tickArenaState(
       } else if (enemy.kind === 'artillery') {
         const holdTarget = Math.sign(nextEnemy.vx || 1) * config.strafeSpeed * 0.32;
         nextEnemy.vx += (holdTarget - nextEnemy.vx) * Math.min(1, deltaSeconds * 0.8);
+      } else if (enemy.kind === 'weaver') {
+        const threadTarget = Math.sin(nextEnemy.phase * 0.76) * config.strafeSpeed * 0.64;
+        nextEnemy.vx += (threadTarget - nextEnemy.vx) * Math.min(1, deltaSeconds * 0.96);
+      } else if (enemy.kind === 'conductor') {
+        const sweepDirection = Math.sign(nextState.playerX - nextEnemy.x) || Math.sign(nextEnemy.vx || 1);
+        const sweepTarget = sweepDirection * config.strafeSpeed * 0.82;
+        nextEnemy.vx += (sweepTarget - nextEnemy.vx) * Math.min(1, deltaSeconds * 1.35);
       } else if (enemy.kind === 'prismBoss') {
         const prismBossPhase = getBossPhaseIndex(nextState, nextEnemy);
         const phaseSpeedMultiplier = prismBossPhase === 2 ? 1.58 : prismBossPhase === 1 ? 0.92 : 1.18;
@@ -2887,6 +3316,13 @@ export function tickArenaState(
           config.strafeSpeed *
           (hivePhase === 1 ? 0.74 : hivePhase === 2 ? 1.2 : 0.92);
         nextEnemy.vx += (sweepTarget - nextEnemy.vx) * Math.min(1, deltaSeconds * 1.05);
+      } else if (enemy.kind === 'vectorLoomBoss') {
+        const loomPhase = getBossPhaseIndex(nextState, nextEnemy);
+        const weaveTarget =
+          Math.sin(nextEnemy.phase * (loomPhase === 2 ? 1.02 : loomPhase === 1 ? 0.9 : 0.74)) *
+          config.strafeSpeed *
+          (loomPhase === 0 ? 1.02 : loomPhase === 1 ? 1.18 : 1.3);
+        nextEnemy.vx += (weaveTarget - nextEnemy.vx) * Math.min(1, deltaSeconds * 1.08);
       }
 
       nextEnemy.x += nextEnemy.vx * deltaSeconds;
@@ -2930,6 +3366,12 @@ export function tickArenaState(
         case 'artillery':
           nextEnemy.y = nextEnemy.cruiseY + Math.sin(nextEnemy.phase * 0.7) * Math.max(1.5, config.bobAmplitude * 0.28);
           break;
+        case 'weaver':
+          nextEnemy.y = nextEnemy.cruiseY + Math.sin(nextEnemy.phase * 0.9) * config.bobAmplitude * 0.52;
+          break;
+        case 'conductor':
+          nextEnemy.y = nextEnemy.cruiseY + Math.sin(nextEnemy.phase * 1.5) * config.bobAmplitude * 0.48;
+          break;
         case 'interceptor':
           nextEnemy.y = nextEnemy.cruiseY + Math.sin(nextEnemy.phase * 2.4) * config.bobAmplitude * 0.5;
           break;
@@ -2946,6 +3388,13 @@ export function tickArenaState(
             Math.sin(nextEnemy.phase * (getBossPhaseIndex(nextState, nextEnemy) === 2 ? 1.14 : 0.88)) *
               config.bobAmplitude *
               (getBossPhaseIndex(nextState, nextEnemy) === 1 ? 1.58 : 1.34);
+          break;
+        case 'vectorLoomBoss':
+          nextEnemy.y =
+            nextEnemy.cruiseY +
+            Math.sin(nextEnemy.phase * (getBossPhaseIndex(nextState, nextEnemy) === 2 ? 1.2 : 0.96)) *
+              config.bobAmplitude *
+              (getBossPhaseIndex(nextState, nextEnemy) === 1 ? 1.64 : getBossPhaseIndex(nextState, nextEnemy) === 2 ? 1.9 : 1.42);
           break;
         default:
           nextEnemy.y = nextEnemy.cruiseY;

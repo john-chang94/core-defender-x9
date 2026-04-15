@@ -18,13 +18,13 @@ import {
   ARENA_ENEMY_ZONE_RATIO,
   ARENA_PLAYER_FLOOR_OFFSET,
   ARENA_PLAYER_HEIGHT,
-  ARENA_TIER_DURATION_SECONDS,
 } from './config';
-import type { ArenaEnemy, ArenaGameState, ArenaVfxQuality } from './types';
+import type { ArenaBiomeDefinition, ArenaEnemy, ArenaGameState, ArenaVfxQuality } from './types';
 
 type ArenaCanvasProps = {
   boardWidth: number;
   boardHeight: number;
+  biomeDefinition: ArenaBiomeDefinition;
   state: ArenaGameState;
   vfxQuality: ArenaVfxQuality;
 };
@@ -34,12 +34,12 @@ const MAX_RENDERED_PLAYER_BULLETS = 72;
 const MAX_RENDERED_ENEMY_BULLETS = 42;
 
 const BACKGROUND_PLATES = [
-  { x: 0.08, y: -30, width: 96, height: 152, radius: 18, speed: 18, color: '#132236', stroke: '#203754' },
-  { x: 0.74, y: 54, width: 110, height: 180, radius: 20, speed: 26, color: '#102035', stroke: '#25415E' },
-  { x: 0.42, y: 160, width: 84, height: 128, radius: 16, speed: 22, color: '#0E1C30', stroke: '#1F3550' },
-  { x: 0.16, y: 300, width: 120, height: 168, radius: 20, speed: 28, color: '#12243A', stroke: '#274666' },
-  { x: 0.68, y: 420, width: 92, height: 132, radius: 18, speed: 20, color: '#0E1D31', stroke: '#23415D' },
-  { x: 0.5, y: 560, width: 124, height: 164, radius: 22, speed: 24, color: '#122439', stroke: '#284B6D' },
+  { x: 0.08, y: -30, width: 96, height: 152, radius: 18, speed: 18 },
+  { x: 0.74, y: 54, width: 110, height: 180, radius: 20, speed: 26 },
+  { x: 0.42, y: 160, width: 84, height: 128, radius: 16, speed: 22 },
+  { x: 0.16, y: 300, width: 120, height: 168, radius: 20, speed: 28 },
+  { x: 0.68, y: 420, width: 92, height: 132, radius: 18, speed: 20 },
+  { x: 0.5, y: 560, width: 124, height: 164, radius: 22, speed: 24 },
 ] as const;
 
 const FLOW_STREAKS = [
@@ -53,16 +53,16 @@ const FLOW_STREAKS = [
 ];
 
 const ATMOSPHERE_ORBS = [
-  { x: 0.14, y: -80, radius: 120, speed: 20, color: '#6EDCFF', opacity: 0.075 },
-  { x: 0.84, y: 42, radius: 156, speed: 15, color: '#FF89C0', opacity: 0.07 },
-  { x: 0.34, y: 280, radius: 102, speed: 18, color: '#9EC7FF', opacity: 0.06 },
-  { x: 0.72, y: 420, radius: 130, speed: 23, color: '#FFD39C', opacity: 0.062 },
+  { x: 0.14, y: -80, radius: 120, speed: 20 },
+  { x: 0.84, y: 42, radius: 156, speed: 15 },
+  { x: 0.34, y: 280, radius: 102, speed: 18 },
+  { x: 0.72, y: 420, radius: 130, speed: 23 },
 ] as const;
 
 const ENERGY_SWEEPS = [
-  { x: 0.22, width: 52, height: 240, speed: 42, color: '#8BD2FF' },
-  { x: 0.56, width: 66, height: 290, speed: 35, color: '#FFC9E5' },
-  { x: 0.8, width: 58, height: 260, speed: 47, color: '#B6E7FF' },
+  { x: 0.22, width: 52, height: 240, speed: 42 },
+  { x: 0.56, width: 66, height: 290, speed: 35 },
+  { x: 0.8, width: 58, height: 260, speed: 47 },
 ] as const;
 
 type OverdriveCrackSegment = {
@@ -114,54 +114,6 @@ function createOverdriveCrackSegments(boardWidth: number, boardHeight: number, h
 
   return segments;
 }
-
-type ArenaTheme = {
-  base: string;
-  auraA: string;
-  auraB: string;
-  enemyZone: string;
-  boundary: string;
-  grid: string;
-  overlay: string;
-  flow: string;
-  pulse: string;
-};
-
-const ARENA_THEMES: readonly ArenaTheme[] = [
-  {
-    base: '#08131E',
-    auraA: 'rgba(255, 112, 176, 0.08)',
-    auraB: 'rgba(102, 234, 255, 0.06)',
-    enemyZone: 'rgba(255, 121, 183, 0.045)',
-    boundary: 'rgba(255, 184, 112, 0.28)',
-    grid: 'rgba(122, 149, 184, 0.12)',
-    overlay: '#12253A',
-    flow: '#91CDFF',
-    pulse: '#FF9CC5',
-  },
-  {
-    base: '#091521',
-    auraA: 'rgba(120, 169, 255, 0.08)',
-    auraB: 'rgba(142, 255, 218, 0.06)',
-    enemyZone: 'rgba(112, 199, 255, 0.05)',
-    boundary: 'rgba(148, 213, 255, 0.3)',
-    grid: 'rgba(114, 154, 198, 0.12)',
-    overlay: '#1A2F4D',
-    flow: '#87E4FF',
-    pulse: '#8BCBFF',
-  },
-  {
-    base: '#101022',
-    auraA: 'rgba(255, 149, 102, 0.08)',
-    auraB: 'rgba(255, 217, 133, 0.05)',
-    enemyZone: 'rgba(255, 169, 107, 0.05)',
-    boundary: 'rgba(255, 209, 139, 0.3)',
-    grid: 'rgba(156, 141, 188, 0.11)',
-    overlay: '#2C2141',
-    flow: '#FFD9A3',
-    pulse: '#FFB589',
-  },
-];
 
 function withAlpha(color: string, alpha: number) {
   const normalizedHex = color.startsWith('#') ? color.slice(1) : color;
@@ -517,6 +469,29 @@ const ENEMY_HULL_POINTS: Record<ArenaEnemy['kind'], readonly EnemyLocalPoint[]> 
     [-0.92, 0.58],
     [0.18, 0.74],
   ],
+  weaver: [
+    [1.06, 0],
+    [0.56, 0.38],
+    [0.18, 0.96],
+    [-0.46, 0.62],
+    [-1, 0.18],
+    [-1, -0.18],
+    [-0.46, -0.62],
+    [0.18, -0.96],
+    [0.56, -0.38],
+  ],
+  conductor: [
+    [1.08, 0.08],
+    [0.7, 0.48],
+    [0.18, 0.74],
+    [-0.42, 0.98],
+    [-0.92, 0.42],
+    [-1.04, 0],
+    [-0.92, -0.42],
+    [-0.42, -0.98],
+    [0.18, -0.74],
+    [0.7, -0.48],
+  ],
   prismBoss: [
     [1.1, 0],
     [0.42, 0.92],
@@ -536,6 +511,17 @@ const ENEMY_HULL_POINTS: Record<ArenaEnemy['kind'], readonly EnemyLocalPoint[]> 
     [-0.9, 0.58],
     [-0.18, 0.96],
     [0.42, 0.88],
+  ],
+  vectorLoomBoss: [
+    [1.12, 0],
+    [0.68, 0.52],
+    [0.18, 1.04],
+    [-0.5, 0.74],
+    [-1.04, 0.18],
+    [-1.04, -0.18],
+    [-0.5, -0.74],
+    [0.18, -1.04],
+    [0.68, -0.52],
   ],
 };
 
@@ -598,10 +584,16 @@ function createEnemyWingPanelPath(enemy: ArenaEnemy, side: -1 | 1) {
       ? 0.7
       : enemy.kind === 'hiveCarrierBoss'
         ? 0.76
+        : enemy.kind === 'vectorLoomBoss'
+          ? 0.74
         : enemy.kind === 'carrier'
           ? 0.72
           : enemy.kind === 'artillery'
             ? 0.64
+            : enemy.kind === 'weaver'
+              ? 0.68
+              : enemy.kind === 'conductor'
+                ? 0.62
       : enemy.kind === 'tank'
         ? 0.62
         : enemy.kind === 'sniper'
@@ -654,12 +646,15 @@ function createEnemyGunBarrelPaths(enemy: ArenaEnemy) {
     enemy.kind === 'bomber' ||
     enemy.kind === 'prismBoss' ||
     enemy.kind === 'hiveCarrierBoss' ||
+    enemy.kind === 'vectorLoomBoss' ||
     enemy.kind === 'artillery' ||
     enemy.kind === 'interceptor'
   ) {
     const sideOffset = enemy.kind === 'prismBoss' ? enemy.size * 0.16 : enemy.size * 0.13;
     const sideBarrelLength =
-      enemy.kind === 'prismBoss' || enemy.kind === 'hiveCarrierBoss' ? enemy.size * 0.18 : enemy.size * 0.16;
+      enemy.kind === 'prismBoss' || enemy.kind === 'hiveCarrierBoss' || enemy.kind === 'vectorLoomBoss'
+        ? enemy.size * 0.18
+        : enemy.size * 0.16;
     const sideBarrelWidth = enemy.size * 0.052;
     barrels.push(
       createOrientedRectPath(
@@ -743,7 +738,7 @@ function createStaticBackgroundScene({
   boardHeight: number;
   verticalGridLines: number[];
   horizontalGridLines: number[];
-  theme: ArenaTheme;
+  theme: ArenaBiomeDefinition;
 }) {
   const enemyZoneHeight = boardHeight * ARENA_ENEMY_ZONE_RATIO;
 
@@ -786,11 +781,14 @@ function createStaticBackgroundScene({
 function renderEnemyCore(enemy: ArenaEnemy) {
   const enemyPath = createEnemyHullPath(enemy);
   const isElite = enemy.kind === 'interceptor' || enemy.kind === 'carrier' || enemy.kind === 'artillery';
-  const isBoss = enemy.kind === 'prismBoss' || enemy.kind === 'hiveCarrierBoss';
+  const isBoss =
+    enemy.kind === 'prismBoss' || enemy.kind === 'hiveCarrierBoss' || enemy.kind === 'vectorLoomBoss';
   const isProtected = enemy.protectedTimer > 0;
   const auraColor =
     enemy.kind === 'hiveCarrierBoss'
       ? '#93F0D5'
+      : enemy.kind === 'vectorLoomBoss'
+        ? '#C8D7FF'
       : isBoss
         ? '#FF89C0'
         : enemy.kind === 'carrier'
@@ -855,10 +853,8 @@ function PathOrFallback({
   );
 }
 
-export function ArenaCanvas({ boardWidth, boardHeight, state, vfxQuality }: ArenaCanvasProps) {
-  const displayTier = Math.floor(state.elapsed / ARENA_TIER_DURATION_SECONDS) + 1;
-  const themeIndex = Math.floor((displayTier - 1) / 5) % ARENA_THEMES.length;
-  const theme = ARENA_THEMES[themeIndex];
+export function ArenaCanvas({ boardWidth, boardHeight, biomeDefinition, state, vfxQuality }: ArenaCanvasProps) {
+  const theme = biomeDefinition;
   const themePulse = 0.5 + Math.sin(state.elapsed * 0.45) * 0.5;
   const overdriveBlend = clamp(state.overclockVisualBlend, 0, 1);
   const overdrivePulse = 0.5 + Math.sin(state.elapsed * 7.4) * 0.5;
@@ -1037,6 +1033,7 @@ export function ArenaCanvas({ boardWidth, boardHeight, state, vfxQuality }: Aren
 
       {isHighVfx
         ? ATMOSPHERE_ORBS.map((orb, index) => {
+            const orbStyle = theme.atmosphereOrbs[index % theme.atmosphereOrbs.length] ?? theme.atmosphereOrbs[0];
             const travel = boardHeight + orb.radius * 2 + 220;
             const orbY = ((orb.y + state.elapsed * orb.speed) % travel) - orb.radius - 100;
             const orbX = boardWidth * orb.x + Math.sin(state.elapsed * 0.42 + index * 1.3) * 18;
@@ -1046,7 +1043,7 @@ export function ArenaCanvas({ boardWidth, boardHeight, state, vfxQuality }: Aren
                 cx={orbX}
                 cy={orbY}
                 r={orb.radius}
-                color={withAlpha(orb.color, orb.opacity)}
+                color={withAlpha(orbStyle.color, orbStyle.opacity)}
               />
             );
           })
@@ -1054,6 +1051,7 @@ export function ArenaCanvas({ boardWidth, boardHeight, state, vfxQuality }: Aren
 
       {isHighVfx
         ? ENERGY_SWEEPS.map((sweep, index) => {
+            const sweepStyle = theme.energySweeps[index % theme.energySweeps.length] ?? theme.energySweeps[0];
             const travel = boardHeight + sweep.height + 180;
             const sweepY = ((state.elapsed * sweep.speed + index * 170) % travel) - sweep.height - 90;
             const sweepX = boardWidth * sweep.x + Math.cos(state.elapsed * 0.31 + index * 0.9) * 14;
@@ -1065,20 +1063,37 @@ export function ArenaCanvas({ boardWidth, boardHeight, state, vfxQuality }: Aren
                 width={sweep.width}
                 height={sweep.height}
                 r={sweep.width * 0.5}
-                color={withAlpha(sweep.color, 0.05)}
+                color={withAlpha(sweepStyle.color, sweepStyle.opacity)}
               />
             );
           })
         : null}
 
       {BACKGROUND_PLATES.map((plate, index) => {
+        const plateStyle = theme.backgroundPlates[index % theme.backgroundPlates.length] ?? theme.backgroundPlates[0];
         const travel = boardHeight + plate.height + 180;
         const y = ((plate.y + state.elapsed * plate.speed) % travel) - plate.height - 80;
         const x = boardWidth * plate.x;
         return (
           <Group key={`plate-${index}`} opacity={0.86}>
-            <RoundedRect x={x} y={y} width={plate.width} height={plate.height} r={plate.radius} color={withAlpha(plate.color, 0.75)} />
-            <RoundedRect x={x} y={y} width={plate.width} height={plate.height} r={plate.radius} style="stroke" strokeWidth={1} color={withAlpha(plate.stroke, 0.68)} />
+            <RoundedRect
+              x={x}
+              y={y}
+              width={plate.width}
+              height={plate.height}
+              r={plate.radius}
+              color={withAlpha(plateStyle.color, 0.75)}
+            />
+            <RoundedRect
+              x={x}
+              y={y}
+              width={plate.width}
+              height={plate.height}
+              r={plate.radius}
+              style="stroke"
+              strokeWidth={1}
+              color={withAlpha(plateStyle.stroke, 0.68)}
+            />
           </Group>
         );
       })}
@@ -1109,44 +1124,96 @@ export function ArenaCanvas({ boardWidth, boardHeight, state, vfxQuality }: Aren
         );
         return (
           <Group key={`hazard-${hazard.id}`}>
-            {!hazard.triggered ? (
+            {hazard.kind === 'impact' ? (
+              !hazard.triggered ? (
+                <>
+                  <Circle
+                    cx={hazard.x}
+                    cy={hazard.y}
+                    r={hazard.radius * (0.74 + warningProgress * 0.22 + pulse * 0.04)}
+                    color={withAlpha(hazard.color, 0.12 + pulse * 0.08)}
+                  />
+                  <Circle
+                    cx={hazard.x}
+                    cy={hazard.y}
+                    r={hazard.radius}
+                    style="stroke"
+                    strokeWidth={2}
+                    color={withAlpha(hazard.accentColor, 0.5 + pulse * 0.2)}
+                  />
+                  <Circle
+                    cx={hazard.x}
+                    cy={hazard.y}
+                    r={Math.max(8, hazard.radius * (0.2 + warningProgress * 0.34))}
+                    color={withAlpha(hazard.accentColor, 0.12 + pulse * 0.12)}
+                  />
+                </>
+              ) : (
+                <>
+                  <Circle
+                    cx={hazard.x}
+                    cy={hazard.y}
+                    r={hazard.radius * (1 + activeProgress * 0.22)}
+                    color={withAlpha(hazard.color, 0.18 * (1 - activeProgress))}
+                  />
+                  <Circle
+                    cx={hazard.x}
+                    cy={hazard.y}
+                    r={hazard.radius * (0.84 + activeProgress * 0.14)}
+                    style="stroke"
+                    strokeWidth={3}
+                    color={withAlpha(hazard.accentColor, 0.46 * (1 - activeProgress))}
+                  />
+                </>
+              )
+            ) : !hazard.triggered ? (
               <>
-                <Circle
-                  cx={hazard.x}
-                  cy={hazard.y}
-                  r={hazard.radius * (0.74 + warningProgress * 0.22 + pulse * 0.04)}
-                  color={withAlpha(hazard.color, 0.12 + pulse * 0.08)}
+                <RoundedRect
+                  x={hazard.x - hazard.width * 0.52}
+                  y={hazard.y}
+                  width={hazard.width * 1.04}
+                  height={hazard.height}
+                  r={hazard.width * 0.24}
+                  color={withAlpha(hazard.color, 0.08 + pulse * 0.06)}
                 />
-                <Circle
-                  cx={hazard.x}
-                  cy={hazard.y}
-                  r={hazard.radius}
+                <RoundedRect
+                  x={hazard.x - hazard.width / 2}
+                  y={hazard.y}
+                  width={hazard.width}
+                  height={hazard.height}
+                  r={hazard.width * 0.22}
                   style="stroke"
                   strokeWidth={2}
-                  color={withAlpha(hazard.accentColor, 0.5 + pulse * 0.2)}
+                  color={withAlpha(hazard.accentColor, 0.46 + pulse * 0.18)}
                 />
-                <Circle
-                  cx={hazard.x}
-                  cy={hazard.y}
-                  r={Math.max(8, hazard.radius * (0.2 + warningProgress * 0.34))}
-                  color={withAlpha(hazard.accentColor, 0.12 + pulse * 0.12)}
+                <RoundedRect
+                  x={hazard.x - hazard.width * (0.12 + warningProgress * 0.14)}
+                  y={hazard.y + hazard.height * 0.08}
+                  width={hazard.width * (0.24 + warningProgress * 0.28)}
+                  height={hazard.height * 0.84}
+                  r={hazard.width * 0.12}
+                  color={withAlpha(hazard.accentColor, 0.12 + pulse * 0.1)}
                 />
               </>
             ) : (
               <>
-                <Circle
-                  cx={hazard.x}
-                  cy={hazard.y}
-                  r={hazard.radius * (1 + activeProgress * 0.22)}
-                  color={withAlpha(hazard.color, 0.18 * (1 - activeProgress))}
+                <RoundedRect
+                  x={hazard.x - hazard.width / 2}
+                  y={hazard.y}
+                  width={hazard.width}
+                  height={hazard.height}
+                  r={hazard.width * 0.22}
+                  color={withAlpha(hazard.color, 0.16 * (1 - activeProgress))}
                 />
-                <Circle
-                  cx={hazard.x}
-                  cy={hazard.y}
-                  r={hazard.radius * (0.84 + activeProgress * 0.14)}
+                <RoundedRect
+                  x={hazard.x - hazard.width * 0.42}
+                  y={hazard.y}
+                  width={hazard.width * 0.84}
+                  height={hazard.height}
+                  r={hazard.width * 0.18}
                   style="stroke"
                   strokeWidth={3}
-                  color={withAlpha(hazard.accentColor, 0.46 * (1 - activeProgress))}
+                  color={withAlpha(hazard.accentColor, 0.44 * (1 - activeProgress))}
                 />
               </>
             )}

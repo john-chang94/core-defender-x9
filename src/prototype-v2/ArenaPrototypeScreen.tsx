@@ -1,8 +1,9 @@
-import { useEffect, useMemo, useRef, useState } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import type { LayoutChangeEvent } from 'react-native';
-import { Pressable, SafeAreaView, ScrollView, StyleSheet, Text, View, useWindowDimensions } from 'react-native';
+import { AppState, Pressable, SafeAreaView, ScrollView, StyleSheet, Text, View, useWindowDimensions } from 'react-native';
 import { Gesture, GestureDetector } from 'react-native-gesture-handler';
 import Animated, { runOnJS, useAnimatedStyle, useSharedValue } from 'react-native-reanimated';
+import { Audio, InterruptionModeAndroid, InterruptionModeIOS } from 'expo-av';
 
 import {
   ARENA_FIXED_STEP_SECONDS,
@@ -28,6 +29,7 @@ import {
 } from './engine';
 import { ArenaCanvas } from './ArenaCanvas';
 import { ARENA_BUILD_META, ARENA_BUILD_ORDER } from './builds';
+import { createEncounterForTier } from './encounters';
 import {
   ARENA_ENEMY_LABELS,
   applyArenaDiscoveryProgress,
@@ -53,7 +55,29 @@ import {
 } from './meta';
 import { getArenaCosmeticDefinition } from './cosmetics';
 import { ARENA_ARMORY_UPGRADES, ARENA_ARMORY_UPGRADE_ORDER, isArenaArmoryUpgradeMaxed } from './upgrades';
+import {
+  ARENA_AUDIO_CUE_FILES,
+  ARENA_AUDIO_CUE_MIN_INTERVAL_MS,
+  ARENA_AUDIO_CUE_POOL_SIZE,
+  ARENA_AUDIO_CUE_VOLUMES,
+  ARENA_BIOME_MUSIC_FILES,
+  ARENA_BIOME_MUSIC_VOLUMES,
+  DEFAULT_ARENA_AUDIO_SETTINGS,
+  createArenaAudioSettings,
+  loadArenaAudioSettings,
+  saveArenaAudioSettings,
+} from './audio';
+import {
+  ARENA_BIOME_ORDER,
+  getArenaBiomeDefinitionForTier,
+  getArenaBiomeTierRange,
+  isArenaBiomeTransitionTier,
+} from './biomes';
 import type {
+  ArenaAudioCueKey,
+  ArenaAudioSettings,
+  ArenaBiomeId,
+  ArenaGameState,
   ArenaBuildId,
   ArenaCosmeticDefinition,
   ArenaCosmeticDisplayState,
@@ -61,6 +85,7 @@ import type {
   ArenaDrop,
   ArenaEnemy,
   ArenaMetaState,
+  ArenaRunMetaSummary,
   ArenaUnlockEntry,
   ArenaVfxQuality,
 } from './types';
@@ -72,6 +97,17 @@ type ArenaPrototypeScreenProps = {
 };
 
 type ArenaMenuTab = 'run' | 'codex' | 'mastery' | 'collection';
+type ArenaRunEndSummary = {
+  tierReached: number;
+  bossLabels: string[];
+  masteryXp: number;
+  newlyClaimableIds: ArenaCosmeticId[];
+  dominantBuild: ArenaBuildId;
+};
+
+const FEATURED_COLLECTION_REWARD_IDS: ArenaCosmeticId[] = ['bannerPrismShard', 'codexFrameEndlessApex'];
+const BOSS_ENEMY_ORDER = ['prismBoss', 'hiveCarrierBoss', 'vectorLoomBoss'] as const;
+const ARENA_AUDIO_CUE_ORDER = Object.keys(ARENA_AUDIO_CUE_FILES) as ArenaAudioCueKey[];
 
 function clamp(value: number, min: number, max: number) {
   return Math.max(min, Math.min(max, value));
@@ -101,6 +137,69 @@ function formatArenaValue(value: number) {
   return `${Math.max(0, Math.ceil(value))}`;
 }
 
+function isMeaningfulArenaRun(gameState: ArenaGameState) {
+  const totalKills = ARENA_ENEMY_ORDER.reduce((sum, kind) => sum + gameState.runKillCountsByEnemy[kind], 0);
+  return (
+    gameState.elapsed >= 3 ||
+    totalKills > 0 ||
+    gameState.runMiniBossClears > 0 ||
+    gameState.runBossClears > 0 ||
+    gameState.bestTierReached > 1
+  );
+}
+
+function getArenaRunEarnedXp(runSummary: ArenaRunMetaSummary) {
+  return runSummary.tierReached * 20 + runSummary.miniBossClears * 35 + runSummary.bossClears * 100;
+}
+
+function createArenaRunEndSummary(metaState: ArenaMetaState, gameState: ArenaGameState): ArenaRunEndSummary | null {
+  if (!isMeaningfulArenaRun(gameState)) {
+    return null;
+  }
+
+  const runSummary = createArenaRunMetaSummary(gameState);
+  const nextMetaState = applyArenaRunSummary(metaState, runSummary);
+  const claimableSet = new Set(getArenaClaimableCosmeticIds(metaState));
+  const newlyClaimableIds = getArenaClaimableCosmeticIds(nextMetaState).filter((cosmeticId) => !claimableSet.has(cosmeticId));
+
+  return {
+    tierReached: runSummary.tierReached,
+    bossLabels: BOSS_ENEMY_ORDER.filter((kind) => gameState.runBossClearsByEnemy[kind] > 0).map((kind) => ARENA_ENEMY_LABELS[kind]),
+    masteryXp: getArenaRunEarnedXp(runSummary),
+    newlyClaimableIds,
+    dominantBuild: runSummary.dominantBuild,
+  };
+}
+
+function getPlayerFireCueKey(buildId: ArenaBuildId): ArenaAudioCueKey {
+  if (buildId === 'novaBloom') {
+    return 'playerNova';
+  }
+  if (buildId === 'missileCommand') {
+    return 'playerMissile';
+  }
+  if (buildId === 'fractureCore') {
+    return 'playerFracture';
+  }
+  return 'playerRail';
+}
+
+function getEnemyFireCueKey(style: ArenaGameState['enemyBullets'][number]['enemyStyle']): ArenaAudioCueKey | null {
+  switch (style) {
+    case 'orb':
+      return 'enemyOrb';
+    case 'needle':
+      return 'enemyNeedle';
+    case 'bomb':
+      return 'enemyBomb';
+    case 'wave':
+      return 'enemyWave';
+    case 'bolt':
+    default:
+      return style ? 'enemyBolt' : null;
+  }
+}
+
 function getCollectionStatePriority(state: ArenaCosmeticDisplayState) {
   switch (state) {
     case 'claimable':
@@ -116,7 +215,8 @@ function getCollectionStatePriority(state: ArenaCosmeticDisplayState) {
 }
 
 function EnemyNode({ enemy }: { enemy: ArenaEnemy }) {
-  const isBoss = enemy.kind === 'prismBoss' || enemy.kind === 'hiveCarrierBoss';
+  const isBoss =
+    enemy.kind === 'prismBoss' || enemy.kind === 'hiveCarrierBoss' || enemy.kind === 'vectorLoomBoss';
 
   return (
     <View
@@ -691,6 +791,7 @@ function MetaShowcaseCard({
   note,
   bannerDefinition,
   frameDefinition,
+  biomeDefinition,
   accentColor,
   crestDefinition,
 }: {
@@ -699,6 +800,7 @@ function MetaShowcaseCard({
   note?: string | null;
   bannerDefinition: ArenaCosmeticDefinition;
   frameDefinition: ArenaCosmeticDefinition;
+  biomeDefinition?: ReturnType<typeof getArenaBiomeDefinitionForTier>;
   accentColor?: string;
   crestDefinition?: ArenaCosmeticDefinition | null;
 }) {
@@ -707,9 +809,9 @@ function MetaShowcaseCard({
       style={[
         arenaStyles.metaShowcaseCard,
         {
-          borderColor: hexToRgba(frameDefinition.secondaryColor, 0.72),
-          backgroundColor: hexToRgba(bannerDefinition.primaryColor, 0.18),
-          shadowColor: bannerDefinition.glowColor,
+          borderColor: hexToRgba(biomeDefinition?.headerBorder ?? frameDefinition.secondaryColor, 0.72),
+          backgroundColor: hexToRgba(biomeDefinition?.headerBackground ?? bannerDefinition.primaryColor, 0.76),
+          shadowColor: biomeDefinition?.glowColor ?? bannerDefinition.glowColor,
         },
       ]}>
       <View
@@ -717,7 +819,7 @@ function MetaShowcaseCard({
         style={[
           arenaStyles.metaShowcaseBanner,
           {
-            backgroundColor: hexToRgba(bannerDefinition.secondaryColor, 0.84),
+            backgroundColor: hexToRgba(biomeDefinition?.menuStripe ?? bannerDefinition.secondaryColor, 0.84),
           },
         ]}
       />
@@ -726,7 +828,7 @@ function MetaShowcaseCard({
         style={[
           arenaStyles.metaShowcaseGlow,
           {
-            backgroundColor: hexToRgba(bannerDefinition.glowColor, 0.16),
+            backgroundColor: hexToRgba(biomeDefinition?.announcementGlow ?? bannerDefinition.glowColor, 0.16),
           },
         ]}
       />
@@ -960,14 +1062,32 @@ export function ArenaPrototypeScreen({ onSwitchGame }: ArenaPrototypeScreenProps
   const [collectionBuildId, setCollectionBuildId] = useState<ArenaBuildId>('railFocus');
   const [arenaMeta, setArenaMeta] = useState<ArenaMetaState>(() => createArenaMetaState());
   const [isMetaReady, setIsMetaReady] = useState(false);
+  const [arenaAudioSettings, setArenaAudioSettings] = useState<ArenaAudioSettings>(() => createArenaAudioSettings());
+  const [isAudioSettingsReady, setIsAudioSettingsReady] = useState(false);
+  const [isArenaAudioReady, setIsArenaAudioReady] = useState(false);
+  const [isAppActive, setIsAppActive] = useState(true);
   const [isMoveHintPressed, setIsMoveHintPressed] = useState(false);
   const [pendingCollectionNoticeIds, setPendingCollectionNoticeIds] = useState<ArenaCosmeticId[]>([]);
+  const [sectorBannerTier, setSectorBannerTier] = useState<number | null>(null);
+  const [runEndSummary, setRunEndSummary] = useState<ArenaRunEndSummary | null>(null);
+  const [pendingRestartSummary, setPendingRestartSummary] = useState<ArenaRunEndSummary | null>(null);
   const hasInitializedBoardRef = useRef(false);
   const armoryResumeOnCloseRef = useRef(false);
   const persistedDiscoveryKeyRef = useRef('');
   const runMetaCommittedRef = useRef(false);
   const hasHydratedClaimablesRef = useRef(false);
   const claimableSignatureRef = useRef('');
+  const soundPoolsRef = useRef<Partial<Record<ArenaAudioCueKey, Audio.Sound[]>>>({});
+  const soundCursorRef = useRef<Partial<Record<ArenaAudioCueKey, number>>>({});
+  const lastSoundAtRef = useRef<Partial<Record<ArenaAudioCueKey, number>>>({});
+  const musicPlayersRef = useRef<Record<ArenaBiomeId, Audio.Sound | null>>({
+    prismVerge: null,
+    hiveForge: null,
+    vectorSpindle: null,
+  });
+  const activeMusicBiomeRef = useRef<ArenaBiomeId | null>(null);
+  const previousGameStateRef = useRef(gameState);
+  const lastBiomeBannerKeyRef = useRef('');
   const playerVisualX = useSharedValue(900 / 2);
   const playerShellAnimatedStyle = useAnimatedStyle(() => ({
     transform: [{ translateX: playerVisualX.value - ARENA_PLAYER_RENDER_HALF_WIDTH }],
@@ -996,6 +1116,118 @@ export function ArenaPrototypeScreen({ onSwitchGame }: ArenaPrototypeScreenProps
   }, []);
 
   useEffect(() => {
+    let cancelled = false;
+
+    const hydrateArenaAudioSettings = async () => {
+      const loadedSettings = await loadArenaAudioSettings();
+      if (cancelled) {
+        return;
+      }
+      setArenaAudioSettings(loadedSettings);
+      setIsAudioSettingsReady(true);
+    };
+
+    void hydrateArenaAudioSettings();
+
+    return () => {
+      cancelled = true;
+    };
+  }, []);
+
+  useEffect(() => {
+    if (!isAudioSettingsReady) {
+      return;
+    }
+    void saveArenaAudioSettings(arenaAudioSettings);
+  }, [arenaAudioSettings, isAudioSettingsReady]);
+
+  useEffect(() => {
+    let cancelled = false;
+    const bootstrapAudioSettings = DEFAULT_ARENA_AUDIO_SETTINGS;
+
+    const initializeArenaAudio = async () => {
+      try {
+        await Audio.setAudioModeAsync({
+          staysActiveInBackground: false,
+          playsInSilentModeIOS: true,
+          shouldDuckAndroid: true,
+          interruptionModeIOS: InterruptionModeIOS.DuckOthers,
+          interruptionModeAndroid: InterruptionModeAndroid.DuckOthers,
+        });
+
+        for (const cueKey of ARENA_AUDIO_CUE_ORDER) {
+          const pool: Audio.Sound[] = [];
+          const volume = ARENA_AUDIO_CUE_VOLUMES[cueKey] * bootstrapAudioSettings.sfxVolume;
+          for (let index = 0; index < ARENA_AUDIO_CUE_POOL_SIZE[cueKey]; index += 1) {
+            const { sound } = await Audio.Sound.createAsync(ARENA_AUDIO_CUE_FILES[cueKey], {
+              shouldPlay: false,
+              volume,
+            });
+            pool.push(sound);
+          }
+          soundPoolsRef.current[cueKey] = pool;
+          soundCursorRef.current[cueKey] = 0;
+          lastSoundAtRef.current[cueKey] = 0;
+        }
+
+        for (const biomeId of ARENA_BIOME_ORDER) {
+          const { sound } = await Audio.Sound.createAsync(ARENA_BIOME_MUSIC_FILES[biomeId], {
+            shouldPlay: false,
+            isLooping: true,
+            volume: ARENA_BIOME_MUSIC_VOLUMES[biomeId] * bootstrapAudioSettings.musicVolume,
+          });
+          musicPlayersRef.current[biomeId] = sound;
+        }
+
+        if (!cancelled) {
+          setIsArenaAudioReady(true);
+        }
+      } catch (error) {
+        console.warn('Failed to initialize Arena V2 audio', error);
+      }
+    };
+
+    void initializeArenaAudio();
+
+    return () => {
+      cancelled = true;
+      setIsArenaAudioReady(false);
+      activeMusicBiomeRef.current = null;
+      const activeSoundPools = soundPoolsRef.current;
+      soundPoolsRef.current = {};
+      void Promise.all(
+        [
+          ...Object.values(activeSoundPools).flatMap((pool) => pool ?? []),
+          ...ARENA_BIOME_ORDER.map((biomeId) => musicPlayersRef.current[biomeId]).filter(
+            (sound): sound is Audio.Sound => sound !== null
+          ),
+        ].map(async (sound) => {
+          try {
+            await sound.unloadAsync();
+          } catch {
+            // Ignore unload failures during teardown.
+          }
+        })
+      );
+      musicPlayersRef.current = {
+        prismVerge: null,
+        hiveForge: null,
+        vectorSpindle: null,
+      };
+    };
+  }, []);
+
+  useEffect(() => {
+    const subscription = AppState.addEventListener('change', (nextState) => {
+      setIsAppActive(nextState === 'active');
+    });
+
+    return () => {
+      subscription.remove();
+    };
+  }, []);
+
+  useEffect(() => {
     if (boardSize.width <= 0 || boardSize.height <= 0) {
       return;
     }
@@ -1003,7 +1235,9 @@ export function ArenaPrototypeScreen({ onSwitchGame }: ArenaPrototypeScreenProps
     if (!hasInitializedBoardRef.current) {
       hasInitializedBoardRef.current = true;
       playerVisualX.value = boardSize.width / 2;
-      setGameState(createInitialArenaState(boardSize.width));
+      const initialState = createInitialArenaState(boardSize.width);
+      previousGameStateRef.current = initialState;
+      setGameState(initialState);
       setHasStarted(false);
       setIsPaused(true);
       runMetaCommittedRef.current = false;
@@ -1097,6 +1331,7 @@ export function ArenaPrototypeScreen({ onSwitchGame }: ArenaPrototypeScreenProps
       setIsPaused(true);
       setIsArmoryOpen(false);
       setIsMoveHintPressed(false);
+      setPendingRestartSummary(null);
       armoryResumeOnCloseRef.current = false;
     }
   }, [gameState.status]);
@@ -1157,6 +1392,13 @@ export function ArenaPrototypeScreen({ onSwitchGame }: ArenaPrototypeScreenProps
   }, [isMenuOpen, menuTab, pendingCollectionNoticeIds.length]);
 
   const displayTier = getArenaDisplayTier(gameState.elapsed);
+  const activeBiomeDefinition = getArenaBiomeDefinitionForTier(displayTier);
+  const activeBiomeTierRange = getArenaBiomeTierRange(displayTier);
+  const activeSectorLabel = `T${activeBiomeTierRange.startTier}-T${activeBiomeTierRange.endTier}`;
+  const nextBossTier = Math.floor(displayTier / 6) * 6 + 6;
+  const nextBossEncounter = createEncounterForTier(nextBossTier);
+  const nextBossPreviewLabel =
+    nextBossEncounter?.type === 'boss' ? `T${nextBossTier} • ${nextBossEncounter.label}` : 'T6 • Prism Core';
   const activeEnemyCap = getArenaActiveEnemyCap(displayTier);
   const activeWeapon = getArenaActiveWeapon(gameState);
   const activeBuildMeta = ARENA_BUILD_META[gameState.activeBuild];
@@ -1171,6 +1413,11 @@ export function ArenaPrototypeScreen({ onSwitchGame }: ArenaPrototypeScreenProps
   const claimableCosmeticIds = getArenaClaimableCosmeticIds(arenaMeta);
   const claimableCosmeticIdSet = new Set(claimableCosmeticIds);
   const newClaimableCount = pendingCollectionNoticeIds.filter((cosmeticId) => claimableCosmeticIdSet.has(cosmeticId)).length;
+  const featuredRewardIds = [...FEATURED_COLLECTION_REWARD_IDS].sort((leftId, rightId) => {
+    const leftState = getArenaCosmeticDisplayState(arenaMeta, leftId);
+    const rightState = getArenaCosmeticDisplayState(arenaMeta, rightId);
+    return getCollectionStatePriority(leftState) - getCollectionStatePriority(rightState);
+  });
   const collectionNoticeText =
     newClaimableCount > 0
       ? `New cosmetics ready in Collection: ${newClaimableCount}.`
@@ -1295,6 +1542,42 @@ export function ArenaPrototypeScreen({ onSwitchGame }: ArenaPrototypeScreenProps
   const collectionBuildCrestDefinition = getArenaCosmeticDefinition(
     getArenaEquippedBuildCosmeticId(arenaMeta, collectionBuildId, 'buildCrest')
   );
+  const activeRunEndSummary = pendingRestartSummary ?? runEndSummary;
+  const runEndRewardText =
+    activeRunEndSummary && activeRunEndSummary.newlyClaimableIds.length > 0
+      ? activeRunEndSummary.newlyClaimableIds
+          .map((cosmeticId) => getArenaCosmeticDefinition(cosmeticId).label)
+          .join(' • ')
+      : null;
+
+  const playArenaSound = useCallback(
+    (cueKey: ArenaAudioCueKey) => {
+      if (!isArenaAudioReady || !isAppActive || !arenaAudioSettings.soundEnabled) {
+        return;
+      }
+
+      const now = Date.now();
+      const minIntervalMs = ARENA_AUDIO_CUE_MIN_INTERVAL_MS[cueKey];
+      const previousAt = lastSoundAtRef.current[cueKey] ?? 0;
+      if (minIntervalMs > 0 && now - previousAt < minIntervalMs) {
+        return;
+      }
+
+      const pool = soundPoolsRef.current[cueKey];
+      if (!pool || pool.length === 0) {
+        return;
+      }
+
+      const cursor = soundCursorRef.current[cueKey] ?? 0;
+      const sound = pool[cursor % pool.length];
+      soundCursorRef.current[cueKey] = (cursor + 1) % pool.length;
+      lastSoundAtRef.current[cueKey] = now;
+      void sound.replayAsync().catch(() => {
+        // Ignore individual playback failures; the pool can continue serving later sounds.
+      });
+    },
+    [arenaAudioSettings.soundEnabled, isAppActive, isArenaAudioReady]
+  );
 
   const canControlShip = boardSize.width > 0 && boardSize.height > 0 && !isMenuOpen && !isArmoryOpen && hasStarted && !isPaused && gameState.status === 'running';
   const moveHintTop = boardSize.height > 0 ? Math.max(0, boardSize.height - MOVE_HINT_DIAMETER - MOVE_HINT_BOTTOM_OFFSET) : 0;
@@ -1343,6 +1626,235 @@ export function ArenaPrototypeScreen({ onSwitchGame }: ArenaPrototypeScreenProps
     [boardSize.height, boardSize.width, canControlShip, gameState.playerX, moveHintTop, playerVisualX]
   );
 
+  useEffect(() => {
+    if (!isArenaAudioReady) {
+      return;
+    }
+
+    void Promise.all(
+      ARENA_AUDIO_CUE_ORDER.flatMap((cueKey) =>
+        (soundPoolsRef.current[cueKey] ?? []).map((sound) =>
+          sound.setVolumeAsync(ARENA_AUDIO_CUE_VOLUMES[cueKey] * arenaAudioSettings.sfxVolume).catch(() => {
+            // Ignore volume update failures for individual pooled sounds.
+          })
+        )
+      )
+    );
+  }, [arenaAudioSettings.sfxVolume, isArenaAudioReady]);
+
+  useEffect(() => {
+    if (!isArenaAudioReady) {
+      return;
+    }
+
+    void Promise.all(
+      ARENA_BIOME_ORDER.map((biomeId) => {
+        const musicPlayer = musicPlayersRef.current[biomeId];
+        if (!musicPlayer) {
+          return Promise.resolve();
+        }
+        return musicPlayer
+          .setVolumeAsync(ARENA_BIOME_MUSIC_VOLUMES[biomeId] * arenaAudioSettings.musicVolume)
+          .catch(() => {
+            // Ignore volume update failures for music tracks.
+          });
+      })
+    );
+  }, [arenaAudioSettings.musicVolume, isArenaAudioReady]);
+
+  useEffect(() => {
+    if (!isArenaAudioReady) {
+      return;
+    }
+
+    const shouldPlayMusic =
+      arenaAudioSettings.musicEnabled &&
+      isAppActive &&
+      hasStarted &&
+      !isPaused &&
+      !isArmoryOpen &&
+      !isMenuOpen &&
+      gameState.status === 'running';
+
+    const syncMusic = async () => {
+      if (!shouldPlayMusic) {
+        await Promise.all(
+          ARENA_BIOME_ORDER.map(async (biomeId) => {
+            const musicPlayer = musicPlayersRef.current[biomeId];
+            if (!musicPlayer) {
+              return;
+            }
+            try {
+              await musicPlayer.pauseAsync();
+            } catch {
+              // Ignore pause failures when audio is not loaded or already stopped.
+            }
+          })
+        );
+        return;
+      }
+
+      const activeBiomeId = activeBiomeDefinition.id;
+      await Promise.all(
+        ARENA_BIOME_ORDER.filter((biomeId) => biomeId !== activeBiomeId).map(async (biomeId) => {
+          const musicPlayer = musicPlayersRef.current[biomeId];
+          if (!musicPlayer) {
+            return;
+          }
+          try {
+            await musicPlayer.pauseAsync();
+          } catch {
+            // Ignore pause failures when switching biome tracks.
+          }
+        })
+      );
+
+      const activeMusicPlayer = musicPlayersRef.current[activeBiomeId];
+      if (!activeMusicPlayer) {
+        return;
+      }
+
+      try {
+        if (activeMusicBiomeRef.current !== activeBiomeId) {
+          await activeMusicPlayer.replayAsync();
+        } else {
+          const status = await activeMusicPlayer.getStatusAsync();
+          if (status.isLoaded && !status.isPlaying) {
+            await activeMusicPlayer.playAsync();
+          }
+        }
+        activeMusicBiomeRef.current = activeBiomeId;
+      } catch {
+        // Ignore playback failures and allow later state changes to retry.
+      }
+    };
+
+    void syncMusic();
+  }, [
+    activeBiomeDefinition.id,
+    arenaAudioSettings.musicEnabled,
+    gameState.status,
+    hasStarted,
+    isAppActive,
+    isArenaAudioReady,
+    isArmoryOpen,
+    isMenuOpen,
+    isPaused,
+  ]);
+
+  useEffect(() => {
+    if (!hasStarted || gameState.status !== 'running' || !isArenaBiomeTransitionTier(displayTier)) {
+      return;
+    }
+
+    const bannerKey = `${activeBiomeDefinition.id}:${activeBiomeTierRange.startTier}`;
+    if (lastBiomeBannerKeyRef.current === bannerKey) {
+      return;
+    }
+
+    lastBiomeBannerKeyRef.current = bannerKey;
+    setSectorBannerTier(activeBiomeTierRange.startTier);
+  }, [
+    activeBiomeDefinition.id,
+    activeBiomeTierRange.startTier,
+    displayTier,
+    gameState.status,
+    hasStarted,
+  ]);
+
+  useEffect(() => {
+    if (sectorBannerTier === null) {
+      return;
+    }
+
+    const timeoutId = setTimeout(() => {
+      setSectorBannerTier(null);
+    }, 2200);
+
+    return () => {
+      clearTimeout(timeoutId);
+    };
+  }, [sectorBannerTier]);
+
+  useEffect(() => {
+    const previousState = previousGameStateRef.current;
+    if (!hasStarted || previousState === gameState) {
+      previousGameStateRef.current = gameState;
+      return;
+    }
+
+    const previousPlayerBulletIds = new Set(previousState.playerBullets.map((bullet) => bullet.id));
+    const nextPlayerCueKeys = new Set(
+      gameState.playerBullets
+        .filter((bullet) => !previousPlayerBulletIds.has(bullet.id))
+        .map((bullet) => getPlayerFireCueKey(bullet.buildFlavor ?? gameState.activeBuild))
+    );
+    nextPlayerCueKeys.forEach((cueKey) => {
+      playArenaSound(cueKey);
+    });
+
+    const previousEnemyBulletIds = new Set(previousState.enemyBullets.map((bullet) => bullet.id));
+    const nextEnemyCueKeys = new Set(
+      gameState.enemyBullets
+        .filter((bullet) => !previousEnemyBulletIds.has(bullet.id))
+        .map((bullet) => getEnemyFireCueKey(bullet.enemyStyle))
+        .filter((cueKey): cueKey is ArenaAudioCueKey => cueKey !== null)
+    );
+    nextEnemyCueKeys.forEach((cueKey) => {
+      playArenaSound(cueKey);
+    });
+
+    const previousHazardsById = new Map(previousState.hazards.map((hazard) => [hazard.id, hazard]));
+    for (const hazard of gameState.hazards) {
+      const previousHazard = previousHazardsById.get(hazard.id);
+      if (!previousHazard) {
+        playArenaSound('hazardTelegraph');
+      } else if (!previousHazard.triggered && hazard.triggered) {
+        playArenaSound('hazardImpact');
+      }
+    }
+
+    if (gameState.pickupMessage !== previousState.pickupMessage && gameState.pickupMessage) {
+      playArenaSound('pickup');
+    }
+    if (previousState.overclockTimer <= 0 && gameState.overclockTimer > 0) {
+      playArenaSound('overdriveStart');
+    } else if (previousState.overclockTimer > 0 && gameState.overclockTimer <= 0) {
+      playArenaSound('overdriveEnd');
+    }
+    if (previousState.ultimateTimer <= 0 && gameState.ultimateTimer > 0) {
+      playArenaSound('ultimate');
+    }
+    if (
+      gameState.activeEncounter?.type === 'boss' &&
+      (previousState.activeEncounter?.scriptId !== gameState.activeEncounter.scriptId ||
+        previousState.activeEncounter?.startedAtTier !== gameState.activeEncounter.startedAtTier)
+    ) {
+      playArenaSound('bossIntro');
+    }
+    if (
+      gameState.activeEncounter?.type === 'boss' &&
+      previousState.activeEncounter?.type === 'boss' &&
+      gameState.activeEncounter.bossPhaseIndex > previousState.activeEncounter.bossPhaseIndex
+    ) {
+      playArenaSound('bossPhase');
+    }
+    if (gameState.runBossClears > previousState.runBossClears) {
+      playArenaSound('bossKill');
+    }
+    if (
+      gameState.status === 'running' &&
+      (gameState.hull < previousState.hull - 0.01 || gameState.shield < previousState.shield - 0.01)
+    ) {
+      playArenaSound('playerHit');
+    }
+    if (previousState.status !== 'lost' && gameState.status === 'lost') {
+      playArenaSound('playerLoss');
+    }
+
+    previousGameStateRef.current = gameState;
+  }, [gameState, hasStarted, playArenaSound]);
+
   const handleBoardLayout = (event: LayoutChangeEvent) => {
     const nextWidth = Math.round(event.nativeEvent.layout.width);
     const nextHeight = Math.round(event.nativeEvent.layout.height);
@@ -1351,27 +1863,18 @@ export function ArenaPrototypeScreen({ onSwitchGame }: ArenaPrototypeScreenProps
     }
   };
 
-  const finalizeRunMetaProgress = () => {
+  const finalizeRunMetaProgress = useCallback(() => {
     if (!hasStarted || runMetaCommittedRef.current || !isMetaReady) {
-      return;
+      return null;
     }
 
     runMetaCommittedRef.current = true;
-    const totalKills = ARENA_ENEMY_ORDER.reduce(
-      (sum, kind) => sum + gameState.runKillCountsByEnemy[kind],
-      0
-    );
-    const hasMeaningfulRun =
-      gameState.elapsed >= 3 ||
-      totalKills > 0 ||
-      gameState.runMiniBossClears > 0 ||
-      gameState.runBossClears > 0 ||
-      gameState.bestTierReached > 1;
-
-    if (!hasMeaningfulRun) {
-      return;
+    const nextRunEndSummary = createArenaRunEndSummary(arenaMeta, gameState);
+    if (!nextRunEndSummary) {
+      return null;
     }
 
+    setRunEndSummary(nextRunEndSummary);
     const runSummary = createArenaRunMetaSummary(gameState);
     setArenaMeta((previousMetaState) => {
       const nextMetaState = applyArenaRunSummary(previousMetaState, runSummary);
@@ -1380,38 +1883,15 @@ export function ArenaPrototypeScreen({ onSwitchGame }: ArenaPrototypeScreenProps
       }
       return nextMetaState;
     });
-  };
+    return nextRunEndSummary;
+  }, [arenaMeta, gameState, hasStarted, isMetaReady]);
 
   useEffect(() => {
     if (gameState.status !== 'lost' || !isMetaReady || !hasStarted || runMetaCommittedRef.current) {
       return;
     }
-
-    runMetaCommittedRef.current = true;
-    const totalKills = ARENA_ENEMY_ORDER.reduce(
-      (sum, kind) => sum + gameState.runKillCountsByEnemy[kind],
-      0
-    );
-    const hasMeaningfulRun =
-      gameState.elapsed >= 3 ||
-      totalKills > 0 ||
-      gameState.runMiniBossClears > 0 ||
-      gameState.runBossClears > 0 ||
-      gameState.bestTierReached > 1;
-
-    if (!hasMeaningfulRun) {
-      return;
-    }
-
-    const runSummary = createArenaRunMetaSummary(gameState);
-    setArenaMeta((previousMetaState) => {
-      const nextMetaState = applyArenaRunSummary(previousMetaState, runSummary);
-      if (nextMetaState !== previousMetaState) {
-        void saveArenaMetaState(nextMetaState);
-      }
-      return nextMetaState;
-    });
-  }, [gameState, hasStarted, isMetaReady]);
+    finalizeRunMetaProgress();
+  }, [finalizeRunMetaProgress, gameState.status, hasStarted, isMetaReady]);
 
   const closeArmoryPanel = () => {
     setIsArmoryOpen(false);
@@ -1427,27 +1907,55 @@ export function ArenaPrototypeScreen({ onSwitchGame }: ArenaPrototypeScreenProps
       return;
     }
     armoryResumeOnCloseRef.current = !isPaused;
+    playArenaSound('armoryOpen');
     setIsPaused(true);
     setIsMenuOpen(false);
     setIsArmoryOpen(true);
   };
 
-  const handleRestart = () => {
+  const resetArenaRun = () => {
     if (boardSize.width <= 0) {
       return;
     }
-    finalizeRunMetaProgress();
     const nextState = createInitialArenaState(boardSize.width);
+    const resetState = setArenaBuild(nextState, gameState.activeBuild);
     playerVisualX.value = boardSize.width / 2;
-    setGameState(setArenaBuild(nextState, gameState.activeBuild));
+    setGameState(resetState);
     setHasStarted(false);
     setIsPaused(true);
     setIsMenuOpen(false);
     setIsArmoryOpen(false);
     setMenuTab('run');
     setIsMoveHintPressed(false);
+    setRunEndSummary(null);
+    setPendingRestartSummary(null);
+    setSectorBannerTier(null);
     armoryResumeOnCloseRef.current = false;
     runMetaCommittedRef.current = false;
+    lastBiomeBannerKeyRef.current = '';
+    activeMusicBiomeRef.current = null;
+    previousGameStateRef.current = resetState;
+  };
+
+  const handleRestart = () => {
+    if (gameState.status !== 'lost') {
+      const nextRestartSummary = createArenaRunEndSummary(arenaMeta, gameState);
+      if (nextRestartSummary) {
+        setPendingRestartSummary(nextRestartSummary);
+        setIsPaused(true);
+        setIsMenuOpen(false);
+        setIsArmoryOpen(false);
+        return;
+      }
+      finalizeRunMetaProgress();
+    }
+
+    resetArenaRun();
+  };
+
+  const handleConfirmRestart = () => {
+    finalizeRunMetaProgress();
+    resetArenaRun();
   };
 
   const handleSelectBuild = (buildId: ArenaBuildId) => {
@@ -1475,6 +1983,7 @@ export function ArenaPrototypeScreen({ onSwitchGame }: ArenaPrototypeScreenProps
       }
       return applyArenaArmoryUpgrade(previousState, key);
     });
+    playArenaSound('armoryUpgrade');
 
     if (shouldCloseAfterInstall) {
       requestAnimationFrame(() => {
@@ -1502,6 +2011,18 @@ export function ArenaPrototypeScreen({ onSwitchGame }: ArenaPrototypeScreenProps
       }
       return nextMetaState;
     });
+  };
+  const updateArenaAudioSetting = (partialSettings: Partial<ArenaAudioSettings>) => {
+    setArenaAudioSettings((previousSettings) => ({
+      ...previousSettings,
+      ...partialSettings,
+    }));
+  };
+  const adjustArenaAudioVolume = (key: 'sfxVolume' | 'musicVolume', delta: number) => {
+    setArenaAudioSettings((previousSettings) => ({
+      ...previousSettings,
+      [key]: clamp(previousSettings[key] + delta, 0, 1),
+    }));
   };
   const hullRatio = gameState.hull / gameState.maxHull;
   const armoryButtonDisabled = !hasStarted || gameState.status !== 'running' || isMenuOpen || isArmoryOpen || !hasArmoryChoices;
@@ -1685,10 +2206,20 @@ export function ArenaPrototypeScreen({ onSwitchGame }: ArenaPrototypeScreenProps
           style={[
             arenaStyles.board,
             {
+              borderColor: hexToRgba(activeBiomeDefinition.boundary, 0.7),
+              backgroundColor: activeBiomeDefinition.base,
+            },
+            {
               transform: [{ translateX: boardShakeX }, { translateY: boardShakeY }],
             },
           ]}>
-          <ArenaCanvas boardWidth={boardSize.width} boardHeight={boardSize.height} state={gameState} vfxQuality={vfxQuality} />
+          <ArenaCanvas
+            boardWidth={boardSize.width}
+            boardHeight={boardSize.height}
+            biomeDefinition={activeBiomeDefinition}
+            state={gameState}
+            vfxQuality={vfxQuality}
+          />
 
           <GestureDetector gesture={panGesture}>
             <View style={arenaStyles.gestureLayer} />
@@ -1806,28 +2337,58 @@ export function ArenaPrototypeScreen({ onSwitchGame }: ArenaPrototypeScreenProps
             <Text style={arenaStyles.versionBadgeText}>{ARENA_VERSION_LABEL}</Text>
           </View>
 
+          {sectorBannerTier !== null ? (
+            <View pointerEvents="none" style={arenaStyles.sectorBannerWrap}>
+              <View
+                style={[
+                  arenaStyles.sectorBannerCard,
+                  {
+                    borderColor: hexToRgba(activeBiomeDefinition.detailColor, 0.64),
+                    backgroundColor: hexToRgba(activeBiomeDefinition.headerBackground, 0.78),
+                    shadowColor: activeBiomeDefinition.glowColor,
+                  },
+                ]}>
+                <Text style={[arenaStyles.sectorBannerTitle, { color: activeBiomeDefinition.detailColor }]}>
+                  {activeBiomeDefinition.label}
+                </Text>
+                <Text style={arenaStyles.sectorBannerSubtitle}>
+                  Sector {activeSectorLabel} • {activeBiomeDefinition.subtitle}
+                </Text>
+              </View>
+            </View>
+          ) : null}
+
           {hasEncounterAnnouncement ? (
             <View pointerEvents="none" style={arenaStyles.boardAnnouncementWrap}>
               <View
                 style={[
                   arenaStyles.boardAnnouncementGlow,
                   {
-                    backgroundColor: hexToRgba(gameState.encounterAnnouncementColor ?? '#8BCBFF', 0.14 + encounterAnnouncementOpacity * 0.18),
+                    backgroundColor: hexToRgba(activeBiomeDefinition.announcementGlow, 0.1 + encounterAnnouncementOpacity * 0.22),
                     opacity: encounterAnnouncementOpacity,
                     transform: [{ scale: 0.88 + encounterAnnouncementProgress * 0.16 }],
                   },
                 ]}
               />
-              <Text
+              <View
                 style={[
-                  arenaStyles.boardAnnouncementText,
+                  arenaStyles.boardAnnouncementPanel,
                   {
-                    color: gameState.encounterAnnouncementColor ?? '#F1F7FF',
+                    borderColor: hexToRgba(activeBiomeDefinition.detailColor, 0.52),
+                    backgroundColor: hexToRgba(activeBiomeDefinition.headerBackground, 0.68),
                     opacity: 0.25 + encounterAnnouncementOpacity * 0.75,
                   },
                 ]}>
-                {gameState.encounterAnnouncement}
-              </Text>
+                <Text
+                  style={[
+                    arenaStyles.boardAnnouncementText,
+                    {
+                      color: gameState.encounterAnnouncementColor ?? activeBiomeDefinition.detailColor,
+                    },
+                  ]}>
+                  {gameState.encounterAnnouncement}
+                </Text>
+              </View>
             </View>
           ) : null}
 
@@ -1992,8 +2553,15 @@ export function ArenaPrototypeScreen({ onSwitchGame }: ArenaPrototypeScreenProps
         ) : null}
 
         {isMenuOpen ? (
-          <View style={arenaStyles.menuPanel}>
-            <Text style={arenaStyles.menuTitle}>Arena Prototype Menu</Text>
+          <View
+            style={[
+              arenaStyles.menuPanel,
+              {
+                borderColor: hexToRgba(activeBiomeDefinition.headerBorder, 0.72),
+                backgroundColor: hexToRgba(activeBiomeDefinition.menuSurface, 0.97),
+              },
+            ]}>
+            <Text style={[arenaStyles.menuTitle, { color: activeBiomeDefinition.detailColor }]}>Arena Prototype Menu</Text>
             <View style={arenaStyles.menuSegmentRow}>
               {(['run', 'codex', 'mastery', 'collection'] as ArenaMenuTab[]).map((tab) => (
                 <Pressable
@@ -2019,7 +2587,18 @@ export function ArenaPrototypeScreen({ onSwitchGame }: ArenaPrototypeScreenProps
             </View>
 
             {menuTab === 'run' ? (
-              <>
+              <ScrollView style={arenaStyles.menuScroll} contentContainerStyle={arenaStyles.menuScrollContent}>
+                <MetaShowcaseCard
+                  title={activeBiomeDefinition.label}
+                  subtitle={`Sector ${activeSectorLabel}`}
+                  note={`${activeBiomeDefinition.subtitle} Next boss ${nextBossPreviewLabel}.`}
+                  bannerDefinition={activeBannerDefinition}
+                  frameDefinition={activeFrameDefinition}
+                  biomeDefinition={activeBiomeDefinition}
+                  accentColor={activeBiomeDefinition.detailColor}
+                  crestDefinition={activeCrestDefinition}
+                />
+
                 <Text style={arenaStyles.menuLabel}>Game</Text>
                 <View style={arenaStyles.menuRow}>
                   <Pressable style={[arenaStyles.menuButton, arenaStyles.menuButtonActive]}>
@@ -2045,6 +2624,70 @@ export function ArenaPrototypeScreen({ onSwitchGame }: ArenaPrototypeScreenProps
                     style={[arenaStyles.menuButton, vfxQuality === 'high' && arenaStyles.menuButtonActive]}>
                     <Text style={arenaStyles.menuButtonText}>High</Text>
                   </Pressable>
+                </View>
+
+                <Text style={arenaStyles.menuLabel}>Audio</Text>
+                <View style={arenaStyles.menuRow}>
+                  <View
+                    style={[
+                      arenaStyles.audioControlCard,
+                      {
+                        borderColor: hexToRgba(activeBiomeDefinition.headerBorder, 0.62),
+                        backgroundColor: hexToRgba(activeBiomeDefinition.headerBackground, 0.72),
+                      },
+                    ]}>
+                    <Text style={arenaStyles.audioControlTitle}>Sound</Text>
+                    <Pressable
+                      onPress={() => updateArenaAudioSetting({ soundEnabled: !arenaAudioSettings.soundEnabled })}
+                      style={[arenaStyles.menuButton, arenaAudioSettings.soundEnabled && arenaStyles.menuButtonActive]}>
+                      <Text style={arenaStyles.menuButtonText}>
+                        {arenaAudioSettings.soundEnabled ? 'Enabled' : 'Muted'}
+                      </Text>
+                    </Pressable>
+                    <View style={arenaStyles.audioControlValueRow}>
+                      <Pressable
+                        onPress={() => adjustArenaAudioVolume('sfxVolume', -0.08)}
+                        style={arenaStyles.audioAdjustButton}>
+                        <Text style={arenaStyles.audioAdjustButtonText}>-</Text>
+                      </Pressable>
+                      <Text style={arenaStyles.audioControlValue}>{Math.round(arenaAudioSettings.sfxVolume * 100)}%</Text>
+                      <Pressable
+                        onPress={() => adjustArenaAudioVolume('sfxVolume', 0.08)}
+                        style={arenaStyles.audioAdjustButton}>
+                        <Text style={arenaStyles.audioAdjustButtonText}>+</Text>
+                      </Pressable>
+                    </View>
+                  </View>
+                  <View
+                    style={[
+                      arenaStyles.audioControlCard,
+                      {
+                        borderColor: hexToRgba(activeBiomeDefinition.headerBorder, 0.62),
+                        backgroundColor: hexToRgba(activeBiomeDefinition.headerBackground, 0.72),
+                      },
+                    ]}>
+                    <Text style={arenaStyles.audioControlTitle}>Music</Text>
+                    <Pressable
+                      onPress={() => updateArenaAudioSetting({ musicEnabled: !arenaAudioSettings.musicEnabled })}
+                      style={[arenaStyles.menuButton, arenaAudioSettings.musicEnabled && arenaStyles.menuButtonActive]}>
+                      <Text style={arenaStyles.menuButtonText}>
+                        {arenaAudioSettings.musicEnabled ? 'Enabled' : 'Muted'}
+                      </Text>
+                    </Pressable>
+                    <View style={arenaStyles.audioControlValueRow}>
+                      <Pressable
+                        onPress={() => adjustArenaAudioVolume('musicVolume', -0.08)}
+                        style={arenaStyles.audioAdjustButton}>
+                        <Text style={arenaStyles.audioAdjustButtonText}>-</Text>
+                      </Pressable>
+                      <Text style={arenaStyles.audioControlValue}>{Math.round(arenaAudioSettings.musicVolume * 100)}%</Text>
+                      <Pressable
+                        onPress={() => adjustArenaAudioVolume('musicVolume', 0.08)}
+                        style={arenaStyles.audioAdjustButton}>
+                        <Text style={arenaStyles.audioAdjustButtonText}>+</Text>
+                      </Pressable>
+                    </View>
+                  </View>
                 </View>
 
                 <Text style={arenaStyles.menuLabel}>Build</Text>
@@ -2096,7 +2739,7 @@ export function ArenaPrototypeScreen({ onSwitchGame }: ArenaPrototypeScreenProps
                     <Text style={arenaStyles.menuActionText}>Restart Run</Text>
                   </Pressable>
                 </View>
-              </>
+              </ScrollView>
             ) : menuTab === 'codex' ? (
               <ScrollView style={arenaStyles.menuScroll} contentContainerStyle={arenaStyles.menuScrollContent}>
                 {!isMetaReady ? (
@@ -2109,6 +2752,7 @@ export function ArenaPrototypeScreen({ onSwitchGame }: ArenaPrototypeScreenProps
                       note={`${activeBannerDefinition.label} • ${activeFrameDefinition.label}`}
                       bannerDefinition={activeBannerDefinition}
                       frameDefinition={activeFrameDefinition}
+                      biomeDefinition={activeBiomeDefinition}
                     />
                     <Text style={arenaStyles.menuLabel}>Reward Hooks</Text>
                     <View style={arenaStyles.unlockChipRow}>
@@ -2156,11 +2800,25 @@ export function ArenaPrototypeScreen({ onSwitchGame }: ArenaPrototypeScreenProps
                                 </Text>
                               </View>
                             ) : null}
-                            {!isLocked && entry.kind === 'hiveCarrierBoss' ? (
+                            {!isLocked && entry.kind === 'prismBoss' ? (
+                              <UnlockChip
+                                entry={arenaMeta.unlocks.prismCoreFirstClear}
+                                metaState={arenaMeta}
+                                accentColor="#A6D7FF"
+                                frameDefinition={activeFrameDefinition}
+                              />
+                            ) : !isLocked && entry.kind === 'hiveCarrierBoss' ? (
                               <UnlockChip
                                 entry={arenaMeta.unlocks.hiveCarrierFirstClear}
                                 metaState={arenaMeta}
                                 accentColor="#93F0D5"
+                                frameDefinition={activeFrameDefinition}
+                              />
+                            ) : !isLocked && entry.kind === 'vectorLoomBoss' ? (
+                              <UnlockChip
+                                entry={arenaMeta.unlocks.vectorLoomFirstClear}
+                                metaState={arenaMeta}
+                                accentColor="#C7D4FF"
                                 frameDefinition={activeFrameDefinition}
                               />
                             ) : null}
@@ -2239,6 +2897,7 @@ export function ArenaPrototypeScreen({ onSwitchGame }: ArenaPrototypeScreenProps
                         note={`${activeBannerDefinition.label} • ${activeFrameDefinition.label}`}
                         bannerDefinition={activeBannerDefinition}
                         frameDefinition={activeFrameDefinition}
+                        biomeDefinition={activeBiomeDefinition}
                       />
                       <View style={arenaStyles.masteryIntroCard}>
                         <Text style={arenaStyles.masteryIntroText}>
@@ -2317,6 +2976,7 @@ export function ArenaPrototypeScreen({ onSwitchGame }: ArenaPrototypeScreenProps
                         note={collectionNoticeText ?? `${activeBannerDefinition.label} • ${activeFrameDefinition.label}`}
                         bannerDefinition={activeBannerDefinition}
                         frameDefinition={activeFrameDefinition}
+                        biomeDefinition={activeBiomeDefinition}
                         accentColor={collectionBuildAccentDefinition.primaryColor}
                         crestDefinition={collectionBuildCrestDefinition}
                       />
@@ -2325,6 +2985,29 @@ export function ArenaPrototypeScreen({ onSwitchGame }: ArenaPrototypeScreenProps
                           <Text style={arenaStyles.collectionNoticeText}>{collectionNoticeText}</Text>
                         </View>
                       ) : null}
+
+                      <Text style={arenaStyles.menuLabel}>Featured Rewards</Text>
+                      <View style={arenaStyles.codexGrid}>
+                        {featuredRewardIds.map((cosmeticId) => {
+                          const definition = getArenaCosmeticDefinition(cosmeticId);
+                          const displayState = getArenaCosmeticDisplayState(arenaMeta, cosmeticId);
+                          return (
+                            <CollectionCard
+                              key={`collection-featured-${cosmeticId}`}
+                              definition={definition}
+                              displayState={displayState}
+                              frameDefinition={activeFrameDefinition}
+                              onPress={() => {
+                                if (displayState === 'claimable') {
+                                  handleClaimCosmetic(cosmeticId);
+                                } else if (displayState === 'owned') {
+                                  handleEquipCosmetic(cosmeticId);
+                                }
+                              }}
+                            />
+                          );
+                        })}
+                      </View>
 
                       <Text style={arenaStyles.menuLabel}>Global</Text>
                       <Text style={arenaStyles.collectionSectionLabel}>Banner</Text>
@@ -2408,6 +3091,7 @@ export function ArenaPrototypeScreen({ onSwitchGame }: ArenaPrototypeScreenProps
                         note="Preview and equip build-specific cosmetics here."
                         bannerDefinition={activeBannerDefinition}
                         frameDefinition={activeFrameDefinition}
+                        biomeDefinition={activeBiomeDefinition}
                         accentColor={collectionBuildAccentDefinition.primaryColor}
                         crestDefinition={collectionBuildCrestDefinition}
                       />
@@ -2466,23 +3150,77 @@ export function ArenaPrototypeScreen({ onSwitchGame }: ArenaPrototypeScreenProps
         ) : null}
       </View>
 
-      {gameState.status === 'lost' ? (
+      {gameState.status === 'lost' || pendingRestartSummary ? (
         <View style={arenaStyles.overlay}>
           <View style={arenaStyles.gameOverModal}>
-            <Text style={arenaStyles.gameOverTitle}>Health Depleted</Text>
-            <Text style={arenaStyles.gameOverText}>
-              Enemy fire broke through the shields. Score {gameState.score}. Pressure tier {displayTier}.
+            <Text style={arenaStyles.gameOverTitle}>
+              {gameState.status === 'lost' ? 'Health Depleted' : 'Restart Run'}
             </Text>
-            {collectionNoticeText ? (
-              <Text style={arenaStyles.gameOverNoticeText}>{collectionNoticeText}</Text>
+            <Text style={arenaStyles.gameOverText}>
+              {gameState.status === 'lost'
+                ? `Enemy fire broke through the shields. Score ${gameState.score}.`
+                : 'Review the current run summary before wiping the board.'}
+            </Text>
+            {activeRunEndSummary ? (
+              <View
+                style={[
+                  arenaStyles.runSummaryCard,
+                  {
+                    borderColor: hexToRgba(activeBiomeDefinition.headerBorder, 0.62),
+                    backgroundColor: hexToRgba(activeBiomeDefinition.headerBackground, 0.72),
+                  },
+                ]}>
+                <View style={arenaStyles.runSummaryHeader}>
+                  <Text style={[arenaStyles.runSummaryTitle, { color: activeBiomeDefinition.detailColor }]}>
+                    {activeBiomeDefinition.label}
+                  </Text>
+                  <Text style={arenaStyles.runSummaryTierText}>T{activeRunEndSummary.tierReached}</Text>
+                </View>
+                <Text style={arenaStyles.runSummaryText}>
+                  Bosses cleared:{' '}
+                  {activeRunEndSummary.bossLabels.length > 0
+                    ? activeRunEndSummary.bossLabels.join(' • ')
+                    : 'None'}
+                </Text>
+                <Text style={arenaStyles.runSummaryText}>
+                  Mastery XP: +{activeRunEndSummary.masteryXp} to {ARENA_BUILD_META[activeRunEndSummary.dominantBuild].label}
+                </Text>
+                <Text style={arenaStyles.runSummaryText}>
+                  Rewards ready:{' '}
+                  {runEndRewardText ?? 'No new claimable cosmetics from this run.'}
+                </Text>
+              </View>
             ) : null}
+            {collectionNoticeText && !activeRunEndSummary ? <Text style={arenaStyles.gameOverNoticeText}>{collectionNoticeText}</Text> : null}
             <View style={arenaStyles.menuActions}>
-              <Pressable onPress={handleRestart} style={[arenaStyles.menuActionButton, arenaStyles.menuActionPrimary]}>
-                <Text style={arenaStyles.menuActionText}>Retry</Text>
-              </Pressable>
-              <Pressable onPress={() => handleSwitchGame('prototype')} style={[arenaStyles.menuActionButton, arenaStyles.menuActionSecondary]}>
-                <Text style={arenaStyles.menuActionText}>Back to Prototype</Text>
-              </Pressable>
+              {pendingRestartSummary ? (
+                <>
+                  <Pressable
+                    onPress={() => {
+                      setPendingRestartSummary(null);
+                      if (gameState.status === 'running') {
+                        setIsPaused(false);
+                      }
+                    }}
+                    style={[arenaStyles.menuActionButton, arenaStyles.menuActionSecondary]}>
+                    <Text style={arenaStyles.menuActionText}>Continue Run</Text>
+                  </Pressable>
+                  <Pressable
+                    onPress={handleConfirmRestart}
+                    style={[arenaStyles.menuActionButton, arenaStyles.menuActionPrimary]}>
+                    <Text style={arenaStyles.menuActionText}>Restart Now</Text>
+                  </Pressable>
+                </>
+              ) : (
+                <>
+                  <Pressable onPress={resetArenaRun} style={[arenaStyles.menuActionButton, arenaStyles.menuActionPrimary]}>
+                    <Text style={arenaStyles.menuActionText}>Retry</Text>
+                  </Pressable>
+                  <Pressable onPress={() => handleSwitchGame('prototype')} style={[arenaStyles.menuActionButton, arenaStyles.menuActionSecondary]}>
+                    <Text style={arenaStyles.menuActionText}>Back to Prototype</Text>
+                  </Pressable>
+                </>
+              )}
             </View>
           </View>
         </View>
@@ -2836,6 +3574,12 @@ const arenaStyles = StyleSheet.create({
     height: 82,
     borderRadius: 999,
   },
+  boardAnnouncementPanel: {
+    borderRadius: 14,
+    borderWidth: 1,
+    paddingHorizontal: 14,
+    paddingVertical: 9,
+  },
   boardAnnouncementText: {
     color: '#F1F7FF',
     fontSize: 26,
@@ -2843,6 +3587,39 @@ const arenaStyles = StyleSheet.create({
     letterSpacing: 0.8,
     textAlign: 'center',
     textTransform: 'uppercase',
+  },
+  sectorBannerWrap: {
+    position: 'absolute',
+    left: 18,
+    right: 18,
+    top: 24,
+    alignItems: 'center',
+    zIndex: 5,
+  },
+  sectorBannerCard: {
+    minWidth: 220,
+    maxWidth: 320,
+    borderRadius: 14,
+    borderWidth: 1,
+    paddingHorizontal: 14,
+    paddingVertical: 9,
+    alignItems: 'center',
+    shadowOffset: { width: 0, height: 0 },
+    shadowOpacity: 0.24,
+    shadowRadius: 12,
+  },
+  sectorBannerTitle: {
+    fontSize: 14,
+    fontWeight: '900',
+    textTransform: 'uppercase',
+    letterSpacing: 0.7,
+  },
+  sectorBannerSubtitle: {
+    marginTop: 2,
+    color: '#DCEBFB',
+    fontSize: 10.5,
+    fontWeight: '700',
+    textAlign: 'center',
   },
   enemyLabelWrap: {
     position: 'absolute',
@@ -3443,6 +4220,47 @@ const arenaStyles = StyleSheet.create({
     fontSize: 12,
     fontWeight: '700',
   },
+  audioControlCard: {
+    flex: 1,
+    borderRadius: 10,
+    borderWidth: 1,
+    paddingHorizontal: 10,
+    paddingVertical: 9,
+    gap: 8,
+  },
+  audioControlTitle: {
+    color: '#DCEBFA',
+    fontSize: 11,
+    fontWeight: '800',
+    textTransform: 'uppercase',
+  },
+  audioControlValueRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    gap: 8,
+  },
+  audioControlValue: {
+    color: '#F1F8FF',
+    fontSize: 11.5,
+    fontWeight: '900',
+  },
+  audioAdjustButton: {
+    width: 28,
+    height: 28,
+    borderRadius: 8,
+    borderWidth: 1,
+    borderColor: '#3A5570',
+    backgroundColor: '#122233',
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  audioAdjustButtonText: {
+    color: '#F0F8FF',
+    fontSize: 15,
+    fontWeight: '900',
+    lineHeight: 18,
+  },
   menuBuildDetails: {
     gap: 8,
   },
@@ -3914,6 +4732,34 @@ const arenaStyles = StyleSheet.create({
   gameOverNoticeText: {
     color: '#DDEBFA',
     fontSize: 11.5,
+    lineHeight: 16,
+    fontWeight: '700',
+  },
+  runSummaryCard: {
+    borderRadius: 12,
+    borderWidth: 1,
+    paddingHorizontal: 12,
+    paddingVertical: 10,
+    gap: 6,
+  },
+  runSummaryHeader: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    gap: 10,
+  },
+  runSummaryTitle: {
+    fontSize: 13,
+    fontWeight: '900',
+  },
+  runSummaryTierText: {
+    color: '#F2F8FF',
+    fontSize: 12,
+    fontWeight: '900',
+  },
+  runSummaryText: {
+    color: '#D9E8F7',
+    fontSize: 11,
     lineHeight: 16,
     fontWeight: '700',
   },

@@ -34,7 +34,7 @@ import type {
 } from './types';
 
 export const ARENA_META_STORAGE_KEY = 'arena-v2-meta-v1';
-export const ARENA_META_VERSION = 3;
+export const ARENA_META_VERSION = 5;
 export const ARENA_BUILD_MASTERY_THRESHOLDS = [0, 100, 220, 360, 520, 700, 900, 1120, 1360, 1620, 1900] as const;
 
 const ARENA_BUILD_MASTERY_TITLES = [
@@ -63,8 +63,11 @@ export const ARENA_ENEMY_LABELS: ArenaEnemyValueMap<string> = {
   lancer: 'Lancer',
   carrier: 'Carrier',
   artillery: 'Artillery',
+  weaver: 'Weaver',
+  conductor: 'Conductor',
   prismBoss: 'Prism Core',
   hiveCarrierBoss: 'Hive Carrier',
+  vectorLoomBoss: 'Vector Loom',
 };
 
 const ARENA_ENEMY_SUMMARIES: ArenaEnemyValueMap<string> = {
@@ -79,12 +82,19 @@ const ARENA_ENEMY_SUMMARIES: ArenaEnemyValueMap<string> = {
   lancer: 'Lane-control striker with telegraphed piercing attacks that force horizontal dodges.',
   carrier: 'Escort carrier that extends encounters by deploying light reinforcement packets.',
   artillery: 'Siege craft that paints delayed impact zones in the lower arena.',
+  weaver: 'Control ship that deploys paired lane-band hazards while preserving one full safe lane.',
+  conductor: 'Control striker that sweeps adjacent lane bands in readable multi-beat patterns.',
   prismBoss: 'Phase-driven boss core that mutates its pressure patterns as health breaks.',
   hiveCarrierBoss: 'Rotating boss carrier that mixes escort deployment, shelling, and lane pressure.',
+  vectorLoomBoss: 'Rotating control boss that combines thread walls, sweep beats, and support pressure.',
 };
 
 export const ARENA_UNLOCK_ORDER: ArenaUnlockId[] = [
+  'prismCoreFirstClear',
   'hiveCarrierFirstClear',
+  'vectorLoomFirstClear',
+  'bossTriadComplete',
+  'tier24Clear',
   'enemyCodexComplete',
   'railFocusMastery4',
   'railFocusMastery8',
@@ -97,6 +107,15 @@ export const ARENA_UNLOCK_ORDER: ArenaUnlockId[] = [
 ];
 
 const ARENA_UNLOCK_DEFINITIONS: ArenaUnlockValueMap<Omit<ArenaUnlockEntry, 'unlocked' | 'unlockedAt'>> = {
+  prismCoreFirstClear: {
+    id: 'prismCoreFirstClear',
+    label: 'Prism Core Clear',
+    description: 'Clear Prism Core once.',
+    rewardLabel: 'Boss Banner: Prism Shard',
+    category: 'boss',
+    buildId: null,
+    sourceMilestoneId: 'boss:prism-core:first-clear',
+  },
   hiveCarrierFirstClear: {
     id: 'hiveCarrierFirstClear',
     label: 'Hive Carrier Clear',
@@ -105,6 +124,33 @@ const ARENA_UNLOCK_DEFINITIONS: ArenaUnlockValueMap<Omit<ArenaUnlockEntry, 'unlo
     category: 'boss',
     buildId: null,
     sourceMilestoneId: 'boss:hive-carrier:first-clear',
+  },
+  vectorLoomFirstClear: {
+    id: 'vectorLoomFirstClear',
+    label: 'Vector Loom Clear',
+    description: 'Clear Vector Loom once.',
+    rewardLabel: 'Boss Banner: Loom Static',
+    category: 'boss',
+    buildId: null,
+    sourceMilestoneId: 'boss:vector-loom:first-clear',
+  },
+  bossTriadComplete: {
+    id: 'bossTriadComplete',
+    label: 'Boss Triad Complete',
+    description: 'Clear Prism Core, Hive Carrier, and Vector Loom at least once each.',
+    rewardLabel: 'Codex Frame: Triad Grid',
+    category: 'codex',
+    buildId: null,
+    sourceMilestoneId: 'boss:triad:complete',
+  },
+  tier24Clear: {
+    id: 'tier24Clear',
+    label: 'Tier 24 Clear',
+    description: 'Reach pressure tier 24 in a single run.',
+    rewardLabel: 'Codex Frame: Endless Apex',
+    category: 'codex',
+    buildId: null,
+    sourceMilestoneId: 'tier:24:first-clear',
   },
   enemyCodexComplete: {
     id: 'enemyCodexComplete',
@@ -353,14 +399,34 @@ function isEnemyCodexComplete(codexEnemies: ArenaEnemyValueMap<ArenaCodexEnemyEn
   return ARENA_ENEMY_ORDER.every((kind) => codexEnemies[kind].discovered);
 }
 
+function isBossTriadComplete(codexEnemies: ArenaEnemyValueMap<ArenaCodexEnemyEntry>) {
+  return (
+    codexEnemies.prismBoss.bossClears > 0 &&
+    codexEnemies.hiveCarrierBoss.bossClears > 0 &&
+    codexEnemies.vectorLoomBoss.bossClears > 0
+  );
+}
+
+function hasReachedTier24(mastery: ArenaBuildValueMap<ArenaBuildMastery>) {
+  return ARENA_BUILD_ORDER.some((buildId) => mastery[buildId].bestTier >= 24);
+}
+
 function isUnlockSatisfied(
   unlockId: ArenaUnlockId,
   codexEnemies: ArenaEnemyValueMap<ArenaCodexEnemyEntry>,
   mastery: ArenaBuildValueMap<ArenaBuildMastery>
 ) {
   switch (unlockId) {
+    case 'prismCoreFirstClear':
+      return codexEnemies.prismBoss.bossClears > 0;
     case 'hiveCarrierFirstClear':
       return codexEnemies.hiveCarrierBoss.bossClears > 0;
+    case 'vectorLoomFirstClear':
+      return codexEnemies.vectorLoomBoss.bossClears > 0;
+    case 'bossTriadComplete':
+      return isBossTriadComplete(codexEnemies);
+    case 'tier24Clear':
+      return hasReachedTier24(mastery);
     case 'enemyCodexComplete':
       return isEnemyCodexComplete(codexEnemies);
     case 'railFocusMastery4':

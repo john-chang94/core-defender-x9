@@ -1,7 +1,7 @@
 # Prototype V2 Reference
 
 Snapshot date: `2026-04-14`
-Board version: `v0.46`
+Board version: `v0.48`
 
 This document is the current reference for the arena-combat shooter in `/Users/johnchang/Desktop/defender/src/prototype-v2`. It replaces the earlier planning-heavy draft with a snapshot of what is actually implemented today, plus the next major gaps.
 
@@ -25,7 +25,7 @@ Core loop:
 
 This mode is no longer just a redesign concept. It is a production prototype with live combat, encounters, progression, and Skia rendering.
 
-The current build also includes persistent between-run `Codex + Mastery` data stored locally, a scripted encounter registry, a rotating two-boss cadence, artillery hazard telegraphs, and a local cosmetic collection / equip layer on top of the meta flow.
+The current build also includes persistent between-run `Codex + Mastery` data stored locally, a scripted encounter registry, a rotating three-boss cadence, named biome sectors, Arena-local audio settings plus music / SFX playback, impact + lane-band hazard telegraphs, and a local cosmetic collection / equip layer on top of the meta flow.
 
 ## Current Playable State
 
@@ -67,12 +67,15 @@ Other UI behavior:
 
 - center-top status pill shows run state, pickup messages, encounter states, or pause/menu state
 - encounter announcements flash over the arena center
+- sector-transition banners now call out the active biome every `6` tiers
 - enemy health numbers are rendered as floating labels over enemies
 - drop labels are rendered under field pickups
 - the player ship now sits higher in the lower arena to keep the live view clearer under the player’s finger
 - a semi-transparent move hint sits below the ship and hides while the player is pressing in that control zone
 - the armory is opened manually from an in-arena button instead of auto-opening on threshold hit
 - the in-game menu now includes `Run`, `Codex`, `Mastery`, and `Collection` tabs
+- the `Run` tab now shows active biome / sector info, next boss preview, and Arena-local audio controls
+- run-end summary panels now show tier reached, bosses cleared, mastery XP granted, and newly claimable cosmetics
 - codex, mastery, and cosmetic collection state persist across relaunches through a versioned AsyncStorage blob
 - the in-game menu still allows game switching, build switching, and restart
 
@@ -310,8 +313,11 @@ Current live enemy families:
 - `lancer`: lane-control striker with telegraphed piercing sweep shots
 - `carrier`: support ship that deploys escort packets and stretches field pressure
 - `artillery`: siege ship that telegraphs delayed lower-arena impact zones
+- `weaver`: control ship that deploys paired lane-band hazards while keeping at least one lane open
+- `conductor`: control striker that sweeps adjacent lane bands in readable beats
 - `prismBoss`: boss anchor with the heaviest health and multi-pattern pressure
 - `hiveCarrierBoss`: rotating boss carrier that mixes escort deployment, artillery pressure, and lane sweeps
+- `vectorLoomBoss`: rotating control boss that layers thread walls, sweep beats, and support spawns
 
 ### Enemy presentation state
 
@@ -330,7 +336,7 @@ Current presentation improvements:
 
 - mini-boss encounter every `3` tiers
 - boss encounter every `6` tiers
-- boss rotation currently starts with `Prism Core` at `T6` and alternates to `Hive Carrier` at `T12`, `T18`, and beyond
+- boss rotation currently runs `Prism Core` at `T6`, `Hive Carrier` at `T12`, `Vector Loom` at `T18`, then repeats every `18` tiers
 
 ### Current live encounter anchors
 
@@ -346,10 +352,16 @@ Current presentation improvements:
   - anchor: `carrier`
 - `Artillery Bastion`
   - anchor: `artillery`
+- `Weaver Loom`
+  - anchor: `weaver`
+- `Conductor Array`
+  - anchor: `conductor`
 - `Prism Core`
   - anchor: `prismBoss`
 - `Hive Carrier`
   - anchor: `hiveCarrierBoss`
+- `Vector Loom`
+  - anchor: `vectorLoomBoss`
 
 ### Encounter reward behavior
 
@@ -426,6 +438,8 @@ Primary implementation files:
 - `/Users/johnchang/Desktop/defender/src/prototype-v2/builds.ts`
 - `/Users/johnchang/Desktop/defender/src/prototype-v2/upgrades.ts`
 - `/Users/johnchang/Desktop/defender/src/prototype-v2/engine.ts`
+- `/Users/johnchang/Desktop/defender/src/prototype-v2/biomes.ts`
+- `/Users/johnchang/Desktop/defender/src/prototype-v2/audio.ts`
 - `/Users/johnchang/Desktop/defender/src/prototype-v2/ArenaCanvas.tsx`
 - `/Users/johnchang/Desktop/defender/src/prototype-v2/ArenaPrototypeScreen.tsx`
 
@@ -433,6 +447,17 @@ Primary implementation files:
 
 ### 2026-04-14
 
+- Advanced arena board label to `v0.48`.
+- Replaced the old generic theme cycling with named `Prism Verge`, `Hive Forge`, and `Vector Spindle` biome sectors aligned to the `6`-tier boss cadence.
+- Added Arena-local music / SFX playback with persistent audio settings in the `Run` tab.
+- Added run-end summary panels for loss / restart flow and surfaced biome + next-boss preview in the menu.
+- Added two new global reward hooks and Collection items: `Boss Banner: Prism Shard` and `Codex Frame: Endless Apex`.
+- Advanced arena board label to `v0.47`.
+- Added `Weaver` and `Conductor` pressure-control enemy jobs plus rectangular lane-band hazards.
+- Expanded formations with `Thread Gate`, `Cross Weave`, `Conductor Shift`, `Suppression Rail`, `Pinned Screen`, and `Corridor Collapse`.
+- Expanded the mini-boss pool with `Weaver Loom` and `Conductor Array`.
+- Added `Vector Loom` as a third rotating three-phase boss and extended the boss cadence to repeat every `18` tiers.
+- Added two new global reward hooks and Collection items: `Boss Banner: Loom Static` and `Codex Frame: Triad Grid`.
 - Advanced arena board label to `v0.46`.
 - Converted reward hooks into a persistent local cosmetic collection with claim and equip flow.
 - Added a dedicated `Collection` menu tab plus live ship / HUD / menu presentation from equipped banners, frames, accents, and crests.
@@ -498,12 +523,12 @@ These are the major areas that still remain after the current polish pass.
 ### Content expansion
 
 - more encounter scripts on top of the now broader registry
-- more enemy jobs beyond the current `Warden` / `Lancer` / `Carrier` / `Artillery` roster expansion
-- a third boss after the current `Prism Core` / `Hive Carrier` rotation
+- more enemy jobs beyond the current `Warden` / `Lancer` / `Carrier` / `Artillery` / `Weaver` / `Conductor` roster expansion
+- more bosses after the current `Prism Core` / `Hive Carrier` / `Vector Loom` rotation
 
 ### Progression expansion
 
-- actual cosmetic equip / claim flows on top of the current unlock scaffolding
+- more cosmetic content and slot coverage on top of the current local claim / equip layer
 - more premium-feeling armory picks beyond the current base set
 
 ### Retention / presentation
@@ -526,15 +551,11 @@ These are the major areas that still remain after the current polish pass.
 
 ## Current Next Step Recommendation
 
-The immediate next step should be content expansion, not another major systems rewrite.
+The immediate next step should probably be production follow-through rather than another foundational systems rewrite.
 
 Recommended order:
 
-1. Add more encounter scripts and at least `2` more enemy jobs.
-2. Expand boss behavior so bosses are more pattern-driven than health-driven.
-3. Add one deeper progression layer outside the current run loop:
-   - codex
-   - mastery
-   - unlock track
-4. Define the first non-pay-to-win monetization layer around cosmetics, presentation, and optional reward-track content.
-5. Continue targeted performance passes only where live playtesting shows saturation.
+1. Playtest and balance the new pressure-control pack until `Weaver`, `Conductor`, and `Vector Loom` feel readable under real swarm pressure.
+2. Add more cosmetic content and reward destinations on top of the current Collection flow without touching combat power.
+3. Expand presentation with audio layering, biome variety, and targeted event polish.
+4. Continue performance passes where lane hazards, boss overlaps, and late-tier projectile density still stress the board.

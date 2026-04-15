@@ -10,8 +10,11 @@ export type ArenaEnemyKind =
   | 'lancer'
   | 'carrier'
   | 'artillery'
+  | 'weaver'
+  | 'conductor'
   | 'prismBoss'
-  | 'hiveCarrierBoss';
+  | 'hiveCarrierBoss'
+  | 'vectorLoomBoss';
 
 export type ArenaEnemyShape = 'circle' | 'square' | 'diamond';
 
@@ -20,6 +23,7 @@ export type ArenaProjectileKind = 'primary' | 'missile' | 'shard' | 'enemy';
 export type ArenaBuildId = 'railFocus' | 'novaBloom' | 'missileCommand' | 'fractureCore';
 export type ArenaVfxQuality = 'balanced' | 'high';
 export type ArenaEffectFlavor = ArenaBuildId | 'enemy' | 'neutral';
+export type ArenaBiomeId = 'prismVerge' | 'hiveForge' | 'vectorSpindle';
 export type ArenaBuildValueMap<T> = Record<ArenaBuildId, T>;
 export type ArenaEnemyValueMap<T> = Record<ArenaEnemyKind, T>;
 export type ArenaUnlockValueMap<T> = Record<ArenaUnlockId, T>;
@@ -35,6 +39,78 @@ export type ArenaEffectKind =
   | 'ultimateNova'
   | 'ultimateMissile'
   | 'ultimateFracture';
+
+export type ArenaBiomePlateStyle = {
+  color: string;
+  stroke: string;
+};
+
+export type ArenaBiomeOrbStyle = {
+  color: string;
+  opacity: number;
+};
+
+export type ArenaBiomeSweepStyle = {
+  color: string;
+  opacity: number;
+};
+
+export type ArenaBiomeDefinition = {
+  id: ArenaBiomeId;
+  label: string;
+  subtitle: string;
+  accentColor: string;
+  detailColor: string;
+  glowColor: string;
+  base: string;
+  auraA: string;
+  auraB: string;
+  enemyZone: string;
+  boundary: string;
+  grid: string;
+  overlay: string;
+  flow: string;
+  pulse: string;
+  headerBackground: string;
+  headerBorder: string;
+  menuSurface: string;
+  menuStripe: string;
+  announcementGlow: string;
+  backgroundPlates: readonly ArenaBiomePlateStyle[];
+  atmosphereOrbs: readonly ArenaBiomeOrbStyle[];
+  energySweeps: readonly ArenaBiomeSweepStyle[];
+};
+
+export type ArenaAudioSettings = {
+  soundEnabled: boolean;
+  musicEnabled: boolean;
+  sfxVolume: number;
+  musicVolume: number;
+};
+
+export type ArenaAudioCueKey =
+  | 'playerRail'
+  | 'playerNova'
+  | 'playerMissile'
+  | 'playerFracture'
+  | 'enemyOrb'
+  | 'enemyBolt'
+  | 'enemyNeedle'
+  | 'enemyBomb'
+  | 'enemyWave'
+  | 'hazardTelegraph'
+  | 'hazardImpact'
+  | 'pickup'
+  | 'armoryOpen'
+  | 'armoryUpgrade'
+  | 'overdriveStart'
+  | 'overdriveEnd'
+  | 'ultimate'
+  | 'bossIntro'
+  | 'bossPhase'
+  | 'bossKill'
+  | 'playerHit'
+  | 'playerLoss';
 
 export type ArenaDropType = 'hullPatch' | 'shieldCell' | 'overdrive' | 'salvageBurst';
 
@@ -58,16 +134,25 @@ export type ArenaEncounterScriptId =
   | 'artilleryNet'
   | 'siegeScreen'
   | 'impactCorridor'
+  | 'threadGate'
+  | 'crossWeave'
+  | 'conductorShift'
+  | 'suppressionRail'
+  | 'pinnedScreen'
+  | 'corridorCollapse'
   | 'interceptorSweep'
   | 'bombardWing'
   | 'wardenBastion'
   | 'lancerSpearhead'
   | 'carrierNest'
   | 'artilleryBastion'
+  | 'weaverLoom'
+  | 'conductorArray'
   | 'prismCore'
-  | 'hiveCarrier';
+  | 'hiveCarrier'
+  | 'vectorLoom';
 
-export type ArenaHazardKind = 'impact';
+export type ArenaHazardKind = 'impact' | 'laneBand';
 
 export type ArenaWeapon = {
   damage: number;
@@ -185,12 +270,9 @@ export type ArenaEncounter = {
   bossPhaseIndex: 0 | 1 | 2;
 };
 
-export type ArenaHazard = {
+type ArenaHazardBase = {
   id: string;
   kind: ArenaHazardKind;
-  x: number;
-  y: number;
-  radius: number;
   damage: number;
   age: number;
   warningDuration: number;
@@ -202,6 +284,23 @@ export type ArenaHazard = {
   ownerKind: ArenaEnemyKind | null;
   encounterTag: ArenaEncounterScriptId | null;
 };
+
+export type ArenaImpactHazard = ArenaHazardBase & {
+  kind: 'impact';
+  x: number;
+  y: number;
+  radius: number;
+};
+
+export type ArenaLaneBandHazard = ArenaHazardBase & {
+  kind: 'laneBand';
+  x: number;
+  y: number;
+  width: number;
+  height: number;
+};
+
+export type ArenaHazard = ArenaImpactHazard | ArenaLaneBandHazard;
 
 export type ArenaEffect = {
   id: string;
@@ -273,7 +372,11 @@ export type ArenaBuildMastery = {
 export type ArenaUnlockCategory = 'boss' | 'codex' | 'mastery';
 
 export type ArenaUnlockId =
+  | 'prismCoreFirstClear'
   | 'hiveCarrierFirstClear'
+  | 'vectorLoomFirstClear'
+  | 'bossTriadComplete'
+  | 'tier24Clear'
   | 'enemyCodexComplete'
   | 'railFocusMastery4'
   | 'railFocusMastery8'
@@ -304,9 +407,13 @@ export type ArenaCosmeticRarity = 'common' | 'rare' | 'epic';
 
 export type ArenaCosmeticId =
   | 'bannerDefault'
+  | 'bannerPrismShard'
   | 'bannerHiveTrace'
+  | 'bannerLoomStatic'
   | 'codexFrameDefault'
   | 'codexFrameFullSpectrum'
+  | 'codexFrameEndlessApex'
+  | 'codexFrameTriadGrid'
   | 'railFocusAccentDefault'
   | 'railFocusAccentHalo'
   | 'novaBloomAccentDefault'

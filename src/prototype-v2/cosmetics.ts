@@ -13,9 +13,13 @@ type ArenaBuildCosmeticSlot = Extract<ArenaCosmeticSlot, 'buildAccent' | 'buildC
 
 export const ARENA_COSMETIC_ORDER: ArenaCosmeticId[] = [
   'bannerDefault',
+  'bannerPrismShard',
   'bannerHiveTrace',
+  'bannerLoomStatic',
   'codexFrameDefault',
   'codexFrameFullSpectrum',
+  'codexFrameEndlessApex',
+  'codexFrameTriadGrid',
   'railFocusAccentDefault',
   'railFocusAccentHalo',
   'novaBloomAccentDefault',
@@ -49,6 +53,20 @@ export const ARENA_COSMETIC_DEFINITIONS: Record<ArenaCosmeticId, ArenaCosmeticDe
     detailColor: '#B4D8FF',
     glowColor: '#D8EEFF',
   },
+  bannerPrismShard: {
+    id: 'bannerPrismShard',
+    label: 'Boss Banner: Prism Shard',
+    description: 'Iridescent prism lattice recovered from the first Prism Core clear.',
+    slot: 'banner',
+    buildId: null,
+    sourceType: 'reward',
+    rarity: 'rare',
+    rewardUnlockId: 'prismCoreFirstClear',
+    primaryColor: '#2C2453',
+    secondaryColor: '#FF8AC3',
+    detailColor: '#FFE8F5',
+    glowColor: '#FFD2E9',
+  },
   bannerHiveTrace: {
     id: 'bannerHiveTrace',
     label: 'Boss Banner: Hive Trace',
@@ -62,6 +80,20 @@ export const ARENA_COSMETIC_DEFINITIONS: Record<ArenaCosmeticId, ArenaCosmeticDe
     secondaryColor: '#3E9A84',
     detailColor: '#93F0D5',
     glowColor: '#C7FFF1',
+  },
+  bannerLoomStatic: {
+    id: 'bannerLoomStatic',
+    label: 'Boss Banner: Loom Static',
+    description: 'Cold lattice bands recovered from the first Vector Loom clear.',
+    slot: 'banner',
+    buildId: null,
+    sourceType: 'reward',
+    rarity: 'epic',
+    rewardUnlockId: 'vectorLoomFirstClear',
+    primaryColor: '#1B244B',
+    secondaryColor: '#5E7CCF',
+    detailColor: '#C7D8FF',
+    glowColor: '#EEF4FF',
   },
   codexFrameDefault: {
     id: 'codexFrameDefault',
@@ -90,6 +122,34 @@ export const ARENA_COSMETIC_DEFINITIONS: Record<ArenaCosmeticId, ArenaCosmeticDe
     secondaryColor: '#63B9FF',
     detailColor: '#FFD976',
     glowColor: '#FFB7D9',
+  },
+  codexFrameEndlessApex: {
+    id: 'codexFrameEndlessApex',
+    label: 'Codex Frame: Endless Apex',
+    description: 'High-tier command frame awarded for reaching pressure tier 24 in a single run.',
+    slot: 'codexFrame',
+    buildId: null,
+    sourceType: 'reward',
+    rarity: 'epic',
+    rewardUnlockId: 'tier24Clear',
+    primaryColor: '#14263C',
+    secondaryColor: '#8ED6FF',
+    detailColor: '#FFF0BD',
+    glowColor: '#E8F7FF',
+  },
+  codexFrameTriadGrid: {
+    id: 'codexFrameTriadGrid',
+    label: 'Codex Frame: Triad Grid',
+    description: 'Triangulated tactical frame awarded for clearing every active boss at least once.',
+    slot: 'codexFrame',
+    buildId: null,
+    sourceType: 'reward',
+    rarity: 'epic',
+    rewardUnlockId: 'bossTriadComplete',
+    primaryColor: '#18263E',
+    secondaryColor: '#7DA8FF',
+    detailColor: '#FFE09B',
+    glowColor: '#DCE8FF',
   },
   railFocusAccentDefault: {
     id: 'railFocusAccentDefault',
@@ -326,8 +386,8 @@ export const ARENA_COSMETIC_DEFINITIONS: Record<ArenaCosmeticId, ArenaCosmeticDe
 };
 
 const ARENA_GLOBAL_COSMETIC_ORDER: Record<ArenaGlobalCosmeticSlot, ArenaCosmeticId[]> = {
-  banner: ['bannerDefault', 'bannerHiveTrace'],
-  codexFrame: ['codexFrameDefault', 'codexFrameFullSpectrum'],
+  banner: ['bannerDefault', 'bannerPrismShard', 'bannerHiveTrace', 'bannerLoomStatic'],
+  codexFrame: ['codexFrameDefault', 'codexFrameFullSpectrum', 'codexFrameEndlessApex', 'codexFrameTriadGrid'],
 };
 
 const ARENA_BUILD_COSMETIC_ORDER: ArenaBuildValueMap<Record<ArenaBuildCosmeticSlot, ArenaCosmeticId[]>> = {
@@ -374,7 +434,11 @@ const ARENA_DEFAULT_BUILD_COSMETICS: ArenaBuildValueMap<Record<ArenaBuildCosmeti
 };
 
 const ARENA_UNLOCK_REWARD_COSMETICS: Record<ArenaUnlockId, ArenaCosmeticId> = {
+  prismCoreFirstClear: 'bannerPrismShard',
   hiveCarrierFirstClear: 'bannerHiveTrace',
+  vectorLoomFirstClear: 'bannerLoomStatic',
+  bossTriadComplete: 'codexFrameTriadGrid',
+  tier24Clear: 'codexFrameEndlessApex',
   enemyCodexComplete: 'codexFrameFullSpectrum',
   railFocusMastery4: 'railFocusAccentHalo',
   railFocusMastery8: 'railFocusCrestZenith',

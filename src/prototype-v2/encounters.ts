@@ -280,6 +280,169 @@ const FORMATION_SCRIPTS: readonly ArenaEncounterScript[] = [
       { kind: 'hover', laneOffset: 2, cruiseYRatio: 0.22 },
     ],
   },
+  {
+    id: 'threadGate',
+    type: 'formation',
+    label: 'Thread Gate',
+    announcement: 'Weaver threads are opening a gated lane.',
+    accentColor: '#C3D0FF',
+    rewardSalvage: 0,
+    anchorKind: 'weaver',
+    minTier: 17,
+    requiredCapacity: 4,
+    maxBulletPressure: 0.78,
+    maxHazardPressure: 0.42,
+    selectionWeight: 3,
+    steps: [
+      {
+        kind: 'weaver',
+        anchor: true,
+        laneOffset: 0,
+        cruiseYRatio: 0.18,
+        healthMultiplier: 1.12,
+        attackCooldownMultiplier: 0.96,
+      },
+      { kind: 'burst', laneOffset: -1, cruiseYRatio: 0.23, healthMultiplier: 1.04 },
+      { kind: 'sniper', laneOffset: 1, cruiseYRatio: 0.17, healthMultiplier: 1.04 },
+    ],
+  },
+  {
+    id: 'crossWeave',
+    type: 'formation',
+    label: 'Cross Weave',
+    announcement: 'Twin weavers are crossing thread walls over the lower arena.',
+    accentColor: '#B8C7FF',
+    rewardSalvage: 0,
+    anchorKind: 'weaver',
+    minTier: 18,
+    requiredCapacity: 5,
+    maxBulletPressure: 0.74,
+    maxHazardPressure: 0.46,
+    selectionWeight: 2,
+    steps: [
+      {
+        kind: 'weaver',
+        anchor: true,
+        laneOffset: -1,
+        cruiseYRatio: 0.18,
+        healthMultiplier: 1.12,
+      },
+      {
+        kind: 'weaver',
+        laneOffset: 1,
+        cruiseYRatio: 0.19,
+        healthMultiplier: 1.1,
+      },
+      { kind: 'orbiter', laneOffset: 0, cruiseYRatio: 0.24, healthMultiplier: 1.06 },
+    ],
+  },
+  {
+    id: 'conductorShift',
+    type: 'formation',
+    label: 'Conductor Shift',
+    announcement: 'Conductor sweep beats are shifting the safe lane.',
+    accentColor: '#FFE08A',
+    rewardSalvage: 0,
+    anchorKind: 'conductor',
+    minTier: 18,
+    requiredCapacity: 4,
+    maxBulletPressure: 0.76,
+    maxHazardPressure: 0.44,
+    selectionWeight: 3,
+    steps: [
+      {
+        kind: 'conductor',
+        anchor: true,
+        laneOffset: 0,
+        cruiseYRatio: 0.2,
+        healthMultiplier: 1.12,
+        attackCooldownMultiplier: 0.96,
+      },
+      { kind: 'hover', laneOffset: -1, cruiseYRatio: 0.22, healthMultiplier: 1.04 },
+      { kind: 'hover', laneOffset: 1, cruiseYRatio: 0.22, healthMultiplier: 1.04 },
+    ],
+  },
+  {
+    id: 'suppressionRail',
+    type: 'formation',
+    label: 'Suppression Rail',
+    announcement: 'Conductor sweeps are pinning sniper sightlines.',
+    accentColor: '#FFE39C',
+    rewardSalvage: 0,
+    anchorKind: 'conductor',
+    minTier: 19,
+    requiredCapacity: 4,
+    maxBulletPressure: 0.72,
+    maxHazardPressure: 0.48,
+    selectionWeight: 2,
+    steps: [
+      {
+        kind: 'conductor',
+        anchor: true,
+        laneOffset: 0,
+        cruiseYRatio: 0.2,
+        healthMultiplier: 1.14,
+      },
+      { kind: 'sniper', laneOffset: -2, cruiseYRatio: 0.16, attackCooldownMultiplier: 0.96 },
+      { kind: 'sniper', laneOffset: 2, cruiseYRatio: 0.16, attackCooldownMultiplier: 0.96 },
+    ],
+  },
+  {
+    id: 'pinnedScreen',
+    type: 'formation',
+    label: 'Pinned Screen',
+    announcement: 'Weaver threads are locking a shielded front line in place.',
+    accentColor: '#D2D7FF',
+    rewardSalvage: 0,
+    anchorKind: 'weaver',
+    minTier: 20,
+    requiredCapacity: 5,
+    maxBulletPressure: 0.8,
+    maxHazardPressure: 0.48,
+    selectionWeight: 2,
+    steps: [
+      {
+        kind: 'weaver',
+        anchor: true,
+        laneOffset: 0,
+        cruiseYRatio: 0.18,
+        healthMultiplier: 1.16,
+      },
+      { kind: 'warden', laneOffset: -1, cruiseYRatio: 0.18, healthMultiplier: 1.08 },
+      { kind: 'tank', laneOffset: 1, cruiseYRatio: 0.24, healthMultiplier: 1.1 },
+    ],
+  },
+  {
+    id: 'corridorCollapse',
+    type: 'formation',
+    label: 'Corridor Collapse',
+    announcement: 'Conductor beats are collapsing the safe corridor under artillery cover.',
+    accentColor: '#FFD7A0',
+    rewardSalvage: 0,
+    anchorKind: 'conductor',
+    minTier: 21,
+    requiredCapacity: 5,
+    maxBulletPressure: 0.72,
+    maxHazardPressure: 0.42,
+    selectionWeight: 2,
+    steps: [
+      {
+        kind: 'conductor',
+        anchor: true,
+        laneOffset: 0,
+        cruiseYRatio: 0.2,
+        healthMultiplier: 1.18,
+      },
+      {
+        kind: 'artillery',
+        laneOffset: 1,
+        cruiseYRatio: 0.17,
+        healthMultiplier: 1.1,
+        specialCooldownMultiplier: 0.9,
+      },
+      { kind: 'hover', laneOffset: -1, cruiseYRatio: 0.22, healthMultiplier: 1.04 },
+    ],
+  },
 ];
 
 const MINI_BOSS_SCRIPTS: readonly ArenaEncounterScript[] = [
@@ -438,6 +601,56 @@ const MINI_BOSS_SCRIPTS: readonly ArenaEncounterScript[] = [
       { kind: 'hover', laneIndex: 2, cruiseYRatio: 0.22, healthMultiplier: 1.04, rewardMultiplier: 0.82 },
     ],
   },
+  {
+    id: 'weaverLoom',
+    type: 'miniBoss',
+    label: 'Weaver Loom',
+    announcement: 'Weaver loom is stitching thread walls across the lower arena.',
+    accentColor: '#C3D2FF',
+    rewardSalvage: 112,
+    anchorKind: 'weaver',
+    minTier: 21,
+    maxHazardPressure: 0.4,
+    steps: [
+      {
+        kind: 'weaver',
+        anchor: true,
+        xRatio: 0.5,
+        cruiseYRatio: 0.19,
+        healthMultiplier: 1.44,
+        rewardMultiplier: 1.36,
+        attackCooldownMultiplier: 0.9,
+      },
+      { kind: 'burst', laneIndex: 1, cruiseYRatio: 0.23, healthMultiplier: 1.08, rewardMultiplier: 0.86 },
+      { kind: 'sniper', laneIndex: 4, cruiseYRatio: 0.17, healthMultiplier: 1.06, rewardMultiplier: 0.9 },
+      { kind: 'warden', laneIndex: 2, cruiseYRatio: 0.18, healthMultiplier: 1.08, rewardMultiplier: 0.9 },
+    ],
+  },
+  {
+    id: 'conductorArray',
+    type: 'miniBoss',
+    label: 'Conductor Array',
+    announcement: 'Conductor array is sweeping the lower arena in linked beats.',
+    accentColor: '#FFE18E',
+    rewardSalvage: 116,
+    anchorKind: 'conductor',
+    minTier: 24,
+    maxHazardPressure: 0.44,
+    steps: [
+      {
+        kind: 'conductor',
+        anchor: true,
+        xRatio: 0.5,
+        cruiseYRatio: 0.2,
+        healthMultiplier: 1.46,
+        rewardMultiplier: 1.38,
+        attackCooldownMultiplier: 0.9,
+      },
+      { kind: 'hover', laneIndex: 1, cruiseYRatio: 0.22, healthMultiplier: 1.08, rewardMultiplier: 0.84 },
+      { kind: 'sniper', laneIndex: 4, cruiseYRatio: 0.16, healthMultiplier: 1.08, rewardMultiplier: 0.9 },
+      { kind: 'artillery', laneIndex: 2, cruiseYRatio: 0.17, healthMultiplier: 1.08, rewardMultiplier: 0.92 },
+    ],
+  },
 ];
 
 const PRISM_BOSS_SCRIPT: ArenaEncounterScript = {
@@ -497,6 +710,32 @@ const HIVE_CARRIER_BOSS_SCRIPT: ArenaEncounterScript = {
     { kind: 'hover', laneIndex: 1, cruiseYRatio: 0.22, healthMultiplier: 1.1, rewardMultiplier: 0.88 },
     { kind: 'hover', laneIndex: 4, cruiseYRatio: 0.22, healthMultiplier: 1.1, rewardMultiplier: 0.88 },
     { kind: 'carrier', laneIndex: 2, cruiseYRatio: 0.18, healthMultiplier: 1.1, rewardMultiplier: 0.92 },
+  ],
+};
+
+const VECTOR_LOOM_BOSS_SCRIPT: ArenaEncounterScript = {
+  id: 'vectorLoom',
+  type: 'boss',
+  label: 'Vector Loom',
+  announcement: 'Boss intercept. Break the vector loom before the control field collapses.',
+  accentColor: '#C1D0FF',
+  rewardSalvage: 194,
+  anchorKind: 'vectorLoomBoss',
+  minTier: 18,
+  steps: [
+    {
+      kind: 'vectorLoomBoss',
+      anchor: true,
+      xRatio: 0.5,
+      cruiseYRatio: 0.2,
+      healthMultiplier: 1.2,
+      rewardMultiplier: 1.4,
+      attackCooldownMultiplier: 0.94,
+      specialCooldownMultiplier: 0.92,
+    },
+    { kind: 'weaver', laneIndex: 1, cruiseYRatio: 0.18, healthMultiplier: 1.1, rewardMultiplier: 0.88 },
+    { kind: 'hover', laneIndex: 4, cruiseYRatio: 0.22, healthMultiplier: 1.08, rewardMultiplier: 0.84 },
+    { kind: 'conductor', laneIndex: 2, cruiseYRatio: 0.2, healthMultiplier: 1.08, rewardMultiplier: 0.92 },
   ],
 };
 
@@ -592,9 +831,70 @@ const HIVE_CARRIER_PHASES: readonly ArenaBossPhaseDefinition[] = [
   },
 ];
 
-const BOSS_PHASES: Record<'prismCore' | 'hiveCarrier', readonly ArenaBossPhaseDefinition[]> = {
+const VECTOR_LOOM_PHASES: readonly ArenaBossPhaseDefinition[] = [
+  {
+    phaseIndex: 0,
+    threshold: 1,
+    label: 'Vector Loom',
+    announcement: 'Thread lattice active. Watch the safe lane and keep pressure on the loom.',
+    accentColor: '#C1D0FF',
+    steps: [],
+  },
+  {
+    phaseIndex: 1,
+    threshold: 0.7,
+    label: 'Shift Rail',
+    announcement: 'Shift rail online. Conductor sweeps are sliding the safe lane on a fixed beat.',
+    accentColor: '#FFE18E',
+    steps: [
+      {
+        kind: 'conductor',
+        laneIndex: 1,
+        cruiseYRatio: 0.2,
+        healthMultiplier: 1.16,
+        rewardMultiplier: 0.9,
+      },
+      {
+        kind: 'conductor',
+        laneIndex: 4,
+        cruiseYRatio: 0.2,
+        healthMultiplier: 1.16,
+        rewardMultiplier: 0.9,
+      },
+      { kind: 'hover', laneIndex: 2, cruiseYRatio: 0.22, healthMultiplier: 1.06, rewardMultiplier: 0.82 },
+    ],
+  },
+  {
+    phaseIndex: 2,
+    threshold: 0.35,
+    label: 'Control Collapse',
+    announcement: 'Control collapse active. Thread walls and sweep beats are overlapping with support pressure.',
+    accentColor: '#D7E0FF',
+    steps: [
+      {
+        kind: 'weaver',
+        laneIndex: 1,
+        cruiseYRatio: 0.18,
+        healthMultiplier: 1.16,
+        rewardMultiplier: 0.9,
+      },
+      {
+        kind: 'conductor',
+        laneIndex: 4,
+        cruiseYRatio: 0.2,
+        healthMultiplier: 1.16,
+        rewardMultiplier: 0.9,
+      },
+      { kind: 'burst', laneIndex: 2, cruiseYRatio: 0.23, healthMultiplier: 1.08, rewardMultiplier: 0.84 },
+      { kind: 'hover', laneIndex: 3, cruiseYRatio: 0.22, healthMultiplier: 1.06, rewardMultiplier: 0.82 },
+    ],
+  },
+];
+
+const BOSS_PHASES: Record<'prismCore' | 'hiveCarrier' | 'vectorLoom', readonly ArenaBossPhaseDefinition[]> = {
   prismCore: PRISM_BOSS_PHASES,
   hiveCarrier: HIVE_CARRIER_PHASES,
+  vectorLoom: VECTOR_LOOM_PHASES,
 };
 
 const ENCOUNTER_REGISTRY: Record<ArenaEncounterScriptId, ArenaEncounterScript> = {
@@ -607,17 +907,26 @@ const ENCOUNTER_REGISTRY: Record<ArenaEncounterScriptId, ArenaEncounterScript> =
   artilleryNet: FORMATION_SCRIPTS[6],
   siegeScreen: FORMATION_SCRIPTS[7],
   impactCorridor: FORMATION_SCRIPTS[8],
+  threadGate: FORMATION_SCRIPTS[9],
+  crossWeave: FORMATION_SCRIPTS[10],
+  conductorShift: FORMATION_SCRIPTS[11],
+  suppressionRail: FORMATION_SCRIPTS[12],
+  pinnedScreen: FORMATION_SCRIPTS[13],
+  corridorCollapse: FORMATION_SCRIPTS[14],
   interceptorSweep: MINI_BOSS_SCRIPTS[0],
   bombardWing: MINI_BOSS_SCRIPTS[1],
   wardenBastion: MINI_BOSS_SCRIPTS[2],
   lancerSpearhead: MINI_BOSS_SCRIPTS[3],
   carrierNest: MINI_BOSS_SCRIPTS[4],
   artilleryBastion: MINI_BOSS_SCRIPTS[5],
+  weaverLoom: MINI_BOSS_SCRIPTS[6],
+  conductorArray: MINI_BOSS_SCRIPTS[7],
   prismCore: PRISM_BOSS_SCRIPT,
   hiveCarrier: HIVE_CARRIER_BOSS_SCRIPT,
+  vectorLoom: VECTOR_LOOM_BOSS_SCRIPT,
 };
 
-const BOSS_ROTATION = [PRISM_BOSS_SCRIPT, HIVE_CARRIER_BOSS_SCRIPT] as const;
+const BOSS_ROTATION = [PRISM_BOSS_SCRIPT, HIVE_CARRIER_BOSS_SCRIPT, VECTOR_LOOM_BOSS_SCRIPT] as const;
 
 function pickWeightedScript(scripts: readonly ArenaEncounterScript[]) {
   const weightedPool = scripts.flatMap((script) =>
@@ -630,7 +939,10 @@ export function getArenaEncounterScript(scriptId: ArenaEncounterScriptId) {
   return ENCOUNTER_REGISTRY[scriptId];
 }
 
-export function getArenaBossPhaseDefinition(scriptId: Extract<ArenaEncounterScriptId, 'prismCore' | 'hiveCarrier'>, phaseIndex: 0 | 1 | 2) {
+export function getArenaBossPhaseDefinition(
+  scriptId: Extract<ArenaEncounterScriptId, 'prismCore' | 'hiveCarrier' | 'vectorLoom'>,
+  phaseIndex: 0 | 1 | 2
+) {
   return BOSS_PHASES[scriptId][phaseIndex];
 }
 
