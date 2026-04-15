@@ -1,7 +1,7 @@
 # Prototype V2 Reference
 
 Snapshot date: `2026-04-14`
-Board version: `v0.48`
+Board version: `v0.49`
 
 This document is the current reference for the arena-combat shooter in `/Users/johnchang/Desktop/defender/src/prototype-v2`. It replaces the earlier planning-heavy draft with a snapshot of what is actually implemented today, plus the next major gaps.
 
@@ -447,6 +447,8 @@ Primary implementation files:
 
 ### 2026-04-14
 
+- Advanced arena board label to `v0.49`.
+- Replaced Arena V2 `.ogg` audio references with `.wav` / `.mp3` assets to avoid Expo build-time asset resolution failures.
 - Advanced arena board label to `v0.48`.
 - Replaced the old generic theme cycling with named `Prism Verge`, `Hive Forge`, and `Vector Spindle` biome sectors aligned to the `6`-tier boss cadence.
 - Added Arena-local music / SFX playback with persistent audio settings in the `Run` tab.

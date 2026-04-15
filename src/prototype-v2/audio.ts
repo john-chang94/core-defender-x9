@@ -1,16 +1,10 @@
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import megaWallMusic from '../../assets/awake10_megaWall.mp3';
-import laserLarge002Sfx from '../../assets/kenney_sci-fi-sounds/Audio/laserLarge_002.ogg';
-import laserSmall002Sfx from '../../assets/kenney_sci-fi-sounds/Audio/laserSmall_002.ogg';
-import loopAmbient01Music from '../../assets/sci-fi-sfx/loop_ambient_01.ogg';
-import loopMachine03Music from '../../assets/sci-fi-sfx/loop_machine_03.ogg';
-import shoot02Sfx from '../../assets/sci-fi-sfx/shoot_02.ogg';
-import teleport02Sfx from '../../assets/sci-fi-sfx/teleport_02.ogg';
-import weird03Sfx from '../../assets/sci-fi-sfx/weird_03.ogg';
 import bombFireSfx from '../../assets/sfx/bomb-fire.wav';
 import bombHitSfx from '../../assets/sfx/bomb-hit.wav';
 import coldFireSfx from '../../assets/sfx/cold-fire.wav';
 import hitSfx from '../../assets/sfx/hit.wav';
+import lanceFireSfx from '../../assets/sfx/lance-fire.wav';
 import laserFireSfx from '../../assets/sfx/laser-fire.wav';
 import placeSfx from '../../assets/sfx/place.wav';
 import spawnSfx from '../../assets/sfx/spawn.wav';
@@ -19,7 +13,11 @@ import targetModeSfx from '../../assets/sfx/target-mode.wav';
 import upgradeSfx from '../../assets/sfx/upgrade.wav';
 import warningSfx from '../../assets/sfx/warning.mp3';
 import winSfx from '../../assets/sfx/win.wav';
+import sciFiDataReadSfx from '../../assets/ui-interface/SCI-FI Data Read.mp3';
+import sciFiGlitchShortSfx from '../../assets/ui-interface/SCI-FI Glitch short.mp3';
 import sciFiHitLarge01Sfx from '../../assets/ui-interface/SCI-FI Hit large 01.mp3';
+import sciFiHitLarge02Sfx from '../../assets/ui-interface/SCI-FI Hit large 02.mp3';
+import sciFiSwooshWhooshSmall01Sfx from '../../assets/ui-interface/SCI-FI Swoosh Whoosh small 01.mp3';
 import sciFiNotificationWapSfx from '../../assets/ui-interface/SCI-FI Notification WAP.wav';
 import youLoseViolinEffectSfx from '../../assets/ui-interface/YOU LOSE! Violin effect.mp3';
 
@@ -39,18 +37,18 @@ export const ARENA_AUDIO_CUE_FILES: Record<ArenaAudioCueKey, number> = {
   playerNova: sprayFireSfx,
   playerMissile: bombFireSfx,
   playerFracture: coldFireSfx,
-  enemyOrb: laserSmall002Sfx,
-  enemyBolt: shoot02Sfx,
-  enemyNeedle: laserLarge002Sfx,
+  enemyOrb: lanceFireSfx,
+  enemyBolt: laserFireSfx,
+  enemyNeedle: sciFiHitLarge02Sfx,
   enemyBomb: bombFireSfx,
-  enemyWave: weird03Sfx,
+  enemyWave: sciFiDataReadSfx,
   hazardTelegraph: warningSfx,
   hazardImpact: bombHitSfx,
   pickup: placeSfx,
   armoryOpen: targetModeSfx,
   armoryUpgrade: upgradeSfx,
   overdriveStart: spawnSfx,
-  overdriveEnd: teleport02Sfx,
+  overdriveEnd: sciFiSwooshWhooshSmall01Sfx,
   ultimate: sciFiHitLarge01Sfx,
   bossIntro: warningSfx,
   bossPhase: sciFiNotificationWapSfx,
@@ -136,8 +134,8 @@ export const ARENA_AUDIO_CUE_MIN_INTERVAL_MS: Record<ArenaAudioCueKey, number> =
 
 export const ARENA_BIOME_MUSIC_FILES: Record<ArenaBiomeId, number> = {
   prismVerge: megaWallMusic,
-  hiveForge: loopAmbient01Music,
-  vectorSpindle: loopMachine03Music,
+  hiveForge: sciFiDataReadSfx,
+  vectorSpindle: sciFiGlitchShortSfx,
 };
 
 export const ARENA_BIOME_MUSIC_VOLUMES: Record<ArenaBiomeId, number> = {
