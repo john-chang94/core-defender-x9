@@ -922,6 +922,25 @@ function isEnemyWithinNovaSweep(
   });
 }
 
+function getMinimumFanSpreadAngle(fanCount: number) {
+  if (fanCount <= 2) {
+    return 0.18;
+  }
+  if (fanCount === 3) {
+    return 0.17;
+  }
+  return 0.16;
+}
+
+function createSymmetricLaneOffsetPattern(count: number, adjacentGap: number) {
+  if (count <= 1) {
+    return [0];
+  }
+
+  const start = -((count - 1) / 2) * adjacentGap;
+  return Array.from({ length: count }, (_, index) => Math.round(start + index * adjacentGap));
+}
+
 function getEnemyAimAngle(enemy: ArenaEnemy, playerX: number, boardHeight: number) {
   const targetY = getPlayerShipTop(boardHeight) + ARENA_PLAYER_HEIGHT * 0.22;
   const leadFactor =
@@ -1077,7 +1096,7 @@ function createEnemyLaneStrike(
   }
 ) {
   const config = ARENA_ENEMY_CONFIG[enemy.kind];
-  const offsets = options?.offsetPattern ?? [-18, 0, 18];
+  const offsets = options?.offsetPattern ?? createSymmetricLaneOffsetPattern(3, 46);
   for (const offset of offsets) {
     state.enemyBullets = [
       ...state.enemyBullets,
@@ -1156,7 +1175,7 @@ function fireEnemyPattern(state: ArenaGameState, enemy: ArenaEnemy, boardWidth: 
     options?: Parameters<typeof createEnemyProjectile>[7]
   ) => {
     const fanCount = Math.min(count, budget);
-    const adjustedSpreadAngle = spreadAngle * 1.24;
+    const adjustedSpreadAngle = Math.max(spreadAngle * 1.24, getMinimumFanSpreadAngle(fanCount));
     for (let index = 0; index < fanCount; index += 1) {
       const lane = index - (fanCount - 1) / 2;
       fireShot(desiredAngle + lane * adjustedSpreadAngle, damageScale, speedScale, sizeScale, options);
@@ -1195,7 +1214,7 @@ function fireEnemyPattern(state: ArenaGameState, enemy: ArenaEnemy, boardWidth: 
       break;
     case 'lancer':
       budget -= createEnemyLaneStrike(state, enemy, enemy.laneTargetX ?? enemy.x, boardHeight, {
-        offsetPattern: (displayTier >= 16 ? [-20, 0, 20] : [-14, 0, 14]).slice(0, budget),
+        offsetPattern: createSymmetricLaneOffsetPattern(Math.min(budget, 3), displayTier >= 16 ? 52 : 46),
         speedScale: displayTier >= 18 ? 1.08 : 1,
         damageScale: 1.04,
         sizeScale: 0.96,
@@ -1232,7 +1251,7 @@ function fireEnemyPattern(state: ArenaGameState, enemy: ArenaEnemy, boardWidth: 
     case 'tank':
       fireShot(desiredAngle, 1.42, 0.8, 1.28, { style: 'bomb' });
       if (displayTier >= 15 && pressureRatio < 0.84) {
-        fireShot(desiredAngle + (Math.random() < 0.5 ? -0.06 : 0.06), 0.95, 0.84, 1.05, { style: 'bomb' });
+        fireShot(desiredAngle + (Math.random() < 0.5 ? -0.12 : 0.12), 0.95, 0.84, 1.05, { style: 'bomb' });
       }
       break;
     case 'orbiter': {
@@ -1259,7 +1278,7 @@ function fireEnemyPattern(state: ArenaGameState, enemy: ArenaEnemy, boardWidth: 
     case 'sniper':
       fireShot(desiredAngle, 1.5, 1.28, 0.78, { style: 'needle' });
       if (displayTier >= 14 && pressureRatio < 0.78) {
-        fireShot(desiredAngle + Math.sin(enemy.phase) * 0.03, 1.0, 1.18, 0.74, { style: 'needle' });
+        fireShot(desiredAngle + Math.sin(enemy.phase) * 0.08, 1.0, 1.18, 0.74, { style: 'needle' });
       }
       break;
     case 'bomber':
@@ -1303,7 +1322,7 @@ function fireEnemyPattern(state: ArenaGameState, enemy: ArenaEnemy, boardWidth: 
         }
       } else {
         budget -= createEnemyLaneStrike(state, enemy, enemy.laneTargetX ?? state.playerX, boardHeight, {
-          offsetPattern: [-28, -8, 8, 28].slice(0, budget),
+          offsetPattern: createSymmetricLaneOffsetPattern(Math.min(budget, 4), 46),
           speedScale: 1.08,
           damageScale: 1.1,
           sizeScale: 0.94,
@@ -1344,7 +1363,7 @@ function fireEnemyPattern(state: ArenaGameState, enemy: ArenaEnemy, boardWidth: 
         }
       } else {
         budget -= createEnemyLaneStrike(state, enemy, enemy.laneTargetX ?? state.playerX, boardHeight, {
-          offsetPattern: [-30, -10, 10, 30].slice(0, budget),
+          offsetPattern: createSymmetricLaneOffsetPattern(Math.min(budget, 4), 48),
           speedScale: 1.06,
           damageScale: 1.08,
           sizeScale: 0.96,

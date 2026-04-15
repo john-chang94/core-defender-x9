@@ -23,6 +23,7 @@ export type ArenaEffectFlavor = ArenaBuildId | 'enemy' | 'neutral';
 export type ArenaBuildValueMap<T> = Record<ArenaBuildId, T>;
 export type ArenaEnemyValueMap<T> = Record<ArenaEnemyKind, T>;
 export type ArenaUnlockValueMap<T> = Record<ArenaUnlockId, T>;
+export type ArenaCosmeticValueMap<T> = Record<ArenaCosmeticId, T>;
 
 export type ArenaEffectKind =
   | 'burst'
@@ -295,6 +296,63 @@ export type ArenaUnlockEntry = {
   sourceMilestoneId: string | null;
 };
 
+export type ArenaCosmeticSlot = 'banner' | 'codexFrame' | 'buildAccent' | 'buildCrest';
+export type ArenaCosmeticState = 'locked' | 'claimable' | 'owned';
+export type ArenaCosmeticDisplayState = ArenaCosmeticState | 'equipped';
+export type ArenaCosmeticSourceType = 'default' | 'reward' | 'season' | 'premium';
+export type ArenaCosmeticRarity = 'common' | 'rare' | 'epic';
+
+export type ArenaCosmeticId =
+  | 'bannerDefault'
+  | 'bannerHiveTrace'
+  | 'codexFrameDefault'
+  | 'codexFrameFullSpectrum'
+  | 'railFocusAccentDefault'
+  | 'railFocusAccentHalo'
+  | 'novaBloomAccentDefault'
+  | 'novaBloomAccentEcho'
+  | 'missileCommandAccentDefault'
+  | 'missileCommandAccentStrikeMesh'
+  | 'fractureCoreAccentDefault'
+  | 'fractureCoreAccentFractureVein'
+  | 'railFocusCrestDefault'
+  | 'railFocusCrestZenith'
+  | 'novaBloomCrestDefault'
+  | 'novaBloomCrestSolarBloom'
+  | 'missileCommandCrestDefault'
+  | 'missileCommandCrestOrdnanceCrown'
+  | 'fractureCoreCrestDefault'
+  | 'fractureCoreCrestShatterCrown';
+
+export type ArenaCosmeticDefinition = {
+  id: ArenaCosmeticId;
+  label: string;
+  description: string;
+  slot: ArenaCosmeticSlot;
+  buildId: ArenaBuildId | null;
+  sourceType: ArenaCosmeticSourceType;
+  rarity: ArenaCosmeticRarity;
+  rewardUnlockId: ArenaUnlockId | null;
+  primaryColor: string;
+  secondaryColor: string;
+  detailColor: string;
+  glowColor: string;
+  emblemKey?: string;
+};
+
+export type ArenaCosmeticOwnershipEntry = {
+  id: ArenaCosmeticId;
+  state: ArenaCosmeticState;
+  claimedAt: string | null;
+};
+
+export type ArenaEquippedCosmetics = {
+  banner: ArenaCosmeticId;
+  codexFrame: ArenaCosmeticId;
+  buildAccent: ArenaBuildValueMap<ArenaCosmeticId>;
+  buildCrest: ArenaBuildValueMap<ArenaCosmeticId>;
+};
+
 export type ArenaMetaState = {
   version: number;
   lastUpdatedAt: string;
@@ -302,6 +360,8 @@ export type ArenaMetaState = {
   codexBuilds: ArenaBuildValueMap<ArenaCodexBuildEntry>;
   mastery: ArenaBuildValueMap<ArenaBuildMastery>;
   unlocks: ArenaUnlockValueMap<ArenaUnlockEntry>;
+  cosmetics: ArenaCosmeticValueMap<ArenaCosmeticOwnershipEntry>;
+  equippedCosmetics: ArenaEquippedCosmetics;
 };
 
 export type ArenaRunMetaSummary = {

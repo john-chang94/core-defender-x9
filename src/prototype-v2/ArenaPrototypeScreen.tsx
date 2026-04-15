@@ -32,17 +32,38 @@ import {
   ARENA_ENEMY_LABELS,
   applyArenaDiscoveryProgress,
   applyArenaRunSummary,
+  claimArenaCosmetic,
   createArenaMetaState,
   getArenaBuildUnlockIds,
+  getArenaBuildCollectionCosmeticIds,
+  getArenaClaimableCosmeticIds,
+  getArenaCosmeticDisplayState,
+  getArenaCosmeticStatusLabel,
+  getArenaEquippedBuildCosmeticId,
+  getArenaEquippedGlobalCosmeticId,
+  getArenaGlobalCollectionCosmeticIds,
   getArenaGlobalUnlockIds,
   createArenaRunMetaSummary,
   getArenaMasteryProgress,
   getArenaNextBuildUnlock,
+  getArenaUnlockRewardCosmeticEntry,
+  equipArenaCosmetic,
   loadArenaMetaState,
   saveArenaMetaState,
 } from './meta';
+import { getArenaCosmeticDefinition } from './cosmetics';
 import { ARENA_ARMORY_UPGRADES, ARENA_ARMORY_UPGRADE_ORDER, isArenaArmoryUpgradeMaxed } from './upgrades';
-import type { ArenaBuildId, ArenaDrop, ArenaEnemy, ArenaMetaState, ArenaUnlockEntry, ArenaVfxQuality } from './types';
+import type {
+  ArenaBuildId,
+  ArenaCosmeticDefinition,
+  ArenaCosmeticDisplayState,
+  ArenaCosmeticId,
+  ArenaDrop,
+  ArenaEnemy,
+  ArenaMetaState,
+  ArenaUnlockEntry,
+  ArenaVfxQuality,
+} from './types';
 
 type AppGameId = 'defender' | 'prototype' | 'prototypeV2';
 
@@ -50,7 +71,7 @@ type ArenaPrototypeScreenProps = {
   onSwitchGame: (game: AppGameId) => void;
 };
 
-type ArenaMenuTab = 'run' | 'codex' | 'mastery';
+type ArenaMenuTab = 'run' | 'codex' | 'mastery' | 'collection';
 
 function clamp(value: number, min: number, max: number) {
   return Math.max(min, Math.min(max, value));
@@ -78,6 +99,20 @@ function formatArenaValue(value: number) {
     return `${(value / 1000).toFixed(1)}k`;
   }
   return `${Math.max(0, Math.ceil(value))}`;
+}
+
+function getCollectionStatePriority(state: ArenaCosmeticDisplayState) {
+  switch (state) {
+    case 'claimable':
+      return 0;
+    case 'equipped':
+      return 1;
+    case 'owned':
+      return 2;
+    case 'locked':
+    default:
+      return 3;
+  }
 }
 
 function EnemyNode({ enemy }: { enemy: ArenaEnemy }) {
@@ -144,30 +179,60 @@ function ArmoryControlIcon() {
 function UltimateControlIcon({
   ready,
   chargeProgress,
+  accentDefinition,
 }: {
   ready: boolean;
   chargeProgress: number;
+  accentDefinition: ArenaCosmeticDefinition;
 }) {
   return (
     <View pointerEvents="none" style={arenaStyles.ultimateIconWrap}>
-      <View style={[arenaStyles.ultimateIconBlade, ready && arenaStyles.ultimateIconBladeReady]} />
+      <View
+        style={[
+          arenaStyles.ultimateIconBlade,
+          ready && arenaStyles.ultimateIconBladeReady,
+          {
+            backgroundColor: ready ? accentDefinition.detailColor : accentDefinition.secondaryColor,
+          },
+        ]}
+      />
       {ULTIMATE_ICON_SLASH_ANGLES.map((angle) => (
         <View
           key={`ult-slash-${angle}`}
           style={[
             arenaStyles.ultimateIconSlash,
             ready && arenaStyles.ultimateIconSlashReady,
+            {
+              backgroundColor: ready ? accentDefinition.glowColor : accentDefinition.primaryColor,
+            },
             { transform: [{ rotate: angle }] },
           ]}
         />
       ))}
-      <View style={[arenaStyles.ultimateIconRing, ready && arenaStyles.ultimateIconRingReady]} />
-      <View style={[arenaStyles.ultimateIconDiamond, ready && arenaStyles.ultimateIconDiamondReady]} />
+      <View
+        style={[
+          arenaStyles.ultimateIconRing,
+          ready && arenaStyles.ultimateIconRingReady,
+          {
+            borderColor: ready ? accentDefinition.glowColor : accentDefinition.secondaryColor,
+          },
+        ]}
+      />
+      <View
+        style={[
+          arenaStyles.ultimateIconDiamond,
+          ready && arenaStyles.ultimateIconDiamondReady,
+          {
+            borderColor: ready ? accentDefinition.detailColor : accentDefinition.primaryColor,
+          },
+        ]}
+      />
       <View
         style={[
           arenaStyles.ultimateIconCore,
           ready && arenaStyles.ultimateIconCoreReady,
           {
+            backgroundColor: ready ? accentDefinition.primaryColor : accentDefinition.secondaryColor,
             opacity: 0.52 + chargeProgress * 0.44,
           },
         ]}
@@ -176,29 +241,696 @@ function UltimateControlIcon({
   );
 }
 
+function BuildCrestMark({
+  crestDefinition,
+  size = 14,
+}: {
+  crestDefinition: ArenaCosmeticDefinition;
+  size?: number;
+}) {
+  const baseColor = crestDefinition.primaryColor;
+  const strokeColor = crestDefinition.secondaryColor;
+  const detailColor = crestDefinition.detailColor;
+  const unit = size / 12;
+  const segmentStyle = {
+    position: 'absolute' as const,
+    borderRadius: Math.max(1, unit),
+  };
+
+  switch (crestDefinition.emblemKey) {
+    case 'rail-zenith':
+      return (
+        <View pointerEvents="none" style={{ width: size, height: size }}>
+          <View
+            style={[
+              segmentStyle,
+              {
+                left: unit * 4,
+                top: unit * 3,
+                width: unit * 4,
+                height: unit * 4,
+                backgroundColor: baseColor,
+                borderWidth: 1,
+                borderColor: detailColor,
+                transform: [{ rotate: '45deg' }],
+              },
+            ]}
+          />
+          <View
+            style={[
+              segmentStyle,
+              {
+                left: unit * 1.2,
+                top: unit * 3,
+                width: unit * 1.2,
+                height: unit * 5.4,
+                backgroundColor: strokeColor,
+                transform: [{ rotate: '-28deg' }],
+              },
+            ]}
+          />
+          <View
+            style={[
+              segmentStyle,
+              {
+                right: unit * 1.2,
+                top: unit * 3,
+                width: unit * 1.2,
+                height: unit * 5.4,
+                backgroundColor: strokeColor,
+                transform: [{ rotate: '28deg' }],
+              },
+            ]}
+          />
+          <View
+            style={[
+              segmentStyle,
+              {
+                left: unit * 4.8,
+                top: unit * 0.8,
+                width: unit * 2.4,
+                height: unit * 1.4,
+                backgroundColor: detailColor,
+              },
+            ]}
+          />
+        </View>
+      );
+    case 'nova-default':
+      return (
+        <View pointerEvents="none" style={{ width: size, height: size }}>
+          <View
+            style={[
+              segmentStyle,
+              {
+                left: unit * 2.1,
+                top: unit * 4.2,
+                width: unit * 3.2,
+                height: unit * 3.2,
+                borderRadius: unit * 4,
+                backgroundColor: strokeColor,
+              },
+            ]}
+          />
+          <View
+            style={[
+              segmentStyle,
+              {
+                right: unit * 2.1,
+                top: unit * 4.2,
+                width: unit * 3.2,
+                height: unit * 3.2,
+                borderRadius: unit * 4,
+                backgroundColor: strokeColor,
+              },
+            ]}
+          />
+          <View
+            style={[
+              segmentStyle,
+              {
+                left: unit * 3.9,
+                top: unit * 3.2,
+                width: unit * 4.2,
+                height: unit * 4.2,
+                borderRadius: unit * 4,
+                backgroundColor: baseColor,
+                borderWidth: 1,
+                borderColor: detailColor,
+              },
+            ]}
+          />
+        </View>
+      );
+    case 'nova-solar':
+      return (
+        <View pointerEvents="none" style={{ width: size, height: size }}>
+          {[
+            { left: unit * 4.2, top: unit * 0.8 },
+            { left: unit * 4.2, bottom: unit * 0.8 },
+            { left: unit * 0.8, top: unit * 4.2 },
+            { right: unit * 0.8, top: unit * 4.2 },
+          ].map((petal, index) => (
+            <View
+              key={`nova-solar-petal-${index}`}
+              style={[
+                segmentStyle,
+                {
+                  width: unit * 3,
+                  height: unit * 3,
+                  borderRadius: unit * 4,
+                  backgroundColor: strokeColor,
+                },
+                petal,
+              ]}
+            />
+          ))}
+          <View
+            style={[
+              segmentStyle,
+              {
+                left: unit * 3.3,
+                top: unit * 3.3,
+                width: unit * 5.4,
+                height: unit * 5.4,
+                borderRadius: unit * 5,
+                backgroundColor: baseColor,
+                borderWidth: 1,
+                borderColor: detailColor,
+              },
+            ]}
+          />
+        </View>
+      );
+    case 'missile-default':
+      return (
+        <View pointerEvents="none" style={{ width: size, height: size }}>
+          <View
+            style={[
+              segmentStyle,
+              {
+                left: unit * 4.3,
+                top: unit * 1.6,
+                width: unit * 3.4,
+                height: unit * 7.2,
+                backgroundColor: baseColor,
+                borderWidth: 1,
+                borderColor: detailColor,
+              },
+            ]}
+          />
+          <View
+            style={[
+              segmentStyle,
+              {
+                left: unit * 3.2,
+                top: unit * 6.2,
+                width: unit * 2,
+                height: unit * 3.2,
+                backgroundColor: strokeColor,
+                transform: [{ rotate: '-24deg' }],
+              },
+            ]}
+          />
+          <View
+            style={[
+              segmentStyle,
+              {
+                right: unit * 3.2,
+                top: unit * 6.2,
+                width: unit * 2,
+                height: unit * 3.2,
+                backgroundColor: strokeColor,
+                transform: [{ rotate: '24deg' }],
+              },
+            ]}
+          />
+          <View
+            style={[
+              segmentStyle,
+              {
+                left: unit * 4.7,
+                top: unit * 0.6,
+                width: unit * 2.4,
+                height: unit * 2.2,
+                backgroundColor: detailColor,
+                transform: [{ rotate: '45deg' }],
+              },
+            ]}
+          />
+        </View>
+      );
+    case 'missile-crown':
+      return (
+        <View pointerEvents="none" style={{ width: size, height: size }}>
+          {[2.1, 4.4, 6.7].map((left, index) => (
+            <View
+              key={`missile-crown-${index}`}
+              style={[
+                segmentStyle,
+                {
+                  left: unit * left,
+                  top: index === 1 ? unit * 1.2 : unit * 2.6,
+                  width: unit * 1.8,
+                  height: unit * 6.3,
+                  backgroundColor: index === 1 ? detailColor : baseColor,
+                  borderWidth: index === 1 ? 1 : 0,
+                  borderColor: strokeColor,
+                },
+              ]}
+            />
+          ))}
+          <View
+            style={[
+              segmentStyle,
+              {
+                left: unit * 2.4,
+                bottom: unit * 1,
+                width: unit * 7.2,
+                height: unit * 1.8,
+                backgroundColor: strokeColor,
+              },
+            ]}
+          />
+        </View>
+      );
+    case 'fracture-default':
+      return (
+        <View pointerEvents="none" style={{ width: size, height: size }}>
+          <View
+            style={[
+              segmentStyle,
+              {
+                left: unit * 2.2,
+                top: unit * 3.1,
+                width: unit * 3.6,
+                height: unit * 4.8,
+                backgroundColor: baseColor,
+                transform: [{ rotate: '28deg' }],
+              },
+            ]}
+          />
+          <View
+            style={[
+              segmentStyle,
+              {
+                right: unit * 2.2,
+                top: unit * 3.1,
+                width: unit * 3.6,
+                height: unit * 4.8,
+                backgroundColor: strokeColor,
+                transform: [{ rotate: '-28deg' }],
+              },
+            ]}
+          />
+          <View
+            style={[
+              segmentStyle,
+              {
+                left: unit * 5.2,
+                top: unit * 1.4,
+                width: unit * 1.2,
+                height: unit * 9,
+                backgroundColor: detailColor,
+              },
+            ]}
+          />
+        </View>
+      );
+    case 'fracture-crown':
+      return (
+        <View pointerEvents="none" style={{ width: size, height: size }}>
+          {[
+            { left: unit * 4.6, top: unit * 0.8, rotate: '18deg' },
+            { left: unit * 1.4, top: unit * 4.2, rotate: '-28deg' },
+            { right: unit * 1.4, top: unit * 4.2, rotate: '28deg' },
+          ].map((shard, index) => (
+            <View
+              key={`fracture-shard-${index}`}
+              style={[
+                segmentStyle,
+                {
+                  width: unit * 2.1,
+                  height: unit * 4,
+                  backgroundColor: index === 0 ? detailColor : strokeColor,
+                  transform: [{ rotate: shard.rotate }],
+                },
+                shard,
+              ]}
+            />
+          ))}
+          <View
+            style={[
+              segmentStyle,
+              {
+                left: unit * 3.6,
+                top: unit * 4,
+                width: unit * 4.8,
+                height: unit * 4.8,
+                backgroundColor: baseColor,
+                borderWidth: 1,
+                borderColor: detailColor,
+                transform: [{ rotate: '45deg' }],
+              },
+            ]}
+          />
+        </View>
+      );
+    case 'rail-default':
+    default:
+      return (
+        <View pointerEvents="none" style={{ width: size, height: size }}>
+          <View
+            style={[
+              segmentStyle,
+              {
+                left: unit * 4.9,
+                top: unit * 1.1,
+                width: unit * 2.2,
+                height: unit * 8.6,
+                backgroundColor: detailColor,
+              },
+            ]}
+          />
+          <View
+            style={[
+              segmentStyle,
+              {
+                left: unit * 2.2,
+                top: unit * 3,
+                width: unit * 1.5,
+                height: unit * 5.2,
+                backgroundColor: strokeColor,
+                transform: [{ rotate: '-26deg' }],
+              },
+            ]}
+          />
+          <View
+            style={[
+              segmentStyle,
+              {
+                right: unit * 2.2,
+                top: unit * 3,
+                width: unit * 1.5,
+                height: unit * 5.2,
+                backgroundColor: strokeColor,
+                transform: [{ rotate: '26deg' }],
+              },
+            ]}
+          />
+          <View
+            style={[
+              segmentStyle,
+              {
+                left: unit * 3.6,
+                top: unit * 2.1,
+                width: unit * 4.8,
+                height: unit * 1.2,
+                backgroundColor: baseColor,
+              },
+            ]}
+          />
+        </View>
+      );
+  }
+}
+
 function UnlockChip({
   entry,
+  metaState,
   accentColor,
+  frameDefinition,
 }: {
   entry: ArenaUnlockEntry;
+  metaState: ArenaMetaState;
   accentColor?: string;
+  frameDefinition: ArenaCosmeticDefinition;
 }) {
+  const rewardEntry = getArenaUnlockRewardCosmeticEntry(metaState, entry.id);
+  const status = rewardEntry?.displayState ?? (entry.unlocked ? 'owned' : 'locked');
+  const statusLabel = getArenaCosmeticStatusLabel(status);
+  const highlightColor = accentColor ?? rewardEntry?.definition.primaryColor ?? frameDefinition.secondaryColor;
+  const borderColor =
+    status === 'equipped'
+      ? hexToRgba(highlightColor, 0.84)
+      : status === 'claimable'
+        ? hexToRgba(frameDefinition.detailColor, 0.82)
+        : status === 'owned'
+          ? hexToRgba(frameDefinition.secondaryColor, 0.66)
+          : '#29435B';
+  const backgroundColor =
+    status === 'equipped'
+      ? hexToRgba(highlightColor, 0.18)
+      : status === 'claimable'
+        ? hexToRgba(frameDefinition.primaryColor, 0.24)
+        : status === 'owned'
+          ? hexToRgba(frameDefinition.primaryColor, 0.14)
+          : 'rgba(11, 22, 34, 0.92)';
+
   return (
     <View
       style={[
         arenaStyles.unlockChip,
-        entry.unlocked ? arenaStyles.unlockChipUnlocked : arenaStyles.unlockChipLocked,
-        entry.unlocked && accentColor
-          ? {
-              borderColor: hexToRgba(accentColor, 0.58),
-              backgroundColor: hexToRgba(accentColor, 0.12),
-            }
-          : null,
+        status === 'locked' ? arenaStyles.unlockChipLocked : arenaStyles.unlockChipUnlocked,
+        {
+          borderColor,
+          backgroundColor,
+        },
       ]}>
-      <Text style={[arenaStyles.unlockChipLabel, !entry.unlocked && arenaStyles.unlockChipLabelLocked]}>
-        {entry.unlocked ? entry.rewardLabel : entry.label}
+      <Text style={[arenaStyles.unlockChipLabel, status === 'locked' && arenaStyles.unlockChipLabelLocked]}>
+        {entry.rewardLabel}
       </Text>
-      <Text style={arenaStyles.unlockChipMeta}>{entry.unlocked ? 'Unlocked' : entry.description}</Text>
+      <Text style={arenaStyles.unlockChipMeta}>{`${statusLabel} • ${entry.description}`}</Text>
+    </View>
+  );
+}
+
+function MetaShowcaseCard({
+  title,
+  subtitle,
+  note,
+  bannerDefinition,
+  frameDefinition,
+  accentColor,
+  crestDefinition,
+}: {
+  title: string;
+  subtitle: string;
+  note?: string | null;
+  bannerDefinition: ArenaCosmeticDefinition;
+  frameDefinition: ArenaCosmeticDefinition;
+  accentColor?: string;
+  crestDefinition?: ArenaCosmeticDefinition | null;
+}) {
+  return (
+    <View
+      style={[
+        arenaStyles.metaShowcaseCard,
+        {
+          borderColor: hexToRgba(frameDefinition.secondaryColor, 0.72),
+          backgroundColor: hexToRgba(bannerDefinition.primaryColor, 0.18),
+          shadowColor: bannerDefinition.glowColor,
+        },
+      ]}>
+      <View
+        pointerEvents="none"
+        style={[
+          arenaStyles.metaShowcaseBanner,
+          {
+            backgroundColor: hexToRgba(bannerDefinition.secondaryColor, 0.84),
+          },
+        ]}
+      />
+      <View
+        pointerEvents="none"
+        style={[
+          arenaStyles.metaShowcaseGlow,
+          {
+            backgroundColor: hexToRgba(bannerDefinition.glowColor, 0.16),
+          },
+        ]}
+      />
+      <View style={arenaStyles.metaShowcaseContent}>
+        <View style={arenaStyles.metaShowcaseCopy}>
+          <Text
+            style={[
+              arenaStyles.metaShowcaseTitle,
+              {
+                color: accentColor ?? frameDefinition.detailColor,
+              },
+            ]}>
+            {title}
+          </Text>
+          <Text style={arenaStyles.metaShowcaseSubtitle}>{subtitle}</Text>
+          {note ? <Text style={arenaStyles.metaShowcaseNote}>{note}</Text> : null}
+        </View>
+        {crestDefinition ? (
+          <View
+            style={[
+              arenaStyles.metaShowcaseCrestWrap,
+              {
+                borderColor: hexToRgba(frameDefinition.detailColor, 0.5),
+                backgroundColor: hexToRgba(frameDefinition.primaryColor, 0.26),
+              },
+            ]}>
+            <BuildCrestMark crestDefinition={crestDefinition} size={18} />
+          </View>
+        ) : null}
+      </View>
+    </View>
+  );
+}
+
+function CollectionPreview({ definition }: { definition: ArenaCosmeticDefinition }) {
+  if (definition.slot === 'banner') {
+    return (
+      <View
+        style={[
+          arenaStyles.collectionPreviewBanner,
+          {
+            backgroundColor: hexToRgba(definition.primaryColor, 0.94),
+            borderColor: hexToRgba(definition.detailColor, 0.64),
+          },
+        ]}>
+        <View
+          style={[
+            arenaStyles.collectionPreviewBannerBand,
+            {
+              backgroundColor: hexToRgba(definition.secondaryColor, 0.86),
+            },
+          ]}
+        />
+        <View
+          style={[
+            arenaStyles.collectionPreviewBannerCore,
+            {
+              backgroundColor: hexToRgba(definition.glowColor, 0.72),
+            },
+          ]}
+        />
+      </View>
+    );
+  }
+
+  if (definition.slot === 'codexFrame') {
+    return (
+      <View
+        style={[
+          arenaStyles.collectionPreviewFrame,
+          {
+            borderColor: hexToRgba(definition.secondaryColor, 0.94),
+            backgroundColor: hexToRgba(definition.primaryColor, 0.3),
+          },
+        ]}>
+        <View
+          style={[
+            arenaStyles.collectionPreviewFrameInner,
+            {
+              borderColor: hexToRgba(definition.detailColor, 0.74),
+              backgroundColor: hexToRgba(definition.glowColor, 0.12),
+            },
+          ]}
+        />
+      </View>
+    );
+  }
+
+  if (definition.slot === 'buildAccent') {
+    return (
+      <View
+        style={[
+          arenaStyles.collectionPreviewAccent,
+          {
+            borderColor: hexToRgba(definition.secondaryColor, 0.82),
+            backgroundColor: hexToRgba(definition.primaryColor, 0.22),
+          },
+        ]}>
+        <View
+          style={[
+            arenaStyles.collectionPreviewAccentWing,
+            arenaStyles.collectionPreviewAccentWingLeft,
+            {
+              backgroundColor: definition.secondaryColor,
+            },
+          ]}
+        />
+        <View
+          style={[
+            arenaStyles.collectionPreviewAccentWing,
+            arenaStyles.collectionPreviewAccentWingRight,
+            {
+              backgroundColor: definition.secondaryColor,
+            },
+          ]}
+        />
+        <View
+          style={[
+            arenaStyles.collectionPreviewAccentCore,
+            {
+              backgroundColor: definition.primaryColor,
+              borderColor: definition.detailColor,
+            },
+          ]}
+        />
+      </View>
+    );
+  }
+
+  return (
+    <View
+      style={[
+        arenaStyles.collectionPreviewCrest,
+        {
+          borderColor: hexToRgba(definition.secondaryColor, 0.76),
+          backgroundColor: hexToRgba(definition.primaryColor, 0.18),
+        },
+      ]}>
+      <BuildCrestMark crestDefinition={definition} size={18} />
+    </View>
+  );
+}
+
+function CollectionCard({
+  definition,
+  displayState,
+  frameDefinition,
+  onPress,
+}: {
+  definition: ArenaCosmeticDefinition;
+  displayState: ArenaCosmeticDisplayState;
+  frameDefinition: ArenaCosmeticDefinition;
+  onPress: () => void;
+}) {
+  const actionLabel =
+    displayState === 'claimable'
+      ? 'Claim'
+      : displayState === 'owned'
+        ? 'Equip'
+        : displayState === 'equipped'
+          ? 'Equipped'
+          : 'Locked';
+  const actionDisabled = displayState === 'locked' || displayState === 'equipped';
+  const titleColor = displayState === 'locked' ? '#B6C6D6' : definition.detailColor;
+  const borderColor =
+    displayState === 'equipped'
+      ? hexToRgba(definition.secondaryColor, 0.9)
+      : displayState === 'claimable'
+        ? hexToRgba(frameDefinition.detailColor, 0.78)
+        : displayState === 'owned'
+          ? hexToRgba(definition.secondaryColor, 0.66)
+          : '#2B4258';
+
+  return (
+    <View
+      style={[
+        arenaStyles.collectionCard,
+        {
+          borderColor,
+          backgroundColor:
+            displayState === 'locked'
+              ? 'rgba(12, 23, 35, 0.94)'
+              : hexToRgba(definition.primaryColor, 0.14),
+        },
+      ]}>
+      <CollectionPreview definition={definition} />
+      <Text style={[arenaStyles.collectionCardLabel, { color: titleColor }]}>{definition.label}</Text>
+      <Text style={arenaStyles.collectionCardMeta}>
+        {`${getArenaCosmeticStatusLabel(displayState)} • ${definition.rarity.toUpperCase()}`}
+      </Text>
+      <Text style={arenaStyles.collectionCardText}>{definition.description}</Text>
+      <Pressable
+        disabled={actionDisabled}
+        onPress={onPress}
+        style={[
+          arenaStyles.collectionCardAction,
+          actionDisabled && arenaStyles.collectionCardActionDisabled,
+          !actionDisabled && {
+            borderColor: hexToRgba(definition.secondaryColor, 0.76),
+            backgroundColor: hexToRgba(definition.primaryColor, 0.18),
+          },
+        ]}>
+        <Text style={arenaStyles.collectionCardActionText}>{actionLabel}</Text>
+      </Pressable>
     </View>
   );
 }
@@ -225,13 +957,17 @@ export function ArenaPrototypeScreen({ onSwitchGame }: ArenaPrototypeScreenProps
   const [isArmoryOpen, setIsArmoryOpen] = useState(false);
   const [vfxQuality, setVfxQuality] = useState<ArenaVfxQuality>('high');
   const [menuTab, setMenuTab] = useState<ArenaMenuTab>('run');
+  const [collectionBuildId, setCollectionBuildId] = useState<ArenaBuildId>('railFocus');
   const [arenaMeta, setArenaMeta] = useState<ArenaMetaState>(() => createArenaMetaState());
   const [isMetaReady, setIsMetaReady] = useState(false);
   const [isMoveHintPressed, setIsMoveHintPressed] = useState(false);
+  const [pendingCollectionNoticeIds, setPendingCollectionNoticeIds] = useState<ArenaCosmeticId[]>([]);
   const hasInitializedBoardRef = useRef(false);
   const armoryResumeOnCloseRef = useRef(false);
   const persistedDiscoveryKeyRef = useRef('');
   const runMetaCommittedRef = useRef(false);
+  const hasHydratedClaimablesRef = useRef(false);
+  const claimableSignatureRef = useRef('');
   const playerVisualX = useSharedValue(900 / 2);
   const playerShellAnimatedStyle = useAnimatedStyle(() => ({
     transform: [{ translateX: playerVisualX.value - ARENA_PLAYER_RENDER_HALF_WIDTH }],
@@ -384,10 +1120,63 @@ export function ArenaPrototypeScreen({ onSwitchGame }: ArenaPrototypeScreenProps
     });
   }, [discoverySignature, gameState.runSeenTierByEnemy, isMetaReady]);
 
+  useEffect(() => {
+    if (!isMenuOpen) {
+      return;
+    }
+    setCollectionBuildId(gameState.activeBuild);
+  }, [gameState.activeBuild, isMenuOpen]);
+
+  useEffect(() => {
+    if (!isMetaReady) {
+      return;
+    }
+
+    const claimableIds = getArenaClaimableCosmeticIds(arenaMeta);
+    const signature = claimableIds.join('|');
+    if (!hasHydratedClaimablesRef.current) {
+      hasHydratedClaimablesRef.current = true;
+      claimableSignatureRef.current = signature;
+      return;
+    }
+
+    const previousIds = claimableSignatureRef.current.length > 0 ? claimableSignatureRef.current.split('|') : [];
+    const previousIdSet = new Set(previousIds);
+    const nextNoticeIds = claimableIds.filter((cosmeticId) => !previousIdSet.has(cosmeticId));
+    if (nextNoticeIds.length > 0) {
+      setPendingCollectionNoticeIds((previousIdsState) => Array.from(new Set([...previousIdsState, ...nextNoticeIds])));
+    }
+    claimableSignatureRef.current = signature;
+  }, [arenaMeta, isMetaReady]);
+
+  useEffect(() => {
+    if (!isMenuOpen || menuTab !== 'collection' || pendingCollectionNoticeIds.length === 0) {
+      return;
+    }
+    setPendingCollectionNoticeIds([]);
+  }, [isMenuOpen, menuTab, pendingCollectionNoticeIds.length]);
+
   const displayTier = getArenaDisplayTier(gameState.elapsed);
   const activeEnemyCap = getArenaActiveEnemyCap(displayTier);
   const activeWeapon = getArenaActiveWeapon(gameState);
   const activeBuildMeta = ARENA_BUILD_META[gameState.activeBuild];
+  const activeBannerDefinition = getArenaCosmeticDefinition(getArenaEquippedGlobalCosmeticId(arenaMeta, 'banner'));
+  const activeFrameDefinition = getArenaCosmeticDefinition(getArenaEquippedGlobalCosmeticId(arenaMeta, 'codexFrame'));
+  const activeAccentDefinition = getArenaCosmeticDefinition(
+    getArenaEquippedBuildCosmeticId(arenaMeta, gameState.activeBuild, 'buildAccent')
+  );
+  const activeCrestDefinition = getArenaCosmeticDefinition(
+    getArenaEquippedBuildCosmeticId(arenaMeta, gameState.activeBuild, 'buildCrest')
+  );
+  const claimableCosmeticIds = getArenaClaimableCosmeticIds(arenaMeta);
+  const claimableCosmeticIdSet = new Set(claimableCosmeticIds);
+  const newClaimableCount = pendingCollectionNoticeIds.filter((cosmeticId) => claimableCosmeticIdSet.has(cosmeticId)).length;
+  const collectionNoticeText =
+    newClaimableCount > 0
+      ? `New cosmetics ready in Collection: ${newClaimableCount}.`
+      : claimableCosmeticIds.length > 0
+        ? `Collection has ${claimableCosmeticIds.length} reward${claimableCosmeticIds.length === 1 ? '' : 's'} ready to claim.`
+        : null;
   const fireRate = (1 / activeWeapon.fireInterval).toFixed(1);
   const ultimateChargeProgress = clamp(gameState.ultimateCharge / 100, 0, 1);
   const ultimateReady = gameState.ultimateCharge >= 100;
@@ -434,10 +1223,12 @@ export function ArenaPrototypeScreen({ onSwitchGame }: ArenaPrototypeScreenProps
       : isArmoryOpen
         ? `Armory open. ${armoryAvailabilityLabel}.`
       : isMenuOpen
-        ? 'Menu open. Simulation paused.'
+        ? collectionNoticeText
+          ? `Menu open. ${collectionNoticeText}`
+          : 'Menu open. Simulation paused.'
       : gameState.status === 'lost'
         ? 'Health depleted. Restart to run again.'
-        : isPaused
+      : isPaused
           ? 'Arena Prototype paused.'
           : gameState.pickupMessage ??
             (activeEncounterAnchor && gameState.activeEncounter
@@ -461,6 +1252,8 @@ export function ArenaPrototypeScreen({ onSwitchGame }: ArenaPrototypeScreenProps
   const globalUnlockEntries = getArenaGlobalUnlockIds().map((unlockId) => arenaMeta.unlocks[unlockId]);
   const masteryCards = ARENA_BUILD_ORDER.map((buildId) => {
     const buildMeta = ARENA_BUILD_META[buildId];
+    const accentDefinition = getArenaCosmeticDefinition(getArenaEquippedBuildCosmeticId(arenaMeta, buildId, 'buildAccent'));
+    const crestDefinition = getArenaCosmeticDefinition(getArenaEquippedBuildCosmeticId(arenaMeta, buildId, 'buildCrest'));
     const mastery = arenaMeta.mastery[buildId];
     const progress = getArenaMasteryProgress(mastery.xp);
     const unlockEntries = getArenaBuildUnlockIds(buildId).map((unlockId) => arenaMeta.unlocks[unlockId]);
@@ -468,12 +1261,40 @@ export function ArenaPrototypeScreen({ onSwitchGame }: ArenaPrototypeScreenProps
     return {
       buildId,
       buildMeta,
+      accentDefinition,
+      crestDefinition,
       mastery,
       progress,
       unlockEntries,
       nextUnlock: nextUnlockId ? arenaMeta.unlocks[nextUnlockId] : null,
     };
   });
+  const collectionBannerIds = [...getArenaGlobalCollectionCosmeticIds('banner')].sort((leftId, rightId) => {
+    const leftState = getArenaCosmeticDisplayState(arenaMeta, leftId);
+    const rightState = getArenaCosmeticDisplayState(arenaMeta, rightId);
+    return getCollectionStatePriority(leftState) - getCollectionStatePriority(rightState);
+  });
+  const collectionFrameIds = [...getArenaGlobalCollectionCosmeticIds('codexFrame')].sort((leftId, rightId) => {
+    const leftState = getArenaCosmeticDisplayState(arenaMeta, leftId);
+    const rightState = getArenaCosmeticDisplayState(arenaMeta, rightId);
+    return getCollectionStatePriority(leftState) - getCollectionStatePriority(rightState);
+  });
+  const collectionAccentIds = [...getArenaBuildCollectionCosmeticIds(collectionBuildId, 'buildAccent')].sort((leftId, rightId) => {
+    const leftState = getArenaCosmeticDisplayState(arenaMeta, leftId);
+    const rightState = getArenaCosmeticDisplayState(arenaMeta, rightId);
+    return getCollectionStatePriority(leftState) - getCollectionStatePriority(rightState);
+  });
+  const collectionCrestIds = [...getArenaBuildCollectionCosmeticIds(collectionBuildId, 'buildCrest')].sort((leftId, rightId) => {
+    const leftState = getArenaCosmeticDisplayState(arenaMeta, leftId);
+    const rightState = getArenaCosmeticDisplayState(arenaMeta, rightId);
+    return getCollectionStatePriority(leftState) - getCollectionStatePriority(rightState);
+  });
+  const collectionBuildAccentDefinition = getArenaCosmeticDefinition(
+    getArenaEquippedBuildCosmeticId(arenaMeta, collectionBuildId, 'buildAccent')
+  );
+  const collectionBuildCrestDefinition = getArenaCosmeticDefinition(
+    getArenaEquippedBuildCosmeticId(arenaMeta, collectionBuildId, 'buildCrest')
+  );
 
   const canControlShip = boardSize.width > 0 && boardSize.height > 0 && !isMenuOpen && !isArmoryOpen && hasStarted && !isPaused && gameState.status === 'running';
   const moveHintTop = boardSize.height > 0 ? Math.max(0, boardSize.height - MOVE_HINT_DIAMETER - MOVE_HINT_BOTTOM_OFFSET) : 0;
@@ -661,6 +1482,27 @@ export function ArenaPrototypeScreen({ onSwitchGame }: ArenaPrototypeScreenProps
       });
     }
   };
+
+  const handleClaimCosmetic = (cosmeticId: ArenaCosmeticId) => {
+    setArenaMeta((previousMetaState) => {
+      const nextMetaState = claimArenaCosmetic(previousMetaState, cosmeticId);
+      if (nextMetaState !== previousMetaState) {
+        void saveArenaMetaState(nextMetaState);
+      }
+      return nextMetaState;
+    });
+    setPendingCollectionNoticeIds((previousIds) => previousIds.filter((id) => id !== cosmeticId));
+  };
+
+  const handleEquipCosmetic = (cosmeticId: ArenaCosmeticId) => {
+    setArenaMeta((previousMetaState) => {
+      const nextMetaState = equipArenaCosmetic(previousMetaState, cosmeticId);
+      if (nextMetaState !== previousMetaState) {
+        void saveArenaMetaState(nextMetaState);
+      }
+      return nextMetaState;
+    });
+  };
   const hullRatio = gameState.hull / gameState.maxHull;
   const armoryButtonDisabled = !hasStarted || gameState.status !== 'running' || isMenuOpen || isArmoryOpen || !hasArmoryChoices;
   const ultimateButtonDisabled = isPaused || isArmoryOpen || isMenuOpen || gameState.status !== 'running';
@@ -709,7 +1551,14 @@ export function ArenaPrototypeScreen({ onSwitchGame }: ArenaPrototypeScreenProps
           </Text>
         </Pressable>
 
-        <View style={arenaStyles.statusPill}>
+        <View
+          style={[
+            arenaStyles.statusPill,
+            {
+              borderColor: hexToRgba(activeAccentDefinition.secondaryColor, 0.48),
+              backgroundColor: hexToRgba(activeAccentDefinition.primaryColor, 0.08),
+            },
+          ]}>
           <Text numberOfLines={1} style={arenaStyles.statusPillText}>
             {statusText}
           </Text>
@@ -727,7 +1576,14 @@ export function ArenaPrototypeScreen({ onSwitchGame }: ArenaPrototypeScreenProps
         </Pressable>
       </View>
 
-      <View style={arenaStyles.overviewStrip}>
+      <View
+        style={[
+          arenaStyles.overviewStrip,
+          {
+            borderColor: hexToRgba(activeAccentDefinition.secondaryColor, 0.48),
+            backgroundColor: hexToRgba(activeAccentDefinition.primaryColor, 0.06),
+          },
+        ]}>
         <View style={arenaStyles.overviewItem}>
           <Text style={arenaStyles.overviewSymbol}>★</Text>
           <Text style={arenaStyles.overviewValue}>{gameState.score}</Text>
@@ -740,7 +1596,7 @@ export function ArenaPrototypeScreen({ onSwitchGame }: ArenaPrototypeScreenProps
         <View style={arenaStyles.overviewDivider} />
         <View style={arenaStyles.overviewItem}>
           <Text style={arenaStyles.overviewSymbol}>▣</Text>
-          <Text style={[arenaStyles.overviewValue, { color: activeBuildMeta.accent }]}>
+          <Text style={[arenaStyles.overviewValue, { color: activeAccentDefinition.primaryColor }]}>
             {activeBuildMeta.shortLabel}
           </Text>
         </View>
@@ -761,7 +1617,14 @@ export function ArenaPrototypeScreen({ onSwitchGame }: ArenaPrototypeScreenProps
         </View>
       </View>
 
-      <View style={arenaStyles.resourceStrip}>
+      <View
+        style={[
+          arenaStyles.resourceStrip,
+          {
+            borderColor: hexToRgba(activeAccentDefinition.secondaryColor, 0.42),
+            backgroundColor: hexToRgba(activeAccentDefinition.primaryColor, 0.05),
+          },
+        ]}>
         <View style={arenaStyles.resourceItem}>
           <View style={arenaStyles.resourceHeader}>
             <Text style={arenaStyles.resourceSymbol}>+</Text>
@@ -808,6 +1671,7 @@ export function ArenaPrototypeScreen({ onSwitchGame }: ArenaPrototypeScreenProps
               style={[
                 arenaStyles.hudMeterFill,
                 arenaStyles.hudMeterFillSalvage,
+                { backgroundColor: hexToRgba(activeAccentDefinition.secondaryColor, 0.4) },
                 { width: `${salvageProgress * 100}%` },
               ]}
             />
@@ -838,16 +1702,90 @@ export function ArenaPrototypeScreen({ onSwitchGame }: ArenaPrototypeScreenProps
               playerShellAnimatedStyle,
               gameState.playerFlash > 0 && arenaStyles.playerShellHit,
             ]}>
-            <View style={arenaStyles.playerThrusterGlow} />
-            <View style={arenaStyles.playerWingBaseLeft} />
-            <View style={arenaStyles.playerWingBaseRight} />
-            <View style={arenaStyles.playerFuselage}>
-              <View style={arenaStyles.playerCanopy} />
-              <View style={arenaStyles.playerSpine} />
+            <View
+              style={[
+                arenaStyles.playerThrusterGlow,
+                {
+                  backgroundColor: hexToRgba(activeAccentDefinition.glowColor, 0.22),
+                },
+              ]}
+            />
+            <View
+              style={[
+                arenaStyles.playerWingBaseLeft,
+                {
+                  backgroundColor: activeAccentDefinition.secondaryColor,
+                },
+              ]}
+            />
+            <View
+              style={[
+                arenaStyles.playerWingBaseRight,
+                {
+                  backgroundColor: activeAccentDefinition.secondaryColor,
+                },
+              ]}
+            />
+            <View
+              style={[
+                arenaStyles.playerFuselage,
+                {
+                  backgroundColor: activeAccentDefinition.primaryColor,
+                  borderColor: activeAccentDefinition.detailColor,
+                },
+              ]}>
+              <View
+                style={[
+                  arenaStyles.playerCanopy,
+                  {
+                    backgroundColor: activeAccentDefinition.detailColor,
+                    borderColor: activeAccentDefinition.glowColor,
+                  },
+                ]}
+              />
+              <View
+                style={[
+                  arenaStyles.playerSpine,
+                  {
+                    backgroundColor: activeAccentDefinition.secondaryColor,
+                  },
+                ]}
+              />
             </View>
-            <View style={arenaStyles.playerNose} />
-            <View style={arenaStyles.playerEngineLeft} />
-            <View style={arenaStyles.playerEngineRight} />
+            <View
+              style={[
+                arenaStyles.playerCrestWrap,
+                {
+                  borderColor: hexToRgba(activeCrestDefinition.secondaryColor, 0.54),
+                  backgroundColor: hexToRgba(activeCrestDefinition.primaryColor, 0.22),
+                },
+              ]}>
+              <BuildCrestMark crestDefinition={activeCrestDefinition} size={12} />
+            </View>
+            <View
+              style={[
+                arenaStyles.playerNose,
+                {
+                  borderBottomColor: activeAccentDefinition.detailColor,
+                },
+              ]}
+            />
+            <View
+              style={[
+                arenaStyles.playerEngineLeft,
+                {
+                  backgroundColor: activeAccentDefinition.glowColor,
+                },
+              ]}
+            />
+            <View
+              style={[
+                arenaStyles.playerEngineRight,
+                {
+                  backgroundColor: activeAccentDefinition.glowColor,
+                },
+              ]}
+            />
           </Animated.View>
 
           {shouldShowMoveHint ? (
@@ -984,9 +1922,21 @@ export function ArenaPrototypeScreen({ onSwitchGame }: ArenaPrototypeScreenProps
                 ]}
               />
             ) : null}
-            <UltimateControlIcon ready={ultimateReady} chargeProgress={ultimateChargeProgress} />
+            <UltimateControlIcon
+              ready={ultimateReady}
+              chargeProgress={ultimateChargeProgress}
+              accentDefinition={activeAccentDefinition}
+            />
             <View style={arenaStyles.ultimateButtonMeter}>
-              <View style={[arenaStyles.ultimateButtonFill, { width: `${ultimateChargeProgress * 100}%` }]} />
+              <View
+                style={[
+                  arenaStyles.ultimateButtonFill,
+                  {
+                    width: `${ultimateChargeProgress * 100}%`,
+                    backgroundColor: hexToRgba(activeAccentDefinition.secondaryColor, 0.82),
+                  },
+                ]}
+              />
             </View>
           </Pressable>
         </View>
@@ -1045,14 +1995,25 @@ export function ArenaPrototypeScreen({ onSwitchGame }: ArenaPrototypeScreenProps
           <View style={arenaStyles.menuPanel}>
             <Text style={arenaStyles.menuTitle}>Arena Prototype Menu</Text>
             <View style={arenaStyles.menuSegmentRow}>
-              {(['run', 'codex', 'mastery'] as ArenaMenuTab[]).map((tab) => (
+              {(['run', 'codex', 'mastery', 'collection'] as ArenaMenuTab[]).map((tab) => (
                 <Pressable
                   key={`menu-tab-${tab}`}
                   onPress={() => setMenuTab(tab)}
                   style={[arenaStyles.menuSegmentButton, menuTab === tab && arenaStyles.menuSegmentButtonActive]}>
                   <Text style={[arenaStyles.menuSegmentText, menuTab === tab && arenaStyles.menuSegmentTextActive]}>
-                    {tab === 'run' ? 'Run' : tab === 'codex' ? 'Codex' : 'Mastery'}
+                    {tab === 'run'
+                      ? 'Run'
+                      : tab === 'codex'
+                        ? 'Codex'
+                        : tab === 'mastery'
+                          ? 'Mastery'
+                          : 'Collection'}
                   </Text>
+                  {tab === 'collection' && claimableCosmeticIds.length > 0 ? (
+                    <View style={arenaStyles.menuSegmentBadge}>
+                      <Text style={arenaStyles.menuSegmentBadgeText}>{claimableCosmeticIds.length}</Text>
+                    </View>
+                  ) : null}
                 </Pressable>
               ))}
             </View>
@@ -1090,15 +2051,24 @@ export function ArenaPrototypeScreen({ onSwitchGame }: ArenaPrototypeScreenProps
                 <View style={arenaStyles.menuBuildGrid}>
                   {ARENA_BUILD_ORDER.map((buildId) => {
                     const buildMeta = ARENA_BUILD_META[buildId];
+                    const buildAccentDefinition = getArenaCosmeticDefinition(
+                      getArenaEquippedBuildCosmeticId(arenaMeta, buildId, 'buildAccent')
+                    );
+                    const buildCrestDefinition = getArenaCosmeticDefinition(
+                      getArenaEquippedBuildCosmeticId(arenaMeta, buildId, 'buildCrest')
+                    );
                     const isActive = gameState.activeBuild === buildId;
                     return (
                       <Pressable
                         key={`build-${buildId}`}
                         onPress={() => handleSelectBuild(buildId)}
                         style={[arenaStyles.menuBuildButton, isActive && arenaStyles.menuBuildButtonActive]}>
-                        <Text style={[arenaStyles.menuBuildTitle, isActive && { color: buildMeta.accent }]}>
-                          {buildMeta.label}
-                        </Text>
+                        <View style={arenaStyles.menuBuildTitleRow}>
+                          <BuildCrestMark crestDefinition={buildCrestDefinition} size={14} />
+                          <Text style={[arenaStyles.menuBuildTitle, { color: isActive ? buildAccentDefinition.primaryColor : '#EAF4FF' }]}>
+                            {buildMeta.label}
+                          </Text>
+                        </View>
                         <Text numberOfLines={2} style={arenaStyles.menuBuildText}>
                           {buildMeta.summary}
                         </Text>
@@ -1109,9 +2079,12 @@ export function ArenaPrototypeScreen({ onSwitchGame }: ArenaPrototypeScreenProps
 
                 <Text style={arenaStyles.menuLabel}>Notes</Text>
                 <View style={arenaStyles.menuBuildDetailsCard}>
-                  <Text style={[arenaStyles.menuBuildDetailsTitle, { color: activeBuildMeta.accent }]}>
-                    {activeBuildMeta.label}
-                  </Text>
+                  <View style={arenaStyles.menuBuildDetailsHeader}>
+                    <BuildCrestMark crestDefinition={activeCrestDefinition} size={16} />
+                    <Text style={[arenaStyles.menuBuildDetailsTitle, { color: activeAccentDefinition.primaryColor }]}>
+                      {activeBuildMeta.label}
+                    </Text>
+                  </View>
                   <Text style={arenaStyles.menuBuildDetailsText}>{activeBuildMeta.description}</Text>
                   <Text style={arenaStyles.menuBuildDetailsText}>
                     Ultimate: {activeBuildMeta.ultimateLabel}. {activeBuildMeta.ultimateDescription}
@@ -1130,10 +2103,22 @@ export function ArenaPrototypeScreen({ onSwitchGame }: ArenaPrototypeScreenProps
                   <Text style={arenaStyles.menuBuildDetailsText}>Loading persistent codex data...</Text>
                 ) : (
                   <>
+                    <MetaShowcaseCard
+                      title="Codex Archive"
+                      subtitle={`${codexEnemyEntries.filter((entry) => entry.discovered).length}/${codexEnemyEntries.length} signals logged`}
+                      note={`${activeBannerDefinition.label} • ${activeFrameDefinition.label}`}
+                      bannerDefinition={activeBannerDefinition}
+                      frameDefinition={activeFrameDefinition}
+                    />
                     <Text style={arenaStyles.menuLabel}>Reward Hooks</Text>
                     <View style={arenaStyles.unlockChipRow}>
                       {globalUnlockEntries.map((entry) => (
-                        <UnlockChip key={`codex-unlock-${entry.id}`} entry={entry} />
+                        <UnlockChip
+                          key={`codex-unlock-${entry.id}`}
+                          entry={entry}
+                          metaState={arenaMeta}
+                          frameDefinition={activeFrameDefinition}
+                        />
                       ))}
                     </View>
 
@@ -1172,7 +2157,12 @@ export function ArenaPrototypeScreen({ onSwitchGame }: ArenaPrototypeScreenProps
                               </View>
                             ) : null}
                             {!isLocked && entry.kind === 'hiveCarrierBoss' ? (
-                              <UnlockChip entry={arenaMeta.unlocks.hiveCarrierFirstClear} accentColor="#93F0D5" />
+                              <UnlockChip
+                                entry={arenaMeta.unlocks.hiveCarrierFirstClear}
+                                metaState={arenaMeta}
+                                accentColor="#93F0D5"
+                                frameDefinition={activeFrameDefinition}
+                              />
                             ) : null}
                           </View>
                         );
@@ -1184,13 +2174,30 @@ export function ArenaPrototypeScreen({ onSwitchGame }: ArenaPrototypeScreenProps
                       {ARENA_BUILD_ORDER.map((buildId) => {
                         const buildEntry = arenaMeta.codexBuilds[buildId];
                         const masteryEntry = arenaMeta.mastery[buildId];
+                        const buildAccentDefinition = getArenaCosmeticDefinition(
+                          getArenaEquippedBuildCosmeticId(arenaMeta, buildId, 'buildAccent')
+                        );
+                        const buildCrestDefinition = getArenaCosmeticDefinition(
+                          getArenaEquippedBuildCosmeticId(arenaMeta, buildId, 'buildCrest')
+                        );
                         const buildUnlockEntries = getArenaBuildUnlockIds(buildId).map((unlockId) => arenaMeta.unlocks[unlockId]);
                         return (
-                          <View key={`codex-build-${buildId}`} style={arenaStyles.codexCard}>
+                          <View
+                            key={`codex-build-${buildId}`}
+                            style={[
+                              arenaStyles.codexCard,
+                              {
+                                borderColor: hexToRgba(buildAccentDefinition.secondaryColor, 0.56),
+                                backgroundColor: hexToRgba(buildAccentDefinition.primaryColor, 0.09),
+                              },
+                            ]}>
                             <View style={arenaStyles.codexCardHeader}>
-                              <Text style={[arenaStyles.codexCardTitle, { color: ARENA_BUILD_META[buildId].accent }]}>
-                                {buildEntry.label}
-                              </Text>
+                              <View style={arenaStyles.cardTitleRow}>
+                                <BuildCrestMark crestDefinition={buildCrestDefinition} size={15} />
+                                <Text style={[arenaStyles.codexCardTitle, { color: buildAccentDefinition.primaryColor }]}>
+                                  {buildEntry.label}
+                                </Text>
+                              </View>
                               <Text style={arenaStyles.codexCardMeta}>
                                 L{masteryEntry.level} {masteryEntry.title}
                               </Text>
@@ -1201,7 +2208,13 @@ export function ArenaPrototypeScreen({ onSwitchGame }: ArenaPrototypeScreenProps
                             </Text>
                             <View style={arenaStyles.unlockChipRow}>
                               {buildUnlockEntries.map((entry) => (
-                                <UnlockChip key={`codex-build-unlock-${entry.id}`} entry={entry} accentColor={ARENA_BUILD_META[buildId].accent} />
+                                <UnlockChip
+                                  key={`codex-build-unlock-${entry.id}`}
+                                  entry={entry}
+                                  metaState={arenaMeta}
+                                  accentColor={buildAccentDefinition.primaryColor}
+                                  frameDefinition={activeFrameDefinition}
+                                />
                               ))}
                             </View>
                           </View>
@@ -1214,62 +2227,238 @@ export function ArenaPrototypeScreen({ onSwitchGame }: ArenaPrototypeScreenProps
             ) : (
               <ScrollView style={arenaStyles.menuScroll} contentContainerStyle={arenaStyles.menuScrollContent}>
                 {!isMetaReady ? (
-                  <Text style={arenaStyles.menuBuildDetailsText}>Loading mastery records...</Text>
+                  <Text style={arenaStyles.menuBuildDetailsText}>
+                    {menuTab === 'mastery' ? 'Loading mastery records...' : 'Loading cosmetic collection...'}
+                  </Text>
                 ) : (
-                  <>
-                    <View style={arenaStyles.masteryIntroCard}>
-                      <Text style={arenaStyles.masteryIntroText}>
-                        Mastery XP is granted at run end to the build with the most active time. Ties resolve to the build you finish on.
-                      </Text>
-                    </View>
-                    {masteryCards.map(({ buildId, buildMeta, mastery, progress, unlockEntries, nextUnlock }) => (
-                      <View
-                        key={`mastery-${buildId}`}
-                        style={[arenaStyles.masteryCard, gameState.activeBuild === buildId && arenaStyles.masteryCardActive]}>
-                        <View style={arenaStyles.masteryHeaderRow}>
-                          <View style={arenaStyles.masteryHeaderCopy}>
-                            <Text style={[arenaStyles.masteryTitle, { color: buildMeta.accent }]}>{buildMeta.label}</Text>
-                            <Text style={arenaStyles.masterySubtitle}>
-                              Level {mastery.level} • {mastery.title}
-                            </Text>
-                          </View>
-                          <Text style={arenaStyles.masteryXpText}>{mastery.xp} XP</Text>
-                        </View>
-                        <View style={arenaStyles.masteryMeter}>
-                          <View
-                            style={[
-                              arenaStyles.masteryMeterFill,
-                              {
-                                width: `${progress.progress * 100}%`,
-                                backgroundColor: hexToRgba(buildMeta.accent, 0.72),
-                              },
-                            ]}
-                          />
-                        </View>
-                        <Text style={arenaStyles.masteryThresholdText}>
-                          {progress.nextThreshold > progress.currentThreshold
-                            ? `${progress.currentThreshold} / ${progress.nextThreshold} threshold`
-                            : 'Top rank reached'}
+                  menuTab === 'mastery' ? (
+                    <>
+                      <MetaShowcaseCard
+                        title="Mastery Archive"
+                        subtitle={`${masteryCards.reduce((sum, card) => sum + card.mastery.xp, 0)} XP banked across builds`}
+                        note={`${activeBannerDefinition.label} • ${activeFrameDefinition.label}`}
+                        bannerDefinition={activeBannerDefinition}
+                        frameDefinition={activeFrameDefinition}
+                      />
+                      <View style={arenaStyles.masteryIntroCard}>
+                        <Text style={arenaStyles.masteryIntroText}>
+                          Mastery XP is granted at run end to the build with the most active time. Ties resolve to the build you finish on.
                         </Text>
-                        <Text style={arenaStyles.masteryThresholdText}>
-                          {nextUnlock
-                            ? `Next unlock: ${nextUnlock.rewardLabel} • ${nextUnlock.description}`
-                            : 'All current mastery reward hooks unlocked'}
-                        </Text>
-                        <View style={arenaStyles.masteryStatRow}>
-                          <Text style={arenaStyles.masteryStatText}>Best tier T{mastery.bestTier}</Text>
-                          <Text style={arenaStyles.masteryStatText}>Mini-boss {mastery.miniBossClears}</Text>
-                          <Text style={arenaStyles.masteryStatText}>Boss {mastery.bossClears}</Text>
-                          <Text style={arenaStyles.masteryStatText}>Runs {mastery.runs}</Text>
-                        </View>
-                        <View style={arenaStyles.unlockChipRow}>
-                          {unlockEntries.map((entry) => (
-                            <UnlockChip key={`mastery-unlock-${entry.id}`} entry={entry} accentColor={buildMeta.accent} />
-                          ))}
-                        </View>
                       </View>
-                    ))}
-                  </>
+                      {masteryCards.map(({ buildId, buildMeta, accentDefinition, crestDefinition, mastery, progress, unlockEntries, nextUnlock }) => (
+                        <View
+                          key={`mastery-${buildId}`}
+                          style={[
+                            arenaStyles.masteryCard,
+                            gameState.activeBuild === buildId && arenaStyles.masteryCardActive,
+                            {
+                              borderColor: hexToRgba(accentDefinition.secondaryColor, gameState.activeBuild === buildId ? 0.82 : 0.56),
+                              backgroundColor: hexToRgba(accentDefinition.primaryColor, gameState.activeBuild === buildId ? 0.16 : 0.08),
+                            },
+                          ]}>
+                          <View style={arenaStyles.masteryHeaderRow}>
+                            <View style={arenaStyles.masteryHeaderCopy}>
+                              <View style={arenaStyles.cardTitleRow}>
+                                <BuildCrestMark crestDefinition={crestDefinition} size={16} />
+                                <Text style={[arenaStyles.masteryTitle, { color: accentDefinition.primaryColor }]}>{buildMeta.label}</Text>
+                              </View>
+                              <Text style={arenaStyles.masterySubtitle}>
+                                Level {mastery.level} • {mastery.title}
+                              </Text>
+                            </View>
+                            <Text style={arenaStyles.masteryXpText}>{mastery.xp} XP</Text>
+                          </View>
+                          <View style={arenaStyles.masteryMeter}>
+                            <View
+                              style={[
+                                arenaStyles.masteryMeterFill,
+                                {
+                                  width: `${progress.progress * 100}%`,
+                                  backgroundColor: hexToRgba(accentDefinition.secondaryColor, 0.76),
+                                },
+                              ]}
+                            />
+                          </View>
+                          <Text style={arenaStyles.masteryThresholdText}>
+                            {progress.nextThreshold > progress.currentThreshold
+                              ? `${progress.currentThreshold} / ${progress.nextThreshold} threshold`
+                              : 'Top rank reached'}
+                          </Text>
+                          <Text style={arenaStyles.masteryThresholdText}>
+                            {nextUnlock
+                              ? `Next unlock: ${nextUnlock.rewardLabel} • ${nextUnlock.description}`
+                              : 'All current mastery reward hooks unlocked'}
+                          </Text>
+                          <View style={arenaStyles.masteryStatRow}>
+                            <Text style={arenaStyles.masteryStatText}>Best tier T{mastery.bestTier}</Text>
+                            <Text style={arenaStyles.masteryStatText}>Mini-boss {mastery.miniBossClears}</Text>
+                            <Text style={arenaStyles.masteryStatText}>Boss {mastery.bossClears}</Text>
+                            <Text style={arenaStyles.masteryStatText}>Runs {mastery.runs}</Text>
+                          </View>
+                          <View style={arenaStyles.unlockChipRow}>
+                            {unlockEntries.map((entry) => (
+                              <UnlockChip
+                                key={`mastery-unlock-${entry.id}`}
+                                entry={entry}
+                                metaState={arenaMeta}
+                                accentColor={accentDefinition.primaryColor}
+                                frameDefinition={activeFrameDefinition}
+                              />
+                            ))}
+                          </View>
+                        </View>
+                      ))}
+                    </>
+                  ) : (
+                    <>
+                      <MetaShowcaseCard
+                        title="Collection"
+                        subtitle={`${claimableCosmeticIds.length} claimable • ${Object.values(arenaMeta.cosmetics).filter((entry) => entry.state === 'owned').length} owned`}
+                        note={collectionNoticeText ?? `${activeBannerDefinition.label} • ${activeFrameDefinition.label}`}
+                        bannerDefinition={activeBannerDefinition}
+                        frameDefinition={activeFrameDefinition}
+                        accentColor={collectionBuildAccentDefinition.primaryColor}
+                        crestDefinition={collectionBuildCrestDefinition}
+                      />
+                      {collectionNoticeText ? (
+                        <View style={arenaStyles.collectionNoticeCard}>
+                          <Text style={arenaStyles.collectionNoticeText}>{collectionNoticeText}</Text>
+                        </View>
+                      ) : null}
+
+                      <Text style={arenaStyles.menuLabel}>Global</Text>
+                      <Text style={arenaStyles.collectionSectionLabel}>Banner</Text>
+                      <View style={arenaStyles.codexGrid}>
+                        {collectionBannerIds.map((cosmeticId) => {
+                          const definition = getArenaCosmeticDefinition(cosmeticId);
+                          const displayState = getArenaCosmeticDisplayState(arenaMeta, cosmeticId);
+                          return (
+                            <CollectionCard
+                              key={`collection-banner-${cosmeticId}`}
+                              definition={definition}
+                              displayState={displayState}
+                              frameDefinition={activeFrameDefinition}
+                              onPress={() => {
+                                if (displayState === 'claimable') {
+                                  handleClaimCosmetic(cosmeticId);
+                                } else if (displayState === 'owned') {
+                                  handleEquipCosmetic(cosmeticId);
+                                }
+                              }}
+                            />
+                          );
+                        })}
+                      </View>
+
+                      <Text style={arenaStyles.collectionSectionLabel}>Codex Frame</Text>
+                      <View style={arenaStyles.codexGrid}>
+                        {collectionFrameIds.map((cosmeticId) => {
+                          const definition = getArenaCosmeticDefinition(cosmeticId);
+                          const displayState = getArenaCosmeticDisplayState(arenaMeta, cosmeticId);
+                          return (
+                            <CollectionCard
+                              key={`collection-frame-${cosmeticId}`}
+                              definition={definition}
+                              displayState={displayState}
+                              frameDefinition={activeFrameDefinition}
+                              onPress={() => {
+                                if (displayState === 'claimable') {
+                                  handleClaimCosmetic(cosmeticId);
+                                } else if (displayState === 'owned') {
+                                  handleEquipCosmetic(cosmeticId);
+                                }
+                              }}
+                            />
+                          );
+                        })}
+                      </View>
+
+                      <Text style={arenaStyles.menuLabel}>Build</Text>
+                      <View style={arenaStyles.menuBuildGrid}>
+                        {ARENA_BUILD_ORDER.map((buildId) => {
+                          const buildAccentDefinition = getArenaCosmeticDefinition(
+                            getArenaEquippedBuildCosmeticId(arenaMeta, buildId, 'buildAccent')
+                          );
+                          const buildCrestDefinition = getArenaCosmeticDefinition(
+                            getArenaEquippedBuildCosmeticId(arenaMeta, buildId, 'buildCrest')
+                          );
+                          const isSelected = collectionBuildId === buildId;
+                          return (
+                            <Pressable
+                              key={`collection-build-${buildId}`}
+                              onPress={() => setCollectionBuildId(buildId)}
+                              style={[arenaStyles.menuBuildButton, isSelected && arenaStyles.menuBuildButtonActive]}>
+                              <View style={arenaStyles.menuBuildTitleRow}>
+                                <BuildCrestMark crestDefinition={buildCrestDefinition} size={14} />
+                                <Text style={[arenaStyles.menuBuildTitle, { color: isSelected ? buildAccentDefinition.primaryColor : '#EAF4FF' }]}>
+                                  {ARENA_BUILD_META[buildId].label}
+                                </Text>
+                              </View>
+                              <Text numberOfLines={2} style={arenaStyles.menuBuildText}>
+                                {ARENA_BUILD_META[buildId].summary}
+                              </Text>
+                            </Pressable>
+                          );
+                        })}
+                      </View>
+
+                      <MetaShowcaseCard
+                        title={ARENA_BUILD_META[collectionBuildId].label}
+                        subtitle={`${collectionBuildAccentDefinition.label} • ${collectionBuildCrestDefinition.label}`}
+                        note="Preview and equip build-specific cosmetics here."
+                        bannerDefinition={activeBannerDefinition}
+                        frameDefinition={activeFrameDefinition}
+                        accentColor={collectionBuildAccentDefinition.primaryColor}
+                        crestDefinition={collectionBuildCrestDefinition}
+                      />
+
+                      <Text style={arenaStyles.collectionSectionLabel}>Accents</Text>
+                      <View style={arenaStyles.codexGrid}>
+                        {collectionAccentIds.map((cosmeticId) => {
+                          const definition = getArenaCosmeticDefinition(cosmeticId);
+                          const displayState = getArenaCosmeticDisplayState(arenaMeta, cosmeticId);
+                          return (
+                            <CollectionCard
+                              key={`collection-accent-${cosmeticId}`}
+                              definition={definition}
+                              displayState={displayState}
+                              frameDefinition={activeFrameDefinition}
+                              onPress={() => {
+                                if (displayState === 'claimable') {
+                                  handleClaimCosmetic(cosmeticId);
+                                } else if (displayState === 'owned') {
+                                  handleEquipCosmetic(cosmeticId);
+                                }
+                              }}
+                            />
+                          );
+                        })}
+                      </View>
+
+                      <Text style={arenaStyles.collectionSectionLabel}>Crests</Text>
+                      <View style={arenaStyles.codexGrid}>
+                        {collectionCrestIds.map((cosmeticId) => {
+                          const definition = getArenaCosmeticDefinition(cosmeticId);
+                          const displayState = getArenaCosmeticDisplayState(arenaMeta, cosmeticId);
+                          return (
+                            <CollectionCard
+                              key={`collection-crest-${cosmeticId}`}
+                              definition={definition}
+                              displayState={displayState}
+                              frameDefinition={activeFrameDefinition}
+                              onPress={() => {
+                                if (displayState === 'claimable') {
+                                  handleClaimCosmetic(cosmeticId);
+                                } else if (displayState === 'owned') {
+                                  handleEquipCosmetic(cosmeticId);
+                                }
+                              }}
+                            />
+                          );
+                        })}
+                      </View>
+                    </>
+                  )
                 )}
               </ScrollView>
             )}
@@ -1284,6 +2473,9 @@ export function ArenaPrototypeScreen({ onSwitchGame }: ArenaPrototypeScreenProps
             <Text style={arenaStyles.gameOverText}>
               Enemy fire broke through the shields. Score {gameState.score}. Pressure tier {displayTier}.
             </Text>
+            {collectionNoticeText ? (
+              <Text style={arenaStyles.gameOverNoticeText}>{collectionNoticeText}</Text>
+            ) : null}
             <View style={arenaStyles.menuActions}>
               <Pressable onPress={handleRestart} style={[arenaStyles.menuActionButton, arenaStyles.menuActionPrimary]}>
                 <Text style={arenaStyles.menuActionText}>Retry</Text>
@@ -2468,6 +3660,236 @@ const arenaStyles = StyleSheet.create({
     alignItems: 'center',
     paddingHorizontal: 22,
   },
+  playerCrestWrap: {
+    position: 'absolute',
+    left: 22,
+    top: 11,
+    width: 16,
+    height: 16,
+    borderRadius: 999,
+    borderWidth: 1,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  menuSegmentBadge: {
+    position: 'absolute',
+    top: 5,
+    right: 7,
+    minWidth: 16,
+    height: 16,
+    borderRadius: 999,
+    borderWidth: 1,
+    borderColor: '#F7FBFF',
+    backgroundColor: 'rgba(18, 40, 58, 0.96)',
+    paddingHorizontal: 4,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  menuSegmentBadgeText: {
+    color: '#F4FBFF',
+    fontSize: 9.5,
+    fontWeight: '900',
+  },
+  menuBuildTitleRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 6,
+  },
+  menuBuildDetailsHeader: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 8,
+  },
+  cardTitleRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 7,
+  },
+  metaShowcaseCard: {
+    borderRadius: 14,
+    borderWidth: 1,
+    paddingHorizontal: 12,
+    paddingVertical: 11,
+    overflow: 'hidden',
+    shadowOffset: { width: 0, height: 0 },
+    shadowOpacity: 0.18,
+    shadowRadius: 10,
+  },
+  metaShowcaseBanner: {
+    position: 'absolute',
+    left: 0,
+    right: 0,
+    top: 0,
+    height: 12,
+  },
+  metaShowcaseGlow: {
+    position: 'absolute',
+    left: -20,
+    right: -20,
+    bottom: -26,
+    height: 80,
+    borderRadius: 999,
+  },
+  metaShowcaseContent: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    gap: 12,
+  },
+  metaShowcaseCopy: {
+    flex: 1,
+    gap: 4,
+  },
+  metaShowcaseTitle: {
+    fontSize: 13,
+    fontWeight: '900',
+  },
+  metaShowcaseSubtitle: {
+    color: '#E0EEFF',
+    fontSize: 11,
+    fontWeight: '800',
+  },
+  metaShowcaseNote: {
+    color: '#BFD4EA',
+    fontSize: 10.5,
+    lineHeight: 15,
+  },
+  metaShowcaseCrestWrap: {
+    width: 34,
+    height: 34,
+    borderRadius: 999,
+    borderWidth: 1,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  collectionNoticeCard: {
+    borderRadius: 12,
+    borderWidth: 1,
+    borderColor: '#34536F',
+    backgroundColor: '#0F2031',
+    paddingHorizontal: 12,
+    paddingVertical: 10,
+  },
+  collectionNoticeText: {
+    color: '#DCEBFA',
+    fontSize: 11,
+    lineHeight: 16,
+    fontWeight: '700',
+  },
+  collectionSectionLabel: {
+    color: '#9DB6D0',
+    fontSize: 10.5,
+    fontWeight: '800',
+    textTransform: 'uppercase',
+  },
+  collectionCard: {
+    width: '48%',
+    borderRadius: 12,
+    borderWidth: 1,
+    paddingHorizontal: 10,
+    paddingVertical: 10,
+    gap: 6,
+  },
+  collectionCardLabel: {
+    fontSize: 11.5,
+    fontWeight: '800',
+  },
+  collectionCardMeta: {
+    color: '#9AB3CC',
+    fontSize: 10,
+    fontWeight: '800',
+  },
+  collectionCardText: {
+    color: '#C5D6E7',
+    fontSize: 10.5,
+    lineHeight: 14,
+  },
+  collectionCardAction: {
+    marginTop: 2,
+    borderRadius: 9,
+    borderWidth: 1,
+    paddingVertical: 7,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  collectionCardActionDisabled: {
+    borderColor: '#33485D',
+    backgroundColor: '#132130',
+    opacity: 0.9,
+  },
+  collectionCardActionText: {
+    color: '#F0F8FF',
+    fontSize: 10.5,
+    fontWeight: '900',
+  },
+  collectionPreviewBanner: {
+    height: 40,
+    borderRadius: 10,
+    borderWidth: 1,
+    overflow: 'hidden',
+  },
+  collectionPreviewBannerBand: {
+    position: 'absolute',
+    left: 0,
+    right: 0,
+    top: 0,
+    height: 12,
+  },
+  collectionPreviewBannerCore: {
+    position: 'absolute',
+    left: 12,
+    right: 12,
+    bottom: 8,
+    height: 8,
+    borderRadius: 999,
+  },
+  collectionPreviewFrame: {
+    height: 40,
+    borderRadius: 10,
+    borderWidth: 2,
+    padding: 6,
+  },
+  collectionPreviewFrameInner: {
+    flex: 1,
+    borderRadius: 6,
+    borderWidth: 1,
+  },
+  collectionPreviewAccent: {
+    height: 40,
+    borderRadius: 10,
+    borderWidth: 1,
+    alignItems: 'center',
+    justifyContent: 'center',
+    overflow: 'hidden',
+  },
+  collectionPreviewAccentWing: {
+    position: 'absolute',
+    top: 17,
+    width: 14,
+    height: 7,
+    borderRadius: 7,
+  },
+  collectionPreviewAccentWingLeft: {
+    left: 18,
+    transform: [{ rotate: '-15deg' }],
+  },
+  collectionPreviewAccentWingRight: {
+    right: 18,
+    transform: [{ rotate: '15deg' }],
+  },
+  collectionPreviewAccentCore: {
+    width: 16,
+    height: 22,
+    borderRadius: 8,
+    borderWidth: 1,
+  },
+  collectionPreviewCrest: {
+    height: 40,
+    borderRadius: 10,
+    borderWidth: 1,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
   gameOverModal: {
     width: '100%',
     maxWidth: 360,
@@ -2488,6 +3910,12 @@ const arenaStyles = StyleSheet.create({
     color: '#BFD0E5',
     fontSize: 13,
     lineHeight: 19,
+  },
+  gameOverNoticeText: {
+    color: '#DDEBFA',
+    fontSize: 11.5,
+    lineHeight: 16,
+    fontWeight: '700',
   },
   sideControlButton: {
     position: 'absolute',

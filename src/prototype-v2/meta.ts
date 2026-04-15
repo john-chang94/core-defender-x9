@@ -1,11 +1,26 @@
 import AsyncStorage from '@react-native-async-storage/async-storage';
 
 import { ARENA_BUILD_META, ARENA_BUILD_ORDER } from './builds';
+import {
+  ARENA_COSMETIC_ORDER,
+  getArenaBuildCosmeticIds,
+  getArenaCosmeticDefinition,
+  getArenaDefaultBuildCosmetic,
+  getArenaDefaultGlobalCosmetic,
+  getArenaGlobalCosmeticIds,
+  getArenaUnlockRewardCosmeticId,
+} from './cosmetics';
 import { ARENA_ENEMY_ORDER } from './config';
 import type {
   ArenaBuildId,
   ArenaBuildMastery,
   ArenaBuildValueMap,
+  ArenaCosmeticDisplayState,
+  ArenaCosmeticId,
+  ArenaCosmeticOwnershipEntry,
+  ArenaCosmeticState,
+  ArenaCosmeticValueMap,
+  ArenaEquippedCosmetics,
   ArenaCodexBuildEntry,
   ArenaCodexEnemyEntry,
   ArenaEnemyKind,
@@ -19,7 +34,7 @@ import type {
 } from './types';
 
 export const ARENA_META_STORAGE_KEY = 'arena-v2-meta-v1';
-export const ARENA_META_VERSION = 2;
+export const ARENA_META_VERSION = 3;
 export const ARENA_BUILD_MASTERY_THRESHOLDS = [0, 100, 220, 360, 520, 700, 900, 1120, 1360, 1620, 1900] as const;
 
 const ARENA_BUILD_MASTERY_TITLES = [
@@ -202,6 +217,13 @@ function createArenaUnlockValueMap<T>(factory: (unlockId: ArenaUnlockId) => T): 
   }, {} as ArenaUnlockValueMap<T>);
 }
 
+function createArenaCosmeticValueMap<T>(factory: (cosmeticId: ArenaCosmeticId) => T): ArenaCosmeticValueMap<T> {
+  return ARENA_COSMETIC_ORDER.reduce((accumulator, cosmeticId) => {
+    accumulator[cosmeticId] = factory(cosmeticId);
+    return accumulator;
+  }, {} as ArenaCosmeticValueMap<T>);
+}
+
 function createCodexEnemyEntry(kind: ArenaEnemyKind): ArenaCodexEnemyEntry {
   return {
     kind,
@@ -252,6 +274,78 @@ function createUnlockEntry(unlockId: ArenaUnlockId): ArenaUnlockEntry {
     ...definition,
     unlocked: false,
     unlockedAt: null,
+  };
+}
+
+function createCosmeticOwnershipEntry(cosmeticId: ArenaCosmeticId): ArenaCosmeticOwnershipEntry {
+  const definition = getArenaCosmeticDefinition(cosmeticId);
+  return {
+    id: cosmeticId,
+    state: definition.sourceType === 'default' ? 'owned' : 'locked',
+    claimedAt: null,
+  };
+}
+
+function createEquippedCosmetics(): ArenaEquippedCosmetics {
+  return {
+    banner: getArenaDefaultGlobalCosmetic('banner'),
+    codexFrame: getArenaDefaultGlobalCosmetic('codexFrame'),
+    buildAccent: createArenaBuildValueMap((buildId) => getArenaDefaultBuildCosmetic(buildId, 'buildAccent')),
+    buildCrest: createArenaBuildValueMap((buildId) => getArenaDefaultBuildCosmetic(buildId, 'buildCrest')),
+  };
+}
+
+function isCosmeticOwned(entry: ArenaCosmeticOwnershipEntry | undefined) {
+  return entry?.state === 'owned';
+}
+
+function isGlobalCosmeticCompatible(
+  cosmeticId: ArenaCosmeticId,
+  slot: 'banner' | 'codexFrame',
+  cosmetics: ArenaCosmeticValueMap<ArenaCosmeticOwnershipEntry>
+) {
+  const definition = getArenaCosmeticDefinition(cosmeticId);
+  return definition.slot === slot && definition.buildId === null && isCosmeticOwned(cosmetics[cosmeticId]);
+}
+
+function isBuildCosmeticCompatible(
+  cosmeticId: ArenaCosmeticId,
+  buildId: ArenaBuildId,
+  slot: 'buildAccent' | 'buildCrest',
+  cosmetics: ArenaCosmeticValueMap<ArenaCosmeticOwnershipEntry>
+) {
+  const definition = getArenaCosmeticDefinition(cosmeticId);
+  return definition.slot === slot && definition.buildId === buildId && isCosmeticOwned(cosmetics[cosmeticId]);
+}
+
+function normalizeEquippedCosmetics(
+  candidate: Partial<ArenaEquippedCosmetics> | undefined,
+  cosmetics: ArenaCosmeticValueMap<ArenaCosmeticOwnershipEntry>
+) {
+  const defaultEquipped = createEquippedCosmetics();
+
+  return {
+    banner:
+      typeof candidate?.banner === 'string' && isGlobalCosmeticCompatible(candidate.banner, 'banner', cosmetics)
+        ? candidate.banner
+        : defaultEquipped.banner,
+    codexFrame:
+      typeof candidate?.codexFrame === 'string' &&
+      isGlobalCosmeticCompatible(candidate.codexFrame, 'codexFrame', cosmetics)
+        ? candidate.codexFrame
+        : defaultEquipped.codexFrame,
+    buildAccent: createArenaBuildValueMap((buildId) => {
+      const nextId = candidate?.buildAccent?.[buildId];
+      return typeof nextId === 'string' && isBuildCosmeticCompatible(nextId, buildId, 'buildAccent', cosmetics)
+        ? nextId
+        : defaultEquipped.buildAccent[buildId];
+    }),
+    buildCrest: createArenaBuildValueMap((buildId) => {
+      const nextId = candidate?.buildCrest?.[buildId];
+      return typeof nextId === 'string' && isBuildCosmeticCompatible(nextId, buildId, 'buildCrest', cosmetics)
+        ? nextId
+        : defaultEquipped.buildCrest[buildId];
+    }),
   };
 }
 
@@ -323,6 +417,37 @@ function applyArenaUnlockProgress(
   return { nextUnlocks, didChange };
 }
 
+function applyArenaCosmeticProgress(
+  previousCosmetics: ArenaCosmeticValueMap<ArenaCosmeticOwnershipEntry>,
+  unlocks: ArenaUnlockValueMap<ArenaUnlockEntry>
+) {
+  let didChange = false;
+  const nextCosmetics = createArenaCosmeticValueMap((cosmeticId) => {
+    const definition = getArenaCosmeticDefinition(cosmeticId);
+    const previousEntry = previousCosmetics[cosmeticId] ?? createCosmeticOwnershipEntry(cosmeticId);
+    const rewardUnlocked = definition.rewardUnlockId ? unlocks[definition.rewardUnlockId].unlocked : false;
+    const nextState: ArenaCosmeticState =
+      definition.sourceType === 'default'
+        ? 'owned'
+        : rewardUnlocked && previousEntry.state === 'locked'
+          ? 'claimable'
+          : previousEntry.state;
+    const nextEntry: ArenaCosmeticOwnershipEntry = {
+      id: cosmeticId,
+      state: nextState,
+      claimedAt: nextState === 'owned' ? previousEntry.claimedAt : null,
+    };
+
+    if (nextEntry.state !== previousEntry.state || nextEntry.claimedAt !== previousEntry.claimedAt) {
+      didChange = true;
+    }
+
+    return nextEntry;
+  });
+
+  return { nextCosmetics, didChange };
+}
+
 export function createArenaMetaState(): ArenaMetaState {
   return {
     version: ARENA_META_VERSION,
@@ -331,6 +456,8 @@ export function createArenaMetaState(): ArenaMetaState {
     codexBuilds: createArenaBuildValueMap((buildId) => createCodexBuildEntry(buildId)),
     mastery: createArenaBuildValueMap((buildId) => createMasteryEntry(buildId)),
     unlocks: createArenaUnlockValueMap((unlockId) => createUnlockEntry(unlockId)),
+    cosmetics: createArenaCosmeticValueMap((cosmeticId) => createCosmeticOwnershipEntry(cosmeticId)),
+    equippedCosmetics: createEquippedCosmetics(),
   };
 }
 
@@ -373,6 +500,11 @@ function normalizeArenaMetaState(raw: unknown): ArenaMetaState {
     unlocked: candidate.unlocks?.[unlockId]?.unlocked ?? false,
     unlockedAt: candidate.unlocks?.[unlockId]?.unlockedAt ?? null,
   }));
+  const normalizedCosmetics = createArenaCosmeticValueMap((cosmeticId) => ({
+    ...createCosmeticOwnershipEntry(cosmeticId),
+    ...(candidate.cosmetics?.[cosmeticId] ?? {}),
+    id: cosmeticId,
+  }));
   const unlockedAt = typeof candidate.lastUpdatedAt === 'string' ? candidate.lastUpdatedAt : defaultState.lastUpdatedAt;
   const unlockProgress = applyArenaUnlockProgress(
     normalizedUnlocks,
@@ -380,6 +512,8 @@ function normalizeArenaMetaState(raw: unknown): ArenaMetaState {
     normalizedMastery,
     unlockedAt
   );
+  const cosmeticProgress = applyArenaCosmeticProgress(normalizedCosmetics, unlockProgress.nextUnlocks);
+  const equippedCosmetics = normalizeEquippedCosmetics(candidate.equippedCosmetics, cosmeticProgress.nextCosmetics);
 
   return {
     version: ARENA_META_VERSION,
@@ -388,6 +522,8 @@ function normalizeArenaMetaState(raw: unknown): ArenaMetaState {
     codexBuilds: normalizedBuilds,
     mastery: normalizedMastery,
     unlocks: unlockProgress.nextUnlocks,
+    cosmetics: cosmeticProgress.nextCosmetics,
+    equippedCosmetics,
   };
 }
 
@@ -504,7 +640,8 @@ export function applyArenaDiscoveryProgress(
 
   const nowIso = new Date().toISOString();
   const unlockProgress = applyArenaUnlockProgress(previousMetaState.unlocks, nextEnemies, previousMetaState.mastery, nowIso);
-  didChange = didChange || unlockProgress.didChange;
+  const cosmeticProgress = applyArenaCosmeticProgress(previousMetaState.cosmetics, unlockProgress.nextUnlocks);
+  didChange = didChange || unlockProgress.didChange || cosmeticProgress.didChange;
 
   if (!didChange) {
     return previousMetaState;
@@ -514,6 +651,7 @@ export function applyArenaDiscoveryProgress(
     ...previousMetaState,
     codexEnemies: nextEnemies,
     unlocks: unlockProgress.nextUnlocks,
+    cosmetics: cosmeticProgress.nextCosmetics,
     lastUpdatedAt: nowIso,
   };
 }
@@ -605,7 +743,8 @@ export function applyArenaRunSummary(
 
   const nowIso = new Date().toISOString();
   const unlockProgress = applyArenaUnlockProgress(previousMetaState.unlocks, nextEnemies, nextMastery, nowIso);
-  didChange = didChange || unlockProgress.didChange;
+  const cosmeticProgress = applyArenaCosmeticProgress(previousMetaState.cosmetics, unlockProgress.nextUnlocks);
+  didChange = didChange || unlockProgress.didChange || cosmeticProgress.didChange;
 
   if (!didChange) {
     return previousMetaState;
@@ -616,6 +755,7 @@ export function applyArenaRunSummary(
     codexEnemies: nextEnemies,
     mastery: nextMastery,
     unlocks: unlockProgress.nextUnlocks,
+    cosmetics: cosmeticProgress.nextCosmetics,
     lastUpdatedAt: nowIso,
   };
 }
@@ -631,4 +771,178 @@ export function getArenaNextBuildUnlock(metaState: ArenaMetaState, buildId: Aren
 
 export function getArenaGlobalUnlockIds() {
   return ARENA_UNLOCK_ORDER.filter((unlockId) => ARENA_UNLOCK_DEFINITIONS[unlockId].buildId === null);
+}
+
+export function getArenaEquippedGlobalCosmeticId(metaState: ArenaMetaState, slot: 'banner' | 'codexFrame') {
+  return slot === 'banner' ? metaState.equippedCosmetics.banner : metaState.equippedCosmetics.codexFrame;
+}
+
+export function getArenaEquippedBuildCosmeticId(
+  metaState: ArenaMetaState,
+  buildId: ArenaBuildId,
+  slot: 'buildAccent' | 'buildCrest'
+) {
+  return metaState.equippedCosmetics[slot][buildId];
+}
+
+export function isArenaCosmeticEquipped(metaState: ArenaMetaState, cosmeticId: ArenaCosmeticId) {
+  if (
+    metaState.equippedCosmetics.banner === cosmeticId ||
+    metaState.equippedCosmetics.codexFrame === cosmeticId
+  ) {
+    return true;
+  }
+
+  return ARENA_BUILD_ORDER.some(
+    (buildId) =>
+      metaState.equippedCosmetics.buildAccent[buildId] === cosmeticId ||
+      metaState.equippedCosmetics.buildCrest[buildId] === cosmeticId
+  );
+}
+
+export function getArenaCosmeticDisplayState(
+  metaState: ArenaMetaState,
+  cosmeticId: ArenaCosmeticId
+): ArenaCosmeticDisplayState {
+  if (isArenaCosmeticEquipped(metaState, cosmeticId)) {
+    return 'equipped';
+  }
+
+  return metaState.cosmetics[cosmeticId].state;
+}
+
+export function getArenaClaimableCosmeticIds(metaState: ArenaMetaState) {
+  return ARENA_COSMETIC_ORDER.filter((cosmeticId) => metaState.cosmetics[cosmeticId].state === 'claimable');
+}
+
+export function claimArenaCosmetic(metaState: ArenaMetaState, cosmeticId: ArenaCosmeticId) {
+  const previousEntry = metaState.cosmetics[cosmeticId];
+  if (previousEntry.state !== 'claimable') {
+    return metaState;
+  }
+
+  const nowIso = new Date().toISOString();
+  return {
+    ...metaState,
+    lastUpdatedAt: nowIso,
+    cosmetics: {
+      ...metaState.cosmetics,
+      [cosmeticId]: {
+        ...previousEntry,
+        state: 'owned',
+        claimedAt: nowIso,
+      },
+    },
+  };
+}
+
+export function equipArenaCosmetic(metaState: ArenaMetaState, cosmeticId: ArenaCosmeticId) {
+  if (metaState.cosmetics[cosmeticId].state !== 'owned') {
+    return metaState;
+  }
+
+  const definition = getArenaCosmeticDefinition(cosmeticId);
+  const nowIso = new Date().toISOString();
+
+  if (definition.slot === 'banner' && definition.buildId === null) {
+    if (metaState.equippedCosmetics.banner === cosmeticId) {
+      return metaState;
+    }
+    return {
+      ...metaState,
+      lastUpdatedAt: nowIso,
+      equippedCosmetics: {
+        ...metaState.equippedCosmetics,
+        banner: cosmeticId,
+      },
+    };
+  }
+
+  if (definition.slot === 'codexFrame' && definition.buildId === null) {
+    if (metaState.equippedCosmetics.codexFrame === cosmeticId) {
+      return metaState;
+    }
+    return {
+      ...metaState,
+      lastUpdatedAt: nowIso,
+      equippedCosmetics: {
+        ...metaState.equippedCosmetics,
+        codexFrame: cosmeticId,
+      },
+    };
+  }
+
+  if (definition.slot === 'buildAccent' && definition.buildId) {
+    if (metaState.equippedCosmetics.buildAccent[definition.buildId] === cosmeticId) {
+      return metaState;
+    }
+    return {
+      ...metaState,
+      lastUpdatedAt: nowIso,
+      equippedCosmetics: {
+        ...metaState.equippedCosmetics,
+        buildAccent: {
+          ...metaState.equippedCosmetics.buildAccent,
+          [definition.buildId]: cosmeticId,
+        },
+      },
+    };
+  }
+
+  if (definition.slot === 'buildCrest' && definition.buildId) {
+    if (metaState.equippedCosmetics.buildCrest[definition.buildId] === cosmeticId) {
+      return metaState;
+    }
+    return {
+      ...metaState,
+      lastUpdatedAt: nowIso,
+      equippedCosmetics: {
+        ...metaState.equippedCosmetics,
+        buildCrest: {
+          ...metaState.equippedCosmetics.buildCrest,
+          [definition.buildId]: cosmeticId,
+        },
+      },
+    };
+  }
+
+  return metaState;
+}
+
+export function getArenaCosmeticStatusLabel(status: ArenaCosmeticDisplayState) {
+  switch (status) {
+    case 'locked':
+      return 'Locked';
+    case 'claimable':
+      return 'Claimable';
+    case 'owned':
+      return 'Owned';
+    case 'equipped':
+      return 'Equipped';
+  }
+}
+
+export function getArenaUnlockRewardCosmeticEntry(metaState: ArenaMetaState, unlockId: ArenaUnlockId) {
+  const cosmeticId = getArenaUnlockRewardCosmeticId(unlockId);
+  if (!cosmeticId) {
+    return null;
+  }
+
+  return {
+    cosmeticId,
+    definition: getArenaCosmeticDefinition(cosmeticId),
+    ownership: metaState.cosmetics[cosmeticId],
+    displayState: getArenaCosmeticDisplayState(metaState, cosmeticId),
+  };
+}
+
+export function getArenaGlobalCollectionCosmeticIds(slot: 'banner' | 'codexFrame') {
+  return getArenaGlobalCosmeticIds(slot);
+}
+
+export function getArenaBuildCollectionCosmeticIds(
+  buildId: ArenaBuildId,
+  slot: 'buildAccent' | 'buildCrest'
+) {
+  return getArenaBuildCosmeticIds(buildId, slot);
 }

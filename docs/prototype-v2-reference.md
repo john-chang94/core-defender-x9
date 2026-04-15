@@ -1,7 +1,7 @@
 # Prototype V2 Reference
 
 Snapshot date: `2026-04-14`
-Board version: `v0.44`
+Board version: `v0.46`
 
 This document is the current reference for the arena-combat shooter in `/Users/johnchang/Desktop/defender/src/prototype-v2`. It replaces the earlier planning-heavy draft with a snapshot of what is actually implemented today, plus the next major gaps.
 
@@ -25,7 +25,7 @@ Core loop:
 
 This mode is no longer just a redesign concept. It is a production prototype with live combat, encounters, progression, and Skia rendering.
 
-The current build also includes persistent between-run `Codex + Mastery` data stored locally, a scripted encounter registry, a rotating two-boss cadence, artillery hazard telegraphs, and cosmetic-ready unlock hooks layered onto the meta screen flow.
+The current build also includes persistent between-run `Codex + Mastery` data stored locally, a scripted encounter registry, a rotating two-boss cadence, artillery hazard telegraphs, and a local cosmetic collection / equip layer on top of the meta flow.
 
 ## Current Playable State
 
@@ -72,8 +72,8 @@ Other UI behavior:
 - the player ship now sits higher in the lower arena to keep the live view clearer under the player’s finger
 - a semi-transparent move hint sits below the ship and hides while the player is pressing in that control zone
 - the armory is opened manually from an in-arena button instead of auto-opening on threshold hit
-- the in-game menu now includes `Run`, `Codex`, and `Mastery` tabs
-- codex and mastery state persist across relaunches through a versioned AsyncStorage blob
+- the in-game menu now includes `Run`, `Codex`, `Mastery`, and `Collection` tabs
+- codex, mastery, and cosmetic collection state persist across relaunches through a versioned AsyncStorage blob
 - the in-game menu still allows game switching, build switching, and restart
 
 ## Current Combat Rules
@@ -433,6 +433,11 @@ Primary implementation files:
 
 ### 2026-04-14
 
+- Advanced arena board label to `v0.46`.
+- Converted reward hooks into a persistent local cosmetic collection with claim and equip flow.
+- Added a dedicated `Collection` menu tab plus live ship / HUD / menu presentation from equipped banners, frames, accents, and crests.
+- Advanced arena board label to `v0.45`.
+- Audited the remaining enemy multi-shot gaps and widened tighter mini-boss, lane-strike, and elite follow-up patterns to match the new dodge standard.
 - Advanced arena board label to `v0.44`.
 - Widened multi-projectile enemy fan spreads to restore dodge windows after moving the player ship upward.
 - Reworked `Nova Bloom` ultimate so the widened sweep only damages enemies inside the visible fan volume.
