@@ -1,7 +1,7 @@
 # Prototype V2 Reference
 
-Snapshot date: `2026-04-14`
-Board version: `v0.49`
+Snapshot date: `2026-04-15`
+Board version: `v0.51`
 
 This document is the current reference for the arena-combat shooter in `/Users/johnchang/Desktop/defender/src/prototype-v2`. It replaces the earlier planning-heavy draft with a snapshot of what is actually implemented today, plus the next major gaps.
 
@@ -445,6 +445,12 @@ Primary implementation files:
 
 ## Changelog Snapshot
 
+### 2026-04-15
+
+- Advanced arena board label to `v0.51`.
+- Restored Arena V2 `ui-interface` audio imports after the asset pack was brought back into source control.
+- Advanced arena board label to `v0.50`.
+- Replaced the remaining Arena V2 `ui-interface` audio references with tracked `assets/sfx` files so remote Expo / EAS builds can resolve them reliably.
 ### 2026-04-14
 
 - Advanced arena board label to `v0.49`.
