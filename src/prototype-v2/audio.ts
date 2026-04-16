@@ -13,13 +13,13 @@ import targetModeSfx from '../../assets/sfx/target-mode.wav';
 import upgradeSfx from '../../assets/sfx/upgrade.wav';
 import warningSfx from '../../assets/sfx/warning.mp3';
 import winSfx from '../../assets/sfx/win.wav';
-import sciFiDataReadSfx from '../../assets/ui-interface/SCI-FI Data Read.mp3';
-import sciFiGlitchShortSfx from '../../assets/ui-interface/SCI-FI Glitch short.mp3';
-import sciFiHitLarge01Sfx from '../../assets/ui-interface/SCI-FI Hit large 01.mp3';
-import sciFiHitLarge02Sfx from '../../assets/ui-interface/SCI-FI Hit large 02.mp3';
-import sciFiSwooshWhooshSmall01Sfx from '../../assets/ui-interface/SCI-FI Swoosh Whoosh small 01.mp3';
-import sciFiNotificationWapSfx from '../../assets/ui-interface/SCI-FI Notification WAP.wav';
-import youLoseViolinEffectSfx from '../../assets/ui-interface/YOU LOSE! Violin effect.mp3';
+import sciFiDataReadSfx from '../../assets/ui-interface/sci-fi-data-read.mp3';
+import sciFiGlitchShortSfx from '../../assets/ui-interface/sci-fi-glitch-short.mp3';
+import sciFiHitLarge01Sfx from '../../assets/ui-interface/sci-fi-hit-large-01.mp3';
+import sciFiHitLarge02Sfx from '../../assets/ui-interface/sci-fi-hit-large-02.mp3';
+import sciFiSwooshWhooshSmall01Sfx from '../../assets/ui-interface/sci-fi-swoosh-whoosh-small-01.mp3';
+import sciFiNotificationWapSfx from '../../assets/ui-interface/sci-fi-notification-wap.wav';
+import youLoseViolinEffectSfx from '../../assets/ui-interface/you-lose-violin-effect.mp3';
 
 import type { ArenaAudioCueKey, ArenaAudioSettings, ArenaBiomeId } from './types';
 

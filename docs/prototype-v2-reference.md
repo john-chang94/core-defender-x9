@@ -1,7 +1,7 @@
 # Prototype V2 Reference
 
 Snapshot date: `2026-04-15`
-Board version: `v0.52`
+Board version: `v0.53`
 
 This document is the current reference for the arena-combat shooter in `/Users/johnchang/Desktop/defender/src/prototype-v2`. It replaces the earlier planning-heavy draft with a snapshot of what is actually implemented today, plus the next major gaps.
 
@@ -447,6 +447,8 @@ Primary implementation files:
 
 ### 2026-04-15
 
+- Advanced arena board label to `v0.53`.
+- Moved the malformed encoded audio asset URL normalization into Metro middleware so simulator asset requests are rewritten before Metro resolves the filesystem path.
 - Advanced arena board label to `v0.52`.
 - Added a Metro dev-server rewrite for malformed encoded Arena audio asset paths so simulator builds can resolve `assets/ui-interface` files.
 - Advanced arena board label to `v0.51`.

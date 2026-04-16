@@ -1,4 +1,5 @@
-import { Audio, InterruptionModeAndroid, InterruptionModeIOS } from 'expo-av';
+import { createAudioPlayer, setAudioModeAsync } from 'expo-audio';
+import type { AudioPlayer } from 'expo-audio';
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import type { GestureResponderEvent } from 'react-native';
 import { Pressable, SafeAreaView, StyleSheet, Text, View, useWindowDimensions } from 'react-native';
@@ -126,7 +127,7 @@ const SOUND_MIN_INTERVAL_MS: Record<SoundEffectKey, number> = {
   coldImpact: 90,
 };
 
-function createEmptySoundPool(): Record<SoundEffectKey, Audio.Sound[]> {
+function createEmptySoundPool(): Record<SoundEffectKey, AudioPlayer[]> {
   return {
     hit: [],
     place: [],
@@ -239,9 +240,9 @@ function DefenseScreen({ onSwitchGame }: { onSwitchGame: (game: AppGameId) => vo
   const [musicVolume, setMusicVolume] = useState(DEFAULT_MUSIC_VOLUME);
   const [musicReady, setMusicReady] = useState(false);
 
-  const soundPoolsRef = useRef<Record<SoundEffectKey, Audio.Sound[]>>(createEmptySoundPool());
+  const soundPoolsRef = useRef<Record<SoundEffectKey, AudioPlayer[]>>(createEmptySoundPool());
   const soundCursorRef = useRef<Record<SoundEffectKey, number>>(createEmptySoundCursor());
-  const musicPlayerRef = useRef<Audio.Sound | null>(null);
+  const musicPlayerRef = useRef<AudioPlayer | null>(null);
   const lastSoundAtRef = useRef<Record<SoundEffectKey, number>>({
     hit: 0,
     place: 0,
@@ -300,16 +301,14 @@ function DefenseScreen({ onSwitchGame }: { onSwitchGame: (game: AppGameId) => vo
 
       const nextCursor = soundCursorRef.current[soundKey] % pool.length;
       soundCursorRef.current[soundKey] = (nextCursor + 1) % pool.length;
-      const sound = pool[nextCursor];
+      const player = pool[nextCursor];
 
-      void sound.replayAsync().catch(async () => {
-        try {
-          await sound.setPositionAsync(0);
-          await sound.playAsync();
-        } catch {
-          // Ignore audio playback errors; gameplay should remain unaffected.
-        }
-      });
+      try {
+        void player.seekTo(0);
+        player.play();
+      } catch {
+        // Ignore audio playback errors; gameplay should remain unaffected.
+      }
     },
     [soundEnabled, soundsReady, sfxVolume]
   );
@@ -319,14 +318,12 @@ function DefenseScreen({ onSwitchGame }: { onSwitchGame: (game: AppGameId) => vo
 
     const loadSounds = async () => {
       try {
-        await Audio.setAudioModeAsync({
-          allowsRecordingIOS: false,
-          playsInSilentModeIOS: true,
-          interruptionModeIOS: InterruptionModeIOS.DuckOthers,
-          interruptionModeAndroid: InterruptionModeAndroid.DuckOthers,
-          shouldDuckAndroid: true,
-          playThroughEarpieceAndroid: false,
-          staysActiveInBackground: false,
+        await setAudioModeAsync({
+          playsInSilentMode: true,
+          shouldPlayInBackground: false,
+          interruptionMode: 'duckOthers',
+          interruptionModeAndroid: 'duckOthers',
+          shouldRouteThroughEarpiece: false,
         });
       } catch (error) {
         console.warn('Audio mode setup failed', error);
@@ -334,53 +331,37 @@ function DefenseScreen({ onSwitchGame }: { onSwitchGame: (game: AppGameId) => vo
 
       const nextPool = createEmptySoundPool();
       const keys = Object.keys(SOUND_FILES) as SoundEffectKey[];
-      let nextMusicPlayer: Audio.Sound | null = null;
+      let nextMusicPlayer: AudioPlayer | null = null;
 
       for (const soundKey of keys) {
         const poolSize = SOUND_POOL_SIZE[soundKey];
         for (let index = 0; index < poolSize; index += 1) {
-          const sound = new Audio.Sound();
           try {
-            await sound.loadAsync(
-              SOUND_FILES[soundKey],
-              {
-                shouldPlay: false,
-                isLooping: false,
-                volume: SOUND_VOLUMES[soundKey] * DEFAULT_SFX_VOLUME,
-              },
-              true
-            );
-            nextPool[soundKey].push(sound);
+            const player = createAudioPlayer(SOUND_FILES[soundKey]);
+            player.volume = SOUND_VOLUMES[soundKey] * DEFAULT_SFX_VOLUME;
+            nextPool[soundKey].push(player);
           } catch (error) {
             console.warn(`Failed to create audio player for ${soundKey}`, error);
-            void sound.unloadAsync().catch(() => undefined);
           }
         }
       }
 
       try {
-        const musicSound = new Audio.Sound();
-        await musicSound.loadAsync(
-          BACKGROUND_MUSIC_FILE,
-          {
-            shouldPlay: false,
-            isLooping: true,
-            volume: DEFAULT_MUSIC_VOLUME,
-          },
-          true
-        );
-        nextMusicPlayer = musicSound;
+        const musicPlayer = createAudioPlayer(BACKGROUND_MUSIC_FILE);
+        musicPlayer.volume = DEFAULT_MUSIC_VOLUME;
+        musicPlayer.loop = true;
+        nextMusicPlayer = musicPlayer;
       } catch (error) {
         console.warn('Failed to create background music player', error);
       }
 
       if (disposed) {
         for (const soundKey of keys) {
-          for (const sound of nextPool[soundKey]) {
-            void sound.unloadAsync().catch(() => undefined);
+          for (const player of nextPool[soundKey]) {
+            player.remove();
           }
         }
-        void nextMusicPlayer?.unloadAsync().catch(() => undefined);
+        nextMusicPlayer?.remove();
         return;
       }
 
@@ -419,14 +400,14 @@ function DefenseScreen({ onSwitchGame }: { onSwitchGame: (game: AppGameId) => vo
       soundPoolsRef.current = createEmptySoundPool();
 
       for (const soundKey of keys) {
-        for (const sound of pools[soundKey]) {
-          void sound.unloadAsync().catch(() => undefined);
+        for (const player of pools[soundKey]) {
+          player.remove();
         }
       }
 
       const musicPlayer = musicPlayerRef.current;
       musicPlayerRef.current = null;
-      void musicPlayer?.unloadAsync().catch(() => undefined);
+      musicPlayer?.remove();
     };
   }, []);
 
@@ -435,10 +416,8 @@ function DefenseScreen({ onSwitchGame }: { onSwitchGame: (game: AppGameId) => vo
     const pool = soundPoolsRef.current;
     const effectiveVolumeMultiplier = soundEnabled ? sfxVolume : 0;
     for (const soundKey of keys) {
-      for (const sound of pool[soundKey]) {
-        void sound
-          .setVolumeAsync(SOUND_VOLUMES[soundKey] * effectiveVolumeMultiplier)
-          .catch(() => undefined);
+      for (const player of pool[soundKey]) {
+        player.volume = SOUND_VOLUMES[soundKey] * effectiveVolumeMultiplier;
       }
     }
   }, [soundEnabled, sfxVolume, soundsReady]);
@@ -450,14 +429,14 @@ function DefenseScreen({ onSwitchGame }: { onSwitchGame: (game: AppGameId) => vo
     }
 
     const shouldPlay = musicEnabled && hasStarted && !isPaused && gameState.status === 'running';
-    void musicPlayer.setVolumeAsync(musicEnabled ? musicVolume : 0).catch(() => undefined);
+    musicPlayer.volume = musicEnabled ? musicVolume : 0;
 
     if (shouldPlay) {
-      void musicPlayer.playAsync().catch(() => undefined);
+      musicPlayer.play();
       return;
     }
 
-    void musicPlayer.pauseAsync().catch(() => undefined);
+    musicPlayer.pause();
   }, [gameState.status, hasStarted, isPaused, musicEnabled, musicReady, musicVolume]);
 
   useEffect(() => {
@@ -607,7 +586,7 @@ function DefenseScreen({ onSwitchGame }: { onSwitchGame: (game: AppGameId) => vo
   const handleRestart = () => {
     const musicPlayer = musicPlayerRef.current;
     if (musicPlayer) {
-      void musicPlayer.setPositionAsync(0).catch(() => undefined);
+      void musicPlayer.seekTo(0);
     }
     setGameState(createInitialGameState(gameState.mapId, gameState.levelId, gameState.gameMode));
     setSelectedPlacedTowerId(null);

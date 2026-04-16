@@ -3,7 +3,8 @@ import type { LayoutChangeEvent } from 'react-native';
 import { AppState, Pressable, SafeAreaView, ScrollView, StyleSheet, Text, View, useWindowDimensions } from 'react-native';
 import { Gesture, GestureDetector } from 'react-native-gesture-handler';
 import Animated, { runOnJS, useAnimatedStyle, useSharedValue } from 'react-native-reanimated';
-import { Audio, InterruptionModeAndroid, InterruptionModeIOS } from 'expo-av';
+import { createAudioPlayer, setAudioModeAsync } from 'expo-audio';
+import type { AudioPlayer } from 'expo-audio';
 
 import {
   ARENA_FIXED_STEP_SECONDS,
@@ -1077,10 +1078,10 @@ export function ArenaPrototypeScreen({ onSwitchGame }: ArenaPrototypeScreenProps
   const runMetaCommittedRef = useRef(false);
   const hasHydratedClaimablesRef = useRef(false);
   const claimableSignatureRef = useRef('');
-  const soundPoolsRef = useRef<Partial<Record<ArenaAudioCueKey, Audio.Sound[]>>>({});
+  const soundPoolsRef = useRef<Partial<Record<ArenaAudioCueKey, AudioPlayer[]>>>({});
   const soundCursorRef = useRef<Partial<Record<ArenaAudioCueKey, number>>>({});
   const lastSoundAtRef = useRef<Partial<Record<ArenaAudioCueKey, number>>>({});
-  const musicPlayersRef = useRef<Record<ArenaBiomeId, Audio.Sound | null>>({
+  const musicPlayersRef = useRef<Record<ArenaBiomeId, AudioPlayer | null>>({
     prismVerge: null,
     hiveForge: null,
     vectorSpindle: null,
@@ -1147,23 +1148,21 @@ export function ArenaPrototypeScreen({ onSwitchGame }: ArenaPrototypeScreenProps
 
     const initializeArenaAudio = async () => {
       try {
-        await Audio.setAudioModeAsync({
-          staysActiveInBackground: false,
-          playsInSilentModeIOS: true,
-          shouldDuckAndroid: true,
-          interruptionModeIOS: InterruptionModeIOS.DuckOthers,
-          interruptionModeAndroid: InterruptionModeAndroid.DuckOthers,
+        await setAudioModeAsync({
+          playsInSilentMode: true,
+          shouldPlayInBackground: false,
+          interruptionMode: 'duckOthers',
+          interruptionModeAndroid: 'duckOthers',
+          shouldRouteThroughEarpiece: false,
         });
 
         for (const cueKey of ARENA_AUDIO_CUE_ORDER) {
-          const pool: Audio.Sound[] = [];
+          const pool: AudioPlayer[] = [];
           const volume = ARENA_AUDIO_CUE_VOLUMES[cueKey] * bootstrapAudioSettings.sfxVolume;
           for (let index = 0; index < ARENA_AUDIO_CUE_POOL_SIZE[cueKey]; index += 1) {
-            const { sound } = await Audio.Sound.createAsync(ARENA_AUDIO_CUE_FILES[cueKey], {
-              shouldPlay: false,
-              volume,
-            });
-            pool.push(sound);
+            const player = createAudioPlayer(ARENA_AUDIO_CUE_FILES[cueKey]);
+            player.volume = volume;
+            pool.push(player);
           }
           soundPoolsRef.current[cueKey] = pool;
           soundCursorRef.current[cueKey] = 0;
@@ -1171,12 +1170,10 @@ export function ArenaPrototypeScreen({ onSwitchGame }: ArenaPrototypeScreenProps
         }
 
         for (const biomeId of ARENA_BIOME_ORDER) {
-          const { sound } = await Audio.Sound.createAsync(ARENA_BIOME_MUSIC_FILES[biomeId], {
-            shouldPlay: false,
-            isLooping: true,
-            volume: ARENA_BIOME_MUSIC_VOLUMES[biomeId] * bootstrapAudioSettings.musicVolume,
-          });
-          musicPlayersRef.current[biomeId] = sound;
+          const player = createAudioPlayer(ARENA_BIOME_MUSIC_FILES[biomeId]);
+          player.volume = ARENA_BIOME_MUSIC_VOLUMES[biomeId] * bootstrapAudioSettings.musicVolume;
+          player.loop = true;
+          musicPlayersRef.current[biomeId] = player;
         }
 
         if (!cancelled) {
@@ -1195,20 +1192,18 @@ export function ArenaPrototypeScreen({ onSwitchGame }: ArenaPrototypeScreenProps
       activeMusicBiomeRef.current = null;
       const activeSoundPools = soundPoolsRef.current;
       soundPoolsRef.current = {};
-      void Promise.all(
-        [
-          ...Object.values(activeSoundPools).flatMap((pool) => pool ?? []),
-          ...ARENA_BIOME_ORDER.map((biomeId) => musicPlayersRef.current[biomeId]).filter(
-            (sound): sound is Audio.Sound => sound !== null
-          ),
-        ].map(async (sound) => {
-          try {
-            await sound.unloadAsync();
-          } catch {
-            // Ignore unload failures during teardown.
-          }
-        })
-      );
+      [
+        ...Object.values(activeSoundPools).flatMap((pool) => pool ?? []),
+        ...ARENA_BIOME_ORDER.map((biomeId) => musicPlayersRef.current[biomeId]).filter(
+          (player): player is AudioPlayer => player !== null
+        ),
+      ].forEach((player) => {
+        try {
+          player.remove();
+        } catch {
+          // Ignore removal failures during teardown.
+        }
+      });
       musicPlayersRef.current = {
         prismVerge: null,
         hiveForge: null,
@@ -1569,12 +1564,15 @@ export function ArenaPrototypeScreen({ onSwitchGame }: ArenaPrototypeScreenProps
       }
 
       const cursor = soundCursorRef.current[cueKey] ?? 0;
-      const sound = pool[cursor % pool.length];
+      const player = pool[cursor % pool.length];
       soundCursorRef.current[cueKey] = (cursor + 1) % pool.length;
       lastSoundAtRef.current[cueKey] = now;
-      void sound.replayAsync().catch(() => {
+      try {
+        void player.seekTo(0);
+        player.play();
+      } catch {
         // Ignore individual playback failures; the pool can continue serving later sounds.
-      });
+      }
     },
     [arenaAudioSettings.soundEnabled, isAppActive, isArenaAudioReady]
   );
@@ -1631,15 +1629,11 @@ export function ArenaPrototypeScreen({ onSwitchGame }: ArenaPrototypeScreenProps
       return;
     }
 
-    void Promise.all(
-      ARENA_AUDIO_CUE_ORDER.flatMap((cueKey) =>
-        (soundPoolsRef.current[cueKey] ?? []).map((sound) =>
-          sound.setVolumeAsync(ARENA_AUDIO_CUE_VOLUMES[cueKey] * arenaAudioSettings.sfxVolume).catch(() => {
-            // Ignore volume update failures for individual pooled sounds.
-          })
-        )
-      )
-    );
+    for (const cueKey of ARENA_AUDIO_CUE_ORDER) {
+      for (const player of soundPoolsRef.current[cueKey] ?? []) {
+        player.volume = ARENA_AUDIO_CUE_VOLUMES[cueKey] * arenaAudioSettings.sfxVolume;
+      }
+    }
   }, [arenaAudioSettings.sfxVolume, isArenaAudioReady]);
 
   useEffect(() => {
@@ -1647,19 +1641,12 @@ export function ArenaPrototypeScreen({ onSwitchGame }: ArenaPrototypeScreenProps
       return;
     }
 
-    void Promise.all(
-      ARENA_BIOME_ORDER.map((biomeId) => {
-        const musicPlayer = musicPlayersRef.current[biomeId];
-        if (!musicPlayer) {
-          return Promise.resolve();
-        }
-        return musicPlayer
-          .setVolumeAsync(ARENA_BIOME_MUSIC_VOLUMES[biomeId] * arenaAudioSettings.musicVolume)
-          .catch(() => {
-            // Ignore volume update failures for music tracks.
-          });
-      })
-    );
+    for (const biomeId of ARENA_BIOME_ORDER) {
+      const musicPlayer = musicPlayersRef.current[biomeId];
+      if (musicPlayer) {
+        musicPlayer.volume = ARENA_BIOME_MUSIC_VOLUMES[biomeId] * arenaAudioSettings.musicVolume;
+      }
+    }
   }, [arenaAudioSettings.musicVolume, isArenaAudioReady]);
 
   useEffect(() => {
@@ -1676,38 +1663,26 @@ export function ArenaPrototypeScreen({ onSwitchGame }: ArenaPrototypeScreenProps
       !isMenuOpen &&
       gameState.status === 'running';
 
-    const syncMusic = async () => {
+    const syncMusic = () => {
       if (!shouldPlayMusic) {
-        await Promise.all(
-          ARENA_BIOME_ORDER.map(async (biomeId) => {
-            const musicPlayer = musicPlayersRef.current[biomeId];
-            if (!musicPlayer) {
-              return;
-            }
-            try {
-              await musicPlayer.pauseAsync();
-            } catch {
-              // Ignore pause failures when audio is not loaded or already stopped.
-            }
-          })
-        );
+        for (const biomeId of ARENA_BIOME_ORDER) {
+          const musicPlayer = musicPlayersRef.current[biomeId];
+          if (musicPlayer) {
+            musicPlayer.pause();
+          }
+        }
         return;
       }
 
       const activeBiomeId = activeBiomeDefinition.id;
-      await Promise.all(
-        ARENA_BIOME_ORDER.filter((biomeId) => biomeId !== activeBiomeId).map(async (biomeId) => {
+      for (const biomeId of ARENA_BIOME_ORDER) {
+        if (biomeId !== activeBiomeId) {
           const musicPlayer = musicPlayersRef.current[biomeId];
-          if (!musicPlayer) {
-            return;
+          if (musicPlayer) {
+            musicPlayer.pause();
           }
-          try {
-            await musicPlayer.pauseAsync();
-          } catch {
-            // Ignore pause failures when switching biome tracks.
-          }
-        })
-      );
+        }
+      }
 
       const activeMusicPlayer = musicPlayersRef.current[activeBiomeId];
       if (!activeMusicPlayer) {
@@ -1716,12 +1691,10 @@ export function ArenaPrototypeScreen({ onSwitchGame }: ArenaPrototypeScreenProps
 
       try {
         if (activeMusicBiomeRef.current !== activeBiomeId) {
-          await activeMusicPlayer.replayAsync();
-        } else {
-          const status = await activeMusicPlayer.getStatusAsync();
-          if (status.isLoaded && !status.isPlaying) {
-            await activeMusicPlayer.playAsync();
-          }
+          void activeMusicPlayer.seekTo(0);
+          activeMusicPlayer.play();
+        } else if (!activeMusicPlayer.playing) {
+          activeMusicPlayer.play();
         }
         activeMusicBiomeRef.current = activeBiomeId;
       } catch {
@@ -1729,7 +1702,7 @@ export function ArenaPrototypeScreen({ onSwitchGame }: ArenaPrototypeScreenProps
       }
     };
 
-    void syncMusic();
+    syncMusic();
   }, [
     activeBiomeDefinition.id,
     arenaAudioSettings.musicEnabled,

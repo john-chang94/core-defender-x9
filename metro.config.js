@@ -1,36 +1,23 @@
 const { getDefaultConfig } = require('expo/metro-config');
 
 const config = getDefaultConfig(__dirname);
-const defaultRewriteRequestUrl = config.server.rewriteRequestUrl;
 
 if (!config.resolver.assetExts.includes('ogg')) {
   config.resolver.assetExts.push('ogg');
 }
 
-config.server.rewriteRequestUrl = (requestUrl) => {
-  const rewrittenUrl =
-    typeof defaultRewriteRequestUrl === 'function' ? defaultRewriteRequestUrl(requestUrl) : requestUrl;
+const defaultEnhanceMiddleware = config.server.enhanceMiddleware;
 
-  try {
-    const parsedUrl = new URL(rewrittenUrl, 'resolve://metro');
-    const assetPathPrefix = '/assets/.';
-    if (!parsedUrl.pathname.startsWith(assetPathPrefix)) {
-      return rewrittenUrl;
+config.server.enhanceMiddleware = (middleware, server) => {
+  const enhancedMiddleware =
+    typeof defaultEnhanceMiddleware === 'function' ? defaultEnhanceMiddleware(middleware, server) : middleware;
+
+  return (req, res, next) => {
+    if (req.url && req.url.startsWith('/assets/') && req.url.includes('%2F')) {
+      req.url = req.url.replace(/%2F/gi, '/');
     }
-
-    const encodedAssetPath = parsedUrl.pathname.slice('/assets/'.length);
-    const onceDecodedPath = decodeURIComponent(encodedAssetPath);
-    const assetPath = decodeURIComponent(onceDecodedPath);
-    if (!assetPath.startsWith('./')) {
-      return rewrittenUrl;
-    }
-
-    parsedUrl.pathname = '/assets/';
-    parsedUrl.searchParams.set('unstable_path', assetPath);
-    return `${parsedUrl.pathname}${parsedUrl.search}`;
-  } catch {
-    return rewrittenUrl;
-  }
+    return enhancedMiddleware(req, res, next);
+  };
 };
 
 module.exports = config;
