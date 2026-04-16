@@ -1,4 +1,5 @@
 import type {
+  ArenaBuildId,
   ArenaArmoryChoice,
   ArenaArmoryUpgradeKey,
   ArenaWeapon,
@@ -108,18 +109,39 @@ export const ARENA_ARMORY_UPGRADE_ORDER = Object.keys(
   ARENA_ARMORY_UPGRADES,
 ) as ArenaArmoryUpgradeKey[];
 
+// Per-build caps for twinArray (max shot count) and rapidCycle (fire interval floor).
+// These mirror the ceilings enforced by each build's weapon transform in the engine.
+const BUILD_MAX_SHOT_COUNT: Record<ArenaBuildId, number> = {
+  railFocus:      2,
+  novaBloom:      4,
+  missileCommand: 4,
+  fractureCore:   3,
+};
+
+const BUILD_FIRE_INTERVAL_FLOOR: Record<ArenaBuildId, number> = {
+  railFocus:      0.065,
+  novaBloom:      0.085,
+  missileCommand: 0.062,
+  fractureCore:   0.32,
+};
+
 export function isArenaArmoryUpgradeMaxed(
   key: ArenaArmoryUpgradeKey,
   weapon: ArenaWeapon,
+  buildId?: ArenaBuildId,
 ) {
   const epsilon = 0.0001;
   switch (key) {
     case "damageMatrix":
       return false;
-    case "rapidCycle":
-      return weapon.fireInterval <= 0.065 + epsilon;
-    case "twinArray":
-      return weapon.shotCount >= 4;
+    case "rapidCycle": {
+      const floor = buildId ? BUILD_FIRE_INTERVAL_FLOOR[buildId] : 0.065;
+      return weapon.fireInterval <= floor + epsilon;
+    }
+    case "twinArray": {
+      const maxShots = buildId ? BUILD_MAX_SHOT_COUNT[buildId] : 4;
+      return weapon.shotCount >= maxShots;
+    }
     case "phasePierce":
       return weapon.pierce >= 3;
     case "shieldCapacitor":

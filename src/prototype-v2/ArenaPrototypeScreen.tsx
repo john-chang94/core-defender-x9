@@ -114,7 +114,7 @@ type ArenaPrototypeScreenProps = {
   onSwitchGame: (game: AppGameId) => void;
 };
 
-type ArenaMenuTab = "run" | "codex" | "mastery" | "collection";
+type ArenaMenuTab = "run" | "builds" | "codex" | "mastery" | "collection";
 type ArenaRunEndSummary = {
   tierReached: number;
   bossLabels: string[];
@@ -1641,9 +1641,11 @@ export function ArenaPrototypeScreen({
     : null;
   const hasArmoryChoices = gameState.availableArmoryChoices > 0;
   const armoryAvailabilityLabel =
-    gameState.availableArmoryChoices === 1
-      ? "1 upgrade available"
-      : `${gameState.availableArmoryChoices} upgrades available`;
+    !hasArmoryChoices
+      ? "No upgrades pending"
+      : gameState.availableArmoryChoices === 1
+        ? "1 upgrade available"
+        : `${gameState.availableArmoryChoices} upgrades available`;
   const healthProgress = clamp(
     gameState.hull / Math.max(1, gameState.maxHull),
     0,
@@ -1726,7 +1728,7 @@ export function ArenaPrototypeScreen({
   const armorySubtitle = `${armoryAvailabilityLabel}. Next standard unlock ${gameState.nextArmoryCost} salvage.`;
   const armoryUpgrades = ARENA_ARMORY_UPGRADE_ORDER.map((key) => {
     const definition = ARENA_ARMORY_UPGRADES[key];
-    const isMaxed = isArenaArmoryUpgradeMaxed(key, gameState.weapon);
+    const isMaxed = isArenaArmoryUpgradeMaxed(key, gameState.weapon, gameState.activeBuild);
     return {
       key,
       definition,
@@ -2211,8 +2213,7 @@ export function ArenaPrototypeScreen({
     if (
       !hasStarted ||
       gameState.status !== "running" ||
-      isMenuOpen ||
-      !hasArmoryChoices
+      isMenuOpen
     ) {
       return;
     }
@@ -2348,8 +2349,7 @@ export function ArenaPrototypeScreen({
     !hasStarted ||
     gameState.status !== "running" ||
     isMenuOpen ||
-    isArmoryOpen ||
-    !hasArmoryChoices;
+    isArmoryOpen;
   const ultimateButtonDisabled =
     isPaused || isArmoryOpen || isMenuOpen || gameState.status !== "running";
   const handleActivateUltimate = () => {
@@ -2978,8 +2978,9 @@ export function ArenaPrototypeScreen({
                 </Pressable>
               </View>
               <Text style={arenaStyles.armoryPrompt}>
-                Pick one permanent install. Remaining upgrades stay banked until
-                you open the armory again.
+                {hasArmoryChoices
+                  ? "Pick one permanent install. Remaining upgrades stay banked until you open the armory again."
+                  : `Browsing only — no choices pending. Next unlock at ${gameState.nextArmoryCost} salvage (${Math.floor(gameState.salvage)} collected).`}
               </Text>
               <View style={arenaStyles.armoryCountChip}>
                 <Text style={arenaStyles.armoryCountChipText}>
@@ -2994,11 +2995,11 @@ export function ArenaPrototypeScreen({
                 {armoryUpgrades.map(({ key, definition, isMaxed }) => (
                   <Pressable
                     key={key}
-                    disabled={isMaxed}
+                    disabled={isMaxed || !hasArmoryChoices}
                     onPress={() => handleSelectArmoryUpgrade(key)}
                     style={[
                       arenaStyles.armoryCard,
-                      isMaxed && arenaStyles.armoryCardDisabled,
+                      (isMaxed || !hasArmoryChoices) && arenaStyles.armoryCardDisabled,
                     ]}
                   >
                     {isMaxed ? (
@@ -3072,7 +3073,7 @@ export function ArenaPrototypeScreen({
             </Text>
             <View style={arenaStyles.menuSegmentRow}>
               {(
-                ["run", "codex", "mastery", "collection"] as ArenaMenuTab[]
+                ["run", "builds", "codex", "mastery", "collection"] as ArenaMenuTab[]
               ).map((tab) => (
                 <Pressable
                   key={`menu-tab-${tab}`}
@@ -3090,11 +3091,13 @@ export function ArenaPrototypeScreen({
                   >
                     {tab === "run"
                       ? "Run"
-                      : tab === "codex"
-                        ? "Codex"
-                        : tab === "mastery"
-                          ? "Mastery"
-                          : "Collection"}
+                      : tab === "builds"
+                        ? "Builds"
+                        : tab === "codex"
+                          ? "Codex"
+                          : tab === "mastery"
+                            ? "Mastery"
+                            : "Collection"}
                   </Text>
                   {tab === "collection" && claimableCosmeticIds.length > 0 ? (
                     <View style={arenaStyles.menuSegmentBadge}>
@@ -3318,7 +3321,24 @@ export function ArenaPrototypeScreen({
                   </View>
                 </View>
 
-                <Text style={arenaStyles.menuLabel}>Build</Text>
+                <View style={arenaStyles.menuActions}>
+                  <Pressable
+                    onPress={handleRestart}
+                    style={[
+                      arenaStyles.menuActionButton,
+                      arenaStyles.menuActionPrimary,
+                    ]}
+                  >
+                    <Text style={arenaStyles.menuActionText}>Restart Run</Text>
+                  </Pressable>
+                </View>
+              </ScrollView>
+            ) : menuTab === "builds" ? (
+              <ScrollView
+                style={arenaStyles.menuScroll}
+                contentContainerStyle={arenaStyles.menuScrollContent}
+              >
+                <Text style={arenaStyles.menuLabel}>Select Build</Text>
                 <View style={arenaStyles.menuBuildGrid}>
                   {ARENA_BUILD_ORDER.map((buildId) => {
                     const buildMeta = ARENA_BUILD_META[buildId];
@@ -3398,18 +3418,6 @@ export function ArenaPrototypeScreen({
                     Ultimate: {activeBuildMeta.ultimateLabel}.{" "}
                     {activeBuildMeta.ultimateDescription}
                   </Text>
-                </View>
-
-                <View style={arenaStyles.menuActions}>
-                  <Pressable
-                    onPress={handleRestart}
-                    style={[
-                      arenaStyles.menuActionButton,
-                      arenaStyles.menuActionPrimary,
-                    ]}
-                  >
-                    <Text style={arenaStyles.menuActionText}>Restart Run</Text>
-                  </Pressable>
                 </View>
               </ScrollView>
             ) : menuTab === "codex" ? (

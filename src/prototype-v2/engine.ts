@@ -96,7 +96,7 @@ function getBuildProjectileCap(build: ArenaBuildId, overdrive = false) {
       case 'missileCommand':
         return 12;
       case 'fractureCore':
-        return 4;
+        return 5;
     }
   }
 
@@ -487,11 +487,12 @@ function queueLaneBandPattern(
     heightScale?: number;
     color?: string;
     accentColor?: string;
+    maxBands?: number;
   }
 ) {
   const { lanes, width, y, height } = getLaneBandMetrics(boardWidth, boardHeight);
   const displayTier = getArenaDisplayTier(state.elapsed);
-  const hazardBudget = Math.max(0, getArenaHazardCap(displayTier) - state.hazards.length);
+  const hazardBudget = Math.max(0, Math.min(options?.maxBands ?? 2, getArenaHazardCap(displayTier) - state.hazards.length));
   if (hazardBudget <= 0) {
     return;
   }
@@ -538,6 +539,7 @@ function queueWeaverLaneBands(
     lingerDuration?: number;
     damageScale?: number;
     widthScale?: number;
+    maxBands?: number;
   }
 ) {
   const lanes = getSpawnLanes(boardWidth);
@@ -566,6 +568,7 @@ function queueWeaverLaneBands(
     lingerDuration: options?.lingerDuration ?? 0.3,
     damageScale: options?.damageScale ?? 1,
     widthScale: options?.widthScale ?? 1,
+    maxBands: options?.maxBands,
     color:
       enemy.kind === 'vectorLoomBoss'
         ? '#C7D6FF'
@@ -591,6 +594,7 @@ function queueConductorSweep(
     lingerDuration?: number;
     damageScale?: number;
     widthScale?: number;
+    maxBands?: number;
   }
 ) {
   const lanes = getSpawnLanes(boardWidth);
@@ -611,6 +615,7 @@ function queueConductorSweep(
     lingerDuration: options?.lingerDuration ?? 0.24,
     damageScale: options?.damageScale ?? 1,
     widthScale: options?.widthScale ?? 0.96,
+    maxBands: options?.maxBands,
     color:
       enemy.kind === 'vectorLoomBoss'
         ? '#D6E0FF'
@@ -836,8 +841,8 @@ export function getArenaActiveWeapon(state: ArenaGameState): ArenaWeapon {
     case 'fractureCore':
       nextWeapon = {
         ...nextWeapon,
-        damage: Math.round(nextWeapon.damage * 1.64),
-        fireInterval: Math.max(0.38, nextWeapon.fireInterval * 2.55),
+        damage: Math.round(nextWeapon.damage * 1.82),
+        fireInterval: Math.max(0.32, nextWeapon.fireInterval * 2.3),
         shotCount: Math.min(3, Math.max(1, nextWeapon.shotCount)),
         pierce: Math.min(4, nextWeapon.pierce + 1),
         bulletSpeed: Math.min(1500, nextWeapon.bulletSpeed + 20),
@@ -849,12 +854,12 @@ export function getArenaActiveWeapon(state: ArenaGameState): ArenaWeapon {
 
   if (overdriveActive) {
     const projectileCap = getBuildProjectileCap(state.activeBuild, true);
-    const overdriveFireMultiplier = state.activeBuild === 'fractureCore' ? 0.72 : 0.74;
-    const overdriveFireFloor = state.activeBuild === 'fractureCore' ? 0.26 : 0.065;
-    const overdriveBulletSizeCap = state.activeBuild === 'fractureCore' ? 26.5 : 14.2;
+    const overdriveFireMultiplier = state.activeBuild === 'fractureCore' ? 0.67 : 0.74;
+    const overdriveFireFloor = state.activeBuild === 'fractureCore' ? 0.18 : 0.065;
+    const overdriveBulletSizeCap = state.activeBuild === 'fractureCore' ? 27.5 : 14.2;
     nextWeapon = {
       ...nextWeapon,
-      damage: nextWeapon.damage + 10,
+      damage: nextWeapon.damage + (state.activeBuild === 'fractureCore' ? 16 : 10),
       fireInterval: Math.max(overdriveFireFloor, nextWeapon.fireInterval * overdriveFireMultiplier),
       shotCount: projectileCap,
       pierce: Math.min(7, nextWeapon.pierce + 2),
@@ -1526,7 +1531,7 @@ function fireEnemyPattern(state: ArenaGameState, enemy: ArenaEnemy, boardWidth: 
     case 'weaver':
       if (remainingHazardBudget > 0) {
         queueWeaverLaneBands(state, enemy, boardWidth, boardHeight, {
-          blockedCount: remainingHazardBudget >= 3 && displayTier >= 24 ? 3 : 2,
+          blockedCount: 2,
           warningDuration: 0.7,
           lingerDuration: 0.32,
           damageScale: 1.02,
@@ -1544,7 +1549,7 @@ function fireEnemyPattern(state: ArenaGameState, enemy: ArenaEnemy, boardWidth: 
     case 'conductor':
       if (remainingHazardBudget > 0) {
         queueConductorSweep(state, enemy, boardWidth, boardHeight, {
-          beats: remainingHazardBudget >= 3 ? 3 : 2,
+          beats: 2,
           warningDuration: 0.58,
           beatSpacing: 0.18,
           lingerDuration: 0.24,
@@ -1697,11 +1702,12 @@ function fireEnemyPattern(state: ArenaGameState, enemy: ArenaEnemy, boardWidth: 
       if (bossPhase === 0) {
         if (remainingHazardBudget > 0) {
           queueWeaverLaneBands(state, enemy, boardWidth, boardHeight, {
-            blockedCount: remainingHazardBudget >= 3 ? 3 : 2,
+            blockedCount: 3,
             warningDuration: 0.66,
             lingerDuration: 0.32,
             damageScale: 1.04,
             widthScale: 0.98,
+            maxBands: 3,
           });
         }
         if (pressureRatio < 0.82) {
@@ -1714,12 +1720,13 @@ function fireEnemyPattern(state: ArenaGameState, enemy: ArenaEnemy, boardWidth: 
       } else if (bossPhase === 1) {
         if (remainingHazardBudget > 0) {
           queueConductorSweep(state, enemy, boardWidth, boardHeight, {
-            beats: remainingHazardBudget >= 3 ? 3 : 2,
+            beats: 3,
             warningDuration: 0.54,
             beatSpacing: 0.16,
             lingerDuration: 0.24,
             damageScale: 1.08,
             widthScale: 0.98,
+            maxBands: 3,
           });
         }
         if (pressureRatio < 0.84) {
@@ -1730,11 +1737,12 @@ function fireEnemyPattern(state: ArenaGameState, enemy: ArenaEnemy, boardWidth: 
       } else {
         if (remainingHazardBudget > 0) {
           queueWeaverLaneBands(state, enemy, boardWidth, boardHeight, {
-            blockedCount: remainingHazardBudget >= 4 ? 3 : 2,
+            blockedCount: 3,
             warningDuration: 0.62,
             lingerDuration: 0.3,
             damageScale: 1.08,
             widthScale: 1,
+            maxBands: 3,
           });
           if (state.hazards.length < getArenaHazardCap(displayTier)) {
             queueConductorSweep(state, enemy, boardWidth, boardHeight, {
