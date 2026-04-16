@@ -114,7 +114,7 @@ type ArenaPrototypeScreenProps = {
   onSwitchGame: (game: AppGameId) => void;
 };
 
-type ArenaMenuTab = "run" | "builds" | "codex" | "mastery" | "collection";
+type ArenaMenuTab = "run" | "codex" | "mastery" | "collection";
 type ArenaRunEndSummary = {
   tierReached: number;
   bossLabels: string[];
@@ -1171,6 +1171,7 @@ export function ArenaPrototypeScreen({
   const [isPaused, setIsPaused] = useState(true);
   const [isMenuOpen, setIsMenuOpen] = useState(false);
   const [isArmoryOpen, setIsArmoryOpen] = useState(false);
+  const [armoryTab, setArmoryTab] = useState<"upgrade" | "build">("upgrade");
   const [vfxQuality, setVfxQuality] = useState<ArenaVfxQuality>("high");
   const [menuTab, setMenuTab] = useState<ArenaMenuTab>("run");
   const [collectionBuildId, setCollectionBuildId] =
@@ -1806,16 +1807,6 @@ export function ArenaPrototypeScreen({
       getCollectionStatePriority(rightState)
     );
   });
-  const collectionBuildAccentDefinition = getArenaCosmeticDefinition(
-    getArenaEquippedBuildCosmeticId(
-      arenaMeta,
-      collectionBuildId,
-      "buildAccent",
-    ),
-  );
-  const collectionBuildCrestDefinition = getArenaCosmeticDefinition(
-    getArenaEquippedBuildCosmeticId(arenaMeta, collectionBuildId, "buildCrest"),
-  );
   const activeRunEndSummary = pendingRestartSummary ?? runEndSummary;
   const runEndRewardText =
     activeRunEndSummary && activeRunEndSummary.newlyClaimableIds.length > 0
@@ -2222,6 +2213,7 @@ export function ArenaPrototypeScreen({
     setIsPaused(true);
     setIsMenuOpen(false);
     setIsArmoryOpen(true);
+    setArmoryTab("upgrade");
   };
 
   const resetArenaRun = () => {
@@ -2977,72 +2969,171 @@ export function ArenaPrototypeScreen({
                   <Text style={arenaStyles.armoryCloseButtonText}>Close</Text>
                 </Pressable>
               </View>
-              <Text style={arenaStyles.armoryPrompt}>
-                {hasArmoryChoices
-                  ? "Pick one permanent install. Remaining upgrades stay banked until you open the armory again."
-                  : `Browsing only — no choices pending. Next unlock at ${gameState.nextArmoryCost} salvage (${Math.floor(gameState.salvage)} collected).`}
-              </Text>
-              <View style={arenaStyles.armoryCountChip}>
-                <Text style={arenaStyles.armoryCountChipText}>
-                  {armoryAvailabilityLabel}
-                </Text>
-              </View>
 
-              <ScrollView
-                style={arenaStyles.armoryOptionsScroll}
-                contentContainerStyle={arenaStyles.armoryOptions}
-              >
-                {armoryUpgrades.map(({ key, definition, isMaxed }) => (
+              <View style={arenaStyles.armoryTabRow}>
+                {(["upgrade", "build"] as const).map((tab) => (
                   <Pressable
-                    key={key}
-                    disabled={isMaxed || !hasArmoryChoices}
-                    onPress={() => handleSelectArmoryUpgrade(key)}
+                    key={`armory-tab-${tab}`}
+                    onPress={() => setArmoryTab(tab)}
                     style={[
-                      arenaStyles.armoryCard,
-                      (isMaxed || !hasArmoryChoices) && arenaStyles.armoryCardDisabled,
+                      arenaStyles.armoryTabButton,
+                      armoryTab === tab && arenaStyles.armoryTabButtonActive,
                     ]}
                   >
-                    {isMaxed ? (
-                      <View style={arenaStyles.armoryCardMaxBadge}>
-                        <Text style={arenaStyles.armoryCardMaxBadgeText}>
-                          MAX
-                        </Text>
-                      </View>
-                    ) : null}
-                    <View style={arenaStyles.armoryCardTopRow}>
-                      <Text style={arenaStyles.armoryCardIcon}>
-                        {definition.icon}
-                      </Text>
-                      <Text
-                        style={[
-                          arenaStyles.armoryCardStat,
-                          isMaxed && arenaStyles.armoryCardStatDisabled,
-                        ]}
-                      >
-                        {definition.statLine}
-                      </Text>
-                    </View>
                     <Text
-                      numberOfLines={1}
                       style={[
-                        arenaStyles.armoryCardLabel,
-                        isMaxed && arenaStyles.armoryCardLabelDisabled,
+                        arenaStyles.armoryTabText,
+                        armoryTab === tab && arenaStyles.armoryTabTextActive,
                       ]}
                     >
-                      {definition.label}
-                    </Text>
-                    <Text
-                      numberOfLines={1}
-                      style={[
-                        arenaStyles.armoryCardText,
-                        isMaxed && arenaStyles.armoryCardTextDisabled,
-                      ]}
-                    >
-                      {definition.compactHint}
+                      {tab === "upgrade" ? "Upgrades" : "Build"}
                     </Text>
                   </Pressable>
                 ))}
-              </ScrollView>
+              </View>
+
+              {armoryTab === "upgrade" ? (
+                <>
+                  <Text style={arenaStyles.armoryPrompt}>
+                    {hasArmoryChoices
+                      ? "Pick one permanent install. Remaining upgrades stay banked until you open the armory again."
+                      : `Browsing only — no choices pending. Next unlock at ${gameState.nextArmoryCost} salvage (${Math.floor(gameState.salvage)} collected).`}
+                  </Text>
+                  <View style={arenaStyles.armoryCountChip}>
+                    <Text style={arenaStyles.armoryCountChipText}>
+                      {armoryAvailabilityLabel}
+                    </Text>
+                  </View>
+                  <ScrollView
+                    style={arenaStyles.armoryOptionsScroll}
+                    contentContainerStyle={arenaStyles.armoryOptions}
+                  >
+                    {armoryUpgrades.map(({ key, definition, isMaxed }) => (
+                      <Pressable
+                        key={key}
+                        disabled={isMaxed || !hasArmoryChoices}
+                        onPress={() => handleSelectArmoryUpgrade(key)}
+                        style={[
+                          arenaStyles.armoryCard,
+                          (isMaxed || !hasArmoryChoices) && arenaStyles.armoryCardDisabled,
+                        ]}
+                      >
+                        {isMaxed ? (
+                          <View style={arenaStyles.armoryCardMaxBadge}>
+                            <Text style={arenaStyles.armoryCardMaxBadgeText}>
+                              MAX
+                            </Text>
+                          </View>
+                        ) : null}
+                        <View style={arenaStyles.armoryCardTopRow}>
+                          <Text style={arenaStyles.armoryCardIcon}>
+                            {definition.icon}
+                          </Text>
+                          <Text
+                            style={[
+                              arenaStyles.armoryCardStat,
+                              isMaxed && arenaStyles.armoryCardStatDisabled,
+                            ]}
+                          >
+                            {definition.statLine}
+                          </Text>
+                        </View>
+                        <Text
+                          numberOfLines={1}
+                          style={[
+                            arenaStyles.armoryCardLabel,
+                            isMaxed && arenaStyles.armoryCardLabelDisabled,
+                          ]}
+                        >
+                          {definition.label}
+                        </Text>
+                        <Text
+                          numberOfLines={1}
+                          style={[
+                            arenaStyles.armoryCardText,
+                            isMaxed && arenaStyles.armoryCardTextDisabled,
+                          ]}
+                        >
+                          {definition.compactHint}
+                        </Text>
+                      </Pressable>
+                    ))}
+                  </ScrollView>
+                </>
+              ) : (
+                <ScrollView
+                  style={arenaStyles.armoryOptionsScroll}
+                  contentContainerStyle={{ paddingBottom: 8, gap: 10 }}
+                >
+                  <View style={arenaStyles.menuBuildGrid}>
+                    {ARENA_BUILD_ORDER.map((buildId) => {
+                      const buildMeta = ARENA_BUILD_META[buildId];
+                      const buildAccentDefinition = getArenaCosmeticDefinition(
+                        getArenaEquippedBuildCosmeticId(arenaMeta, buildId, "buildAccent"),
+                      );
+                      const buildCrestDefinition = getArenaCosmeticDefinition(
+                        getArenaEquippedBuildCosmeticId(arenaMeta, buildId, "buildCrest"),
+                      );
+                      const isActive = gameState.activeBuild === buildId;
+                      return (
+                        <Pressable
+                          key={`armory-build-${buildId}`}
+                          onPress={() => handleSelectBuild(buildId)}
+                          style={[
+                            arenaStyles.menuBuildButton,
+                            isActive && arenaStyles.menuBuildButtonActive,
+                          ]}
+                        >
+                          <View style={arenaStyles.menuBuildTitleRow}>
+                            <BuildCrestMark
+                              crestDefinition={buildCrestDefinition}
+                              size={14}
+                            />
+                            <Text
+                              style={[
+                                arenaStyles.menuBuildTitle,
+                                {
+                                  color: isActive
+                                    ? buildAccentDefinition.primaryColor
+                                    : "#EAF4FF",
+                                },
+                              ]}
+                            >
+                              {buildMeta.label}
+                            </Text>
+                          </View>
+                          <Text numberOfLines={2} style={arenaStyles.menuBuildText}>
+                            {buildMeta.summary}
+                          </Text>
+                        </Pressable>
+                      );
+                    })}
+                  </View>
+                  <View style={arenaStyles.menuBuildDetailsCard}>
+                    <View style={arenaStyles.menuBuildDetailsHeader}>
+                      <BuildCrestMark
+                        crestDefinition={activeCrestDefinition}
+                        size={16}
+                      />
+                      <Text
+                        style={[
+                          arenaStyles.menuBuildDetailsTitle,
+                          { color: activeAccentDefinition.primaryColor },
+                        ]}
+                      >
+                        {activeBuildMeta.label}
+                      </Text>
+                    </View>
+                    <Text style={arenaStyles.menuBuildDetailsText}>
+                      {activeBuildMeta.description}
+                    </Text>
+                    <Text style={arenaStyles.menuBuildDetailsText}>
+                      Ultimate: {activeBuildMeta.ultimateLabel}.{" "}
+                      {activeBuildMeta.ultimateDescription}
+                    </Text>
+                  </View>
+                </ScrollView>
+              )}
             </View>
           </View>
         ) : null}
@@ -3073,7 +3164,7 @@ export function ArenaPrototypeScreen({
             </Text>
             <View style={arenaStyles.menuSegmentRow}>
               {(
-                ["run", "builds", "codex", "mastery", "collection"] as ArenaMenuTab[]
+                ["run", "codex", "mastery", "collection"] as ArenaMenuTab[]
               ).map((tab) => (
                 <Pressable
                   key={`menu-tab-${tab}`}
@@ -3084,6 +3175,8 @@ export function ArenaPrototypeScreen({
                   ]}
                 >
                   <Text
+                    numberOfLines={1}
+                    adjustsFontSizeToFit
                     style={[
                       arenaStyles.menuSegmentText,
                       menuTab === tab && arenaStyles.menuSegmentTextActive,
@@ -3091,13 +3184,11 @@ export function ArenaPrototypeScreen({
                   >
                     {tab === "run"
                       ? "Run"
-                      : tab === "builds"
-                        ? "Builds"
-                        : tab === "codex"
-                          ? "Codex"
-                          : tab === "mastery"
-                            ? "Mastery"
-                            : "Collection"}
+                      : tab === "codex"
+                        ? "Codex"
+                        : tab === "mastery"
+                          ? "Mastery"
+                          : "Collection"}
                   </Text>
                   {tab === "collection" && claimableCosmeticIds.length > 0 ? (
                     <View style={arenaStyles.menuSegmentBadge}>
@@ -3333,93 +3424,6 @@ export function ArenaPrototypeScreen({
                   </Pressable>
                 </View>
               </ScrollView>
-            ) : menuTab === "builds" ? (
-              <ScrollView
-                style={arenaStyles.menuScroll}
-                contentContainerStyle={arenaStyles.menuScrollContent}
-              >
-                <Text style={arenaStyles.menuLabel}>Select Build</Text>
-                <View style={arenaStyles.menuBuildGrid}>
-                  {ARENA_BUILD_ORDER.map((buildId) => {
-                    const buildMeta = ARENA_BUILD_META[buildId];
-                    const buildAccentDefinition = getArenaCosmeticDefinition(
-                      getArenaEquippedBuildCosmeticId(
-                        arenaMeta,
-                        buildId,
-                        "buildAccent",
-                      ),
-                    );
-                    const buildCrestDefinition = getArenaCosmeticDefinition(
-                      getArenaEquippedBuildCosmeticId(
-                        arenaMeta,
-                        buildId,
-                        "buildCrest",
-                      ),
-                    );
-                    const isActive = gameState.activeBuild === buildId;
-                    return (
-                      <Pressable
-                        key={`build-${buildId}`}
-                        onPress={() => handleSelectBuild(buildId)}
-                        style={[
-                          arenaStyles.menuBuildButton,
-                          isActive && arenaStyles.menuBuildButtonActive,
-                        ]}
-                      >
-                        <View style={arenaStyles.menuBuildTitleRow}>
-                          <BuildCrestMark
-                            crestDefinition={buildCrestDefinition}
-                            size={14}
-                          />
-                          <Text
-                            style={[
-                              arenaStyles.menuBuildTitle,
-                              {
-                                color: isActive
-                                  ? buildAccentDefinition.primaryColor
-                                  : "#EAF4FF",
-                              },
-                            ]}
-                          >
-                            {buildMeta.label}
-                          </Text>
-                        </View>
-                        <Text
-                          numberOfLines={2}
-                          style={arenaStyles.menuBuildText}
-                        >
-                          {buildMeta.summary}
-                        </Text>
-                      </Pressable>
-                    );
-                  })}
-                </View>
-
-                <Text style={arenaStyles.menuLabel}>Notes</Text>
-                <View style={arenaStyles.menuBuildDetailsCard}>
-                  <View style={arenaStyles.menuBuildDetailsHeader}>
-                    <BuildCrestMark
-                      crestDefinition={activeCrestDefinition}
-                      size={16}
-                    />
-                    <Text
-                      style={[
-                        arenaStyles.menuBuildDetailsTitle,
-                        { color: activeAccentDefinition.primaryColor },
-                      ]}
-                    >
-                      {activeBuildMeta.label}
-                    </Text>
-                  </View>
-                  <Text style={arenaStyles.menuBuildDetailsText}>
-                    {activeBuildMeta.description}
-                  </Text>
-                  <Text style={arenaStyles.menuBuildDetailsText}>
-                    Ultimate: {activeBuildMeta.ultimateLabel}.{" "}
-                    {activeBuildMeta.ultimateDescription}
-                  </Text>
-                </View>
-              </ScrollView>
             ) : menuTab === "codex" ? (
               <ScrollView
                 style={arenaStyles.menuScroll}
@@ -3431,15 +3435,10 @@ export function ArenaPrototypeScreen({
                   </Text>
                 ) : (
                   <>
-                    <MetaShowcaseCard
-                      title="Codex Archive"
-                      subtitle={`${codexEnemyEntries.filter((entry) => entry.discovered).length}/${codexEnemyEntries.length} signals logged`}
-                      note={`${activeBannerDefinition.label} • ${activeFrameDefinition.label}`}
-                      bannerDefinition={activeBannerDefinition}
-                      frameDefinition={activeFrameDefinition}
-                      biomeDefinition={activeBiomeDefinition}
-                    />
-                    <Text style={arenaStyles.menuLabel}>Reward Hooks</Text>
+                    <Text style={arenaStyles.menuBuildDetailsText}>
+                      {`Codex Archive — ${codexEnemyEntries.filter((entry) => entry.discovered).length}/${codexEnemyEntries.length} signals logged`}
+                    </Text>
+                    <Text style={arenaStyles.menuLabel}>Rewards</Text>
                     <View style={arenaStyles.unlockChipRow}>
                       {globalUnlockEntries.map((entry) => (
                         <UnlockChip
@@ -3535,91 +3534,6 @@ export function ArenaPrototypeScreen({
                       })}
                     </View>
 
-                    <Text style={arenaStyles.menuLabel}>Build Log</Text>
-                    <View style={arenaStyles.codexGrid}>
-                      {ARENA_BUILD_ORDER.map((buildId) => {
-                        const buildEntry = arenaMeta.codexBuilds[buildId];
-                        const masteryEntry = arenaMeta.mastery[buildId];
-                        const buildAccentDefinition =
-                          getArenaCosmeticDefinition(
-                            getArenaEquippedBuildCosmeticId(
-                              arenaMeta,
-                              buildId,
-                              "buildAccent",
-                            ),
-                          );
-                        const buildCrestDefinition = getArenaCosmeticDefinition(
-                          getArenaEquippedBuildCosmeticId(
-                            arenaMeta,
-                            buildId,
-                            "buildCrest",
-                          ),
-                        );
-                        const buildUnlockEntries = getArenaBuildUnlockIds(
-                          buildId,
-                        ).map((unlockId) => arenaMeta.unlocks[unlockId]);
-                        return (
-                          <View
-                            key={`codex-build-${buildId}`}
-                            style={[
-                              arenaStyles.codexCard,
-                              {
-                                borderColor: hexToRgba(
-                                  buildAccentDefinition.secondaryColor,
-                                  0.56,
-                                ),
-                                backgroundColor: hexToRgba(
-                                  buildAccentDefinition.primaryColor,
-                                  0.09,
-                                ),
-                              },
-                            ]}
-                          >
-                            <View style={arenaStyles.codexCardHeader}>
-                              <View style={arenaStyles.cardTitleRow}>
-                                <BuildCrestMark
-                                  crestDefinition={buildCrestDefinition}
-                                  size={15}
-                                />
-                                <Text
-                                  style={[
-                                    arenaStyles.codexCardTitle,
-                                    {
-                                      color: buildAccentDefinition.primaryColor,
-                                    },
-                                  ]}
-                                >
-                                  {buildEntry.label}
-                                </Text>
-                              </View>
-                              <Text style={arenaStyles.codexCardMeta}>
-                                L{masteryEntry.level} {masteryEntry.title}
-                              </Text>
-                            </View>
-                            <Text style={arenaStyles.codexCardText}>
-                              {buildEntry.description}
-                            </Text>
-                            <Text style={arenaStyles.codexStatText}>
-                              Ultimate: {buildEntry.ultimateLabel}.{" "}
-                              {buildEntry.ultimateDescription}
-                            </Text>
-                            <View style={arenaStyles.unlockChipRow}>
-                              {buildUnlockEntries.map((entry) => (
-                                <UnlockChip
-                                  key={`codex-build-unlock-${entry.id}`}
-                                  entry={entry}
-                                  metaState={arenaMeta}
-                                  accentColor={
-                                    buildAccentDefinition.primaryColor
-                                  }
-                                  frameDefinition={activeFrameDefinition}
-                                />
-                              ))}
-                            </View>
-                          </View>
-                        );
-                      })}
-                    </View>
                   </>
                 )}
               </ScrollView>
@@ -3636,14 +3550,6 @@ export function ArenaPrototypeScreen({
                   </Text>
                 ) : menuTab === "mastery" ? (
                   <>
-                    <MetaShowcaseCard
-                      title="Mastery Archive"
-                      subtitle={`${masteryCards.reduce((sum, card) => sum + card.mastery.xp, 0)} XP banked across builds`}
-                      note={`${activeBannerDefinition.label} • ${activeFrameDefinition.label}`}
-                      bannerDefinition={activeBannerDefinition}
-                      frameDefinition={activeFrameDefinition}
-                      biomeDefinition={activeBiomeDefinition}
-                    />
                     <View style={arenaStyles.masteryIntroCard}>
                       <Text style={arenaStyles.masteryIntroText}>
                         Mastery XP is granted at run end to the build with the
@@ -3759,19 +3665,9 @@ export function ArenaPrototypeScreen({
                   </>
                 ) : (
                   <>
-                    <MetaShowcaseCard
-                      title="Collection"
-                      subtitle={`${claimableCosmeticIds.length} claimable • ${Object.values(arenaMeta.cosmetics).filter((entry) => entry.state === "owned").length} owned`}
-                      note={
-                        collectionNoticeText ??
-                        `${activeBannerDefinition.label} • ${activeFrameDefinition.label}`
-                      }
-                      bannerDefinition={activeBannerDefinition}
-                      frameDefinition={activeFrameDefinition}
-                      biomeDefinition={activeBiomeDefinition}
-                      accentColor={collectionBuildAccentDefinition.primaryColor}
-                      crestDefinition={collectionBuildCrestDefinition}
-                    />
+                    <Text style={arenaStyles.menuBuildDetailsText}>
+                      {`Collection — ${claimableCosmeticIds.length} claimable • ${Object.values(arenaMeta.cosmetics).filter((entry) => entry.state === "owned").length} owned`}
+                    </Text>
                     {collectionNoticeText ? (
                       <View style={arenaStyles.collectionNoticeCard}>
                         <Text style={arenaStyles.collectionNoticeText}>
@@ -3867,72 +3763,30 @@ export function ArenaPrototypeScreen({
                     </View>
 
                     <Text style={arenaStyles.menuLabel}>Build</Text>
-                    <View style={arenaStyles.menuBuildGrid}>
+                    <View style={arenaStyles.collectionBuildPillRow}>
                       {ARENA_BUILD_ORDER.map((buildId) => {
-                        const buildAccentDefinition =
-                          getArenaCosmeticDefinition(
-                            getArenaEquippedBuildCosmeticId(
-                              arenaMeta,
-                              buildId,
-                              "buildAccent",
-                            ),
-                          );
-                        const buildCrestDefinition = getArenaCosmeticDefinition(
-                          getArenaEquippedBuildCosmeticId(
-                            arenaMeta,
-                            buildId,
-                            "buildCrest",
-                          ),
-                        );
                         const isSelected = collectionBuildId === buildId;
                         return (
                           <Pressable
-                            key={`collection-build-${buildId}`}
+                            key={`collection-build-pill-${buildId}`}
                             onPress={() => setCollectionBuildId(buildId)}
                             style={[
-                              arenaStyles.menuBuildButton,
-                              isSelected && arenaStyles.menuBuildButtonActive,
+                              arenaStyles.collectionBuildPill,
+                              isSelected && arenaStyles.collectionBuildPillActive,
                             ]}
                           >
-                            <View style={arenaStyles.menuBuildTitleRow}>
-                              <BuildCrestMark
-                                crestDefinition={buildCrestDefinition}
-                                size={14}
-                              />
-                              <Text
-                                style={[
-                                  arenaStyles.menuBuildTitle,
-                                  {
-                                    color: isSelected
-                                      ? buildAccentDefinition.primaryColor
-                                      : "#EAF4FF",
-                                  },
-                                ]}
-                              >
-                                {ARENA_BUILD_META[buildId].label}
-                              </Text>
-                            </View>
                             <Text
-                              numberOfLines={2}
-                              style={arenaStyles.menuBuildText}
+                              style={[
+                                arenaStyles.collectionBuildPillText,
+                                isSelected && arenaStyles.collectionBuildPillTextActive,
+                              ]}
                             >
-                              {ARENA_BUILD_META[buildId].summary}
+                              {ARENA_BUILD_META[buildId].label}
                             </Text>
                           </Pressable>
                         );
                       })}
                     </View>
-
-                    <MetaShowcaseCard
-                      title={ARENA_BUILD_META[collectionBuildId].label}
-                      subtitle={`${collectionBuildAccentDefinition.label} • ${collectionBuildCrestDefinition.label}`}
-                      note="Preview and equip build-specific cosmetics here."
-                      bannerDefinition={activeBannerDefinition}
-                      frameDefinition={activeFrameDefinition}
-                      biomeDefinition={activeBiomeDefinition}
-                      accentColor={collectionBuildAccentDefinition.primaryColor}
-                      crestDefinition={collectionBuildCrestDefinition}
-                    />
 
                     <Text style={arenaStyles.collectionSectionLabel}>
                       Accents
@@ -5002,6 +4856,32 @@ const arenaStyles = StyleSheet.create({
     fontWeight: "900",
     letterSpacing: 0.4,
   },
+  armoryTabRow: {
+    flexDirection: "row",
+    gap: 8,
+  },
+  armoryTabButton: {
+    flex: 1,
+    borderRadius: 9,
+    borderWidth: 1,
+    borderColor: "#304A66",
+    backgroundColor: "#0E1826",
+    paddingVertical: 7,
+    alignItems: "center",
+  },
+  armoryTabButtonActive: {
+    borderColor: "#7FBFFF",
+    backgroundColor: "#173654",
+  },
+  armoryTabText: {
+    color: "#7FA8C9",
+    fontSize: 11.5,
+    fontWeight: "800",
+    textTransform: "uppercase",
+  },
+  armoryTabTextActive: {
+    color: "#F1F8FF",
+  },
   menuPanel: {
     position: "absolute",
     top: 56,
@@ -5031,7 +4911,7 @@ const arenaStyles = StyleSheet.create({
     borderWidth: 1,
     borderColor: "#304A66",
     backgroundColor: "#10202F",
-    paddingVertical: 8,
+    paddingVertical: 6,
     alignItems: "center",
   },
   menuSegmentButtonActive: {
@@ -5513,6 +5393,31 @@ const arenaStyles = StyleSheet.create({
     fontSize: 10.5,
     fontWeight: "800",
     textTransform: "uppercase",
+  },
+  collectionBuildPillRow: {
+    flexDirection: "row",
+    flexWrap: "wrap",
+    gap: 6,
+  },
+  collectionBuildPill: {
+    borderRadius: 20,
+    borderWidth: 1,
+    borderColor: "#304A66",
+    backgroundColor: "#10202F",
+    paddingHorizontal: 12,
+    paddingVertical: 6,
+  },
+  collectionBuildPillActive: {
+    borderColor: "#7FBFFF",
+    backgroundColor: "#173654",
+  },
+  collectionBuildPillText: {
+    color: "#9FB9D7",
+    fontSize: 11,
+    fontWeight: "800",
+  },
+  collectionBuildPillTextActive: {
+    color: "#F1F8FF",
   },
   collectionCard: {
     width: "48%",
