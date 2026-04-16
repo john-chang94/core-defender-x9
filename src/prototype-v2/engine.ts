@@ -94,7 +94,7 @@ function getBuildProjectileCap(build: ArenaBuildId, overdrive = false) {
       case 'novaBloom':
         return 5;
       case 'missileCommand':
-        return 10;
+        return 12;
       case 'fractureCore':
         return 4;
     }
@@ -1077,18 +1077,19 @@ function getEnemyTierHealthMultiplier(displayTier: number, kind: ArenaEnemyKind)
   return postT10Multiplier;
 }
 
-function spawnEncounterScript(
+function spawnScriptSteps(
   state: ArenaGameState,
   boardWidth: number,
   boardHeight: number,
-  encounter: ArenaEncounter,
+  scriptId: ArenaEncounterScriptId,
+  initialAnchorId: string | null = null,
   healthScale = 1,
   rewardScale = 1
 ) {
-  const script = getArenaEncounterScript(encounter.scriptId);
+  const script = getArenaEncounterScript(scriptId);
   const lanes = getSpawnLanes(boardWidth);
   const centerLane = Math.floor(Math.random() * Math.max(1, lanes.length - 2)) + 1;
-  let anchorEnemyId: string | null = encounter.anchorEnemyId;
+  let anchorEnemyId: string | null = initialAnchorId;
 
   for (const step of script.steps) {
     const laneIndex =
@@ -1108,7 +1109,7 @@ function spawnEncounterScript(
         step.vxMultiplier !== undefined
           ? ARENA_ENEMY_CONFIG[step.kind].strafeSpeed * step.vxMultiplier
           : undefined,
-      encounterTag: encounter.scriptId,
+      encounterTag: scriptId,
     });
     if (step.anchor) {
       anchorEnemyId = enemy.id;
@@ -1132,19 +1133,7 @@ function spawnFormationGroup(state: ArenaGameState, boardWidth: number, boardHei
     return false;
   }
 
-  const formationEncounter: ArenaEncounter = {
-    type: 'miniBoss',
-    scriptId: script.id,
-    label: script.label,
-    accentColor: script.accentColor,
-    anchorKind: script.anchorKind ?? script.steps[0]?.kind ?? 'hover',
-    anchorEnemyId: null,
-    rewardSalvage: 0,
-    startedAtTier: displayTier,
-    announcement: script.announcement,
-    bossPhaseIndex: 0,
-  };
-  spawnEncounterScript(state, boardWidth, boardHeight, formationEncounter, 1, 1);
+  spawnScriptSteps(state, boardWidth, boardHeight, script.id);
   return true;
 }
 
@@ -2016,7 +2005,7 @@ function startEncounter(state: ArenaGameState, boardWidth: number, boardHeight: 
       : 1 + Math.max(0, encounter.startedAtTier - ARENA_MINI_BOSS_TIER_INTERVAL) * 0.055;
   const rewardScale = encounter.type === 'boss' ? 1.02 : 1;
   clearEncounterHazards(state);
-  const anchorEnemyId = spawnEncounterScript(state, boardWidth, boardHeight, encounter, healthScale, rewardScale);
+  const anchorEnemyId = spawnScriptSteps(state, boardWidth, boardHeight, encounter.scriptId, encounter.anchorEnemyId, healthScale, rewardScale);
 
   state.activeEncounter = {
     ...encounter,
@@ -2141,11 +2130,17 @@ function maybeSpawnEnemyDrop(state: ArenaGameState, enemy: ArenaEnemy) {
   createDrop(state, enemy.x, enemy.y, type);
 }
 
+function getNextArmoryIncrement(currentCost: number) {
+  if (currentCost < 300) return 80;
+  if (currentCost < 500) return 60;
+  return 40;
+}
+
 function awardAffordableArmoryChoices(state: ArenaGameState) {
   let grantedChoices = 0;
   while (state.salvage >= state.nextArmoryCost) {
     state.salvage -= state.nextArmoryCost;
-    state.nextArmoryCost += 80;
+    state.nextArmoryCost += getNextArmoryIncrement(state.nextArmoryCost);
     state.availableArmoryChoices += 1;
     grantedChoices += 1;
   }
@@ -2524,7 +2519,7 @@ function createPlayerMissile(
     return false;
   }
   const weapon = getArenaActiveWeapon(state);
-  const muzzleY = boardHeight - ARENA_PLAYER_HEIGHT - 16;
+  const muzzleY = getPlayerShipTop(boardHeight);
   state.playerBullets = [
     ...state.playerBullets,
     {
@@ -2533,7 +2528,7 @@ function createPlayerMissile(
       kind: 'missile',
       buildFlavor: 'missileCommand',
       x: state.playerX + offset,
-      y: muzzleY + 5,
+      y: muzzleY,
       vx: offset === 0 ? 0 : offset < 0 ? -120 : 120,
       vy: -560,
       homing: 6.4,
@@ -2682,7 +2677,7 @@ function createPlayerVolley(state: ArenaGameState, boardHeight: number) {
     return;
   }
   const bullets = [...state.playerBullets];
-  const muzzleY = boardHeight - ARENA_PLAYER_HEIGHT - 18;
+  const muzzleY = getPlayerShipTop(boardHeight);
   const availableShots = Math.max(1, Math.min(weapon.shotCount, playerBulletCap - bullets.length));
   const centerIndex = (availableShots - 1) / 2;
   const bulletColor =
@@ -2750,7 +2745,7 @@ export function createInitialArenaState(boardWidth: number): ArenaGameState {
     elapsed: 0,
     score: 0,
     salvage: 0,
-    nextArmoryCost: 120,
+    nextArmoryCost: 160,
     availableArmoryChoices: 0,
     activeBuild: ARENA_BUILD_DEFAULT,
     playerX: boardWidth / 2,

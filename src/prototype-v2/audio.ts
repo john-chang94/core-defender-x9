@@ -134,8 +134,8 @@ export const ARENA_AUDIO_CUE_MIN_INTERVAL_MS: Record<ArenaAudioCueKey, number> =
 
 export const ARENA_BIOME_MUSIC_FILES: Record<ArenaBiomeId, number> = {
   prismVerge: megaWallMusic,
-  hiveForge: sciFiDataReadSfx,
-  vectorSpindle: sciFiGlitchShortSfx,
+  hiveForge: megaWallMusic,
+  vectorSpindle: megaWallMusic,
 };
 
 export const ARENA_BIOME_MUSIC_VOLUMES: Record<ArenaBiomeId, number> = {

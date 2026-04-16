@@ -3,6 +3,7 @@ import AsyncStorage from '@react-native-async-storage/async-storage';
 import { ARENA_BUILD_META, ARENA_BUILD_ORDER } from './builds';
 import {
   ARENA_COSMETIC_ORDER,
+  createArenaBuildValueMap,
   getArenaBuildCosmeticIds,
   getArenaCosmeticDefinition,
   getArenaDefaultBuildCosmetic,
@@ -241,13 +242,6 @@ const ARENA_BUILD_UNLOCK_ORDER: ArenaBuildValueMap<ArenaUnlockId[]> = {
   missileCommand: ['missileCommandMastery4', 'missileCommandMastery8'],
   fractureCore: ['fractureCoreMastery4', 'fractureCoreMastery8'],
 };
-
-function createArenaBuildValueMap<T>(factory: (buildId: ArenaBuildId) => T): ArenaBuildValueMap<T> {
-  return ARENA_BUILD_ORDER.reduce((accumulator, buildId) => {
-    accumulator[buildId] = factory(buildId);
-    return accumulator;
-  }, {} as ArenaBuildValueMap<T>);
-}
 
 function createArenaEnemyValueMap<T>(factory: (kind: ArenaEnemyKind) => T): ArenaEnemyValueMap<T> {
   return ARENA_ENEMY_ORDER.reduce((accumulator, kind) => {

@@ -31,7 +31,7 @@ type ArenaCanvasProps = {
 
 const MAX_RENDERED_EFFECTS = 40;
 const MAX_RENDERED_PLAYER_BULLETS = 72;
-const MAX_RENDERED_ENEMY_BULLETS = 42;
+const MAX_RENDERED_ENEMY_BULLETS = 30;
 
 const BACKGROUND_PLATES = [
   { x: 0.08, y: -30, width: 96, height: 152, radius: 18, speed: 18 },
@@ -115,16 +115,20 @@ function createOverdriveCrackSegments(boardWidth: number, boardHeight: number, h
   return segments;
 }
 
+const HEX_RGB_CACHE = new Map<string, string>();
 function withAlpha(color: string, alpha: number) {
-  const normalizedHex = color.startsWith('#') ? color.slice(1) : color;
-  if (normalizedHex.length !== 6) {
-    return color;
+  let rgb = HEX_RGB_CACHE.get(color);
+  if (rgb === undefined) {
+    const hex = color.startsWith('#') ? color.slice(1) : color;
+    if (hex.length !== 6) return color;
+    const r = Number.parseInt(hex.slice(0, 2), 16);
+    const g = Number.parseInt(hex.slice(2, 4), 16);
+    const b = Number.parseInt(hex.slice(4, 6), 16);
+    rgb = `${r}, ${g}, ${b}`;
+    HEX_RGB_CACHE.set(color, rgb);
   }
-
-  const red = Number.parseInt(normalizedHex.slice(0, 2), 16);
-  const green = Number.parseInt(normalizedHex.slice(2, 4), 16);
-  const blue = Number.parseInt(normalizedHex.slice(4, 6), 16);
-  return `rgba(${red}, ${green}, ${blue}, ${Math.max(0, Math.min(1, alpha))})`;
+  const a = alpha < 0 ? 0 : alpha > 1 ? 1 : alpha;
+  return `rgba(${rgb}, ${a})`;
 }
 
 function clamp(value: number, min: number, max: number) {
@@ -364,134 +368,37 @@ function createNovaSweepPath(centerX: number, boardWidth: number, boardHeight: n
 
 type EnemyLocalPoint = readonly [number, number];
 
+// hover and orbiter are rendered as <Circle> — these stubs satisfy the Record type but are never accessed.
+const CIRCLE_HULL_ENEMIES = new Set<ArenaEnemy['kind']>(['hover', 'orbiter']);
+
 const ENEMY_HULL_POINTS: Record<ArenaEnemy['kind'], readonly EnemyLocalPoint[]> = {
-  hover: [
-    [1.02, 0],
-    [0.3, 0.68],
-    [-0.5, 0.52],
-    [-0.94, 0.1],
-    [-0.94, -0.1],
-    [-0.5, -0.52],
-    [0.3, -0.68],
-  ],
-  burst: [
-    [1.04, 0],
-    [0.24, 0.8],
-    [-0.66, 0.4],
-    [-0.98, 0],
-    [-0.66, -0.4],
-    [0.24, -0.8],
-  ],
-  tank: [
-    [0.86, 0.62],
-    [1.02, 0.2],
-    [1.02, -0.2],
-    [0.86, -0.62],
-    [-0.74, -0.62],
-    [-1, -0.2],
-    [-1, 0.2],
-    [-0.74, 0.62],
-  ],
-  orbiter: [
-    [0.96, 0],
-    [0.34, 0.72],
-    [-0.38, 0.6],
-    [-0.9, 0.18],
-    [-0.9, -0.18],
-    [-0.38, -0.6],
-    [0.34, -0.72],
-  ],
-  sniper: [
-    [1.14, 0],
-    [0.24, 0.38],
-    [-0.92, 0.3],
-    [-1.06, 0],
-    [-0.92, -0.3],
-    [0.24, -0.38],
-  ],
-  bomber: [
-    [0.74, 0.86],
-    [1.04, 0.34],
-    [0.8, 0],
-    [1.04, -0.34],
-    [0.74, -0.86],
-    [-0.22, -0.56],
-    [-0.96, -0.32],
-    [-0.96, 0.32],
-    [-0.22, 0.56],
-  ],
-  interceptor: [
-    [1.08, 0],
-    [0.28, 0.72],
-    [-0.58, 0.44],
-    [-0.98, 0],
-    [-0.58, -0.44],
-    [0.28, -0.72],
-  ],
-  warden: [
-    [0.92, 0.54],
-    [1.04, 0.12],
-    [0.88, -0.46],
-    [0.16, -0.76],
-    [-0.78, -0.54],
-    [-1, 0],
-    [-0.78, 0.54],
-    [0.16, 0.76],
-  ],
-  lancer: [
-    [1.12, 0],
-    [0.34, 0.46],
-    [-0.16, 0.9],
-    [-0.82, 0.46],
-    [-1, 0],
-    [-0.82, -0.46],
-    [-0.16, -0.9],
-    [0.34, -0.46],
-  ],
-  carrier: [
-    [1.02, 0.12],
-    [0.96, -0.12],
-    [0.26, -0.72],
-    [-0.42, -0.78],
-    [-0.98, -0.28],
-    [-1.04, 0.28],
-    [-0.42, 0.78],
-    [0.26, 0.72],
-  ],
-  artillery: [
-    [0.96, 0.42],
-    [1.08, 0.08],
-    [1.08, -0.08],
-    [0.96, -0.42],
-    [0.18, -0.74],
-    [-0.92, -0.58],
-    [-1.04, 0],
-    [-0.92, 0.58],
-    [0.18, 0.74],
-  ],
-  weaver: [
-    [1.06, 0],
-    [0.56, 0.38],
-    [0.18, 0.96],
-    [-0.46, 0.62],
-    [-1, 0.18],
-    [-1, -0.18],
-    [-0.46, -0.62],
-    [0.18, -0.96],
-    [0.56, -0.38],
-  ],
-  conductor: [
-    [1.08, 0.08],
-    [0.7, 0.48],
-    [0.18, 0.74],
-    [-0.42, 0.98],
-    [-0.92, 0.42],
-    [-1.04, 0],
-    [-0.92, -0.42],
-    [-0.42, -0.98],
-    [0.18, -0.74],
-    [0.7, -0.48],
-  ],
+  // Stubs for circle-hull enemies (never used in path construction)
+  hover:    [[1, 0], [-0.5, 0.87], [-0.5, -0.87]],
+  orbiter:  [[1, 0], [-0.5, 0.87], [-0.5, -0.87]],
+
+  // Triangle — equilateral, nose forward
+  burst:       [[1, 0], [-0.5, 0.87], [-0.5, -0.87]],
+  // Triangle — slimmer, interceptor speed feel
+  interceptor: [[1.08, 0], [-0.46, 0.76], [-0.46, -0.76]],
+
+  // Diamond — elongated needle for sniper
+  sniper: [[1.2, 0], [0, 0.32], [-0.88, 0], [0, -0.32]],
+  // Diamond — wider for lancer
+  lancer: [[1.02, 0], [0, 0.56], [-0.84, 0], [0, -0.56]],
+
+  // Rectangle — wide blocky tank
+  tank:   [[0.9, 0.64], [0.9, -0.64], [-0.9, -0.64], [-0.9, 0.64]],
+  // Square — warden support unit
+  warden: [[0.76, 0.76], [0.76, -0.76], [-0.76, -0.76], [-0.76, 0.76]],
+
+  // Pentagon — area denial / heavy
+  bomber:    [[1, 0], [0.31, 0.95], [-0.81, 0.59], [-0.81, -0.59], [0.31, -0.95]],
+  artillery: [[1.02, 0], [0.32, 0.94], [-0.83, 0.58], [-0.83, -0.58], [0.32, -0.94]],
+  weaver:    [[1, 0], [0.31, 0.95], [-0.81, 0.59], [-0.81, -0.59], [0.31, -0.95]],
+
+  // Hexagon — elite / complex
+  carrier:   [[1, 0], [0.5, 0.87], [-0.5, 0.87], [-1, 0], [-0.5, -0.87], [0.5, -0.87]],
+  conductor: [[1, 0], [0.5, 0.87], [-0.5, 0.87], [-1, 0], [-0.5, -0.87], [0.5, -0.87]],
   prismBoss: [
     [1.1, 0],
     [0.42, 0.92],
@@ -577,154 +484,54 @@ function createEnemyHullPath(enemy: ArenaEnemy) {
   );
 }
 
-function createEnemyWingPanelPath(enemy: ArenaEnemy, side: -1 | 1) {
+type BarrelLine = { x1: number; y1: number; x2: number; y2: number; strokeWidth: number };
+
+function getEnemyBarrelLines(enemy: ArenaEnemy): BarrelLine[] {
   const { forwardX, forwardY, rightX, rightY } = getEnemyBasis(enemy.aimAngle);
-  const span =
-    enemy.kind === 'prismBoss'
-      ? 0.7
-      : enemy.kind === 'hiveCarrierBoss'
-        ? 0.76
-        : enemy.kind === 'vectorLoomBoss'
-          ? 0.74
-        : enemy.kind === 'carrier'
-          ? 0.72
-          : enemy.kind === 'artillery'
-            ? 0.64
-            : enemy.kind === 'weaver'
-              ? 0.68
-              : enemy.kind === 'conductor'
-                ? 0.62
-      : enemy.kind === 'tank'
-        ? 0.62
-        : enemy.kind === 'sniper'
-          ? 0.52
-          : 0.58;
-  const points: EnemyLocalPoint[] = [
-    [0.14, side * (span * 0.24)],
-    [-0.02, side * span],
-    [-0.36, side * (span * 0.8)],
-    [-0.56, side * (span * 0.28)],
-  ];
-  return createOrientedPolygonPath(enemy.x, enemy.y, forwardX, forwardY, rightX, rightY, enemy.size * 0.5, points);
-}
+  const lines: BarrelLine[] = [];
 
-function createEnemyCanopyPath(enemy: ArenaEnemy) {
-  const { forwardX, forwardY, rightX, rightY } = getEnemyBasis(enemy.aimAngle);
-  const canopyLength =
-    enemy.kind === 'sniper' ? enemy.size * 0.28 : enemy.kind === 'tank' ? enemy.size * 0.22 : enemy.size * 0.24;
-  const canopyWidth =
-    enemy.kind === 'tank' || enemy.kind === 'bomber' ? enemy.size * 0.16 : enemy.size * 0.13;
-  return createOrientedRectPath(
-    enemy.x + forwardX * (enemy.size * 0.02),
-    enemy.y + forwardY * (enemy.size * 0.02),
-    forwardX,
-    forwardY,
-    rightX,
-    rightY,
-    canopyLength,
-    canopyWidth
-  );
-}
+  const mainHL = enemy.kind === 'sniper' ? enemy.size * 0.3 : enemy.size * 0.22;
+  const mainHW = enemy.kind === 'tank' || enemy.kind === 'bomber' ? enemy.size * 0.1 : enemy.size * 0.075;
+  const mainCx = enemy.x + forwardX * (enemy.size * 0.46);
+  const mainCy = enemy.y + forwardY * (enemy.size * 0.46);
+  lines.push({
+    x1: mainCx - forwardX * mainHL,
+    y1: mainCy - forwardY * mainHL,
+    x2: mainCx + forwardX * mainHL,
+    y2: mainCy + forwardY * mainHL,
+    strokeWidth: mainHW * 2,
+  });
 
-function createEnemyGunBarrelPaths(enemy: ArenaEnemy) {
-  const { forwardX, forwardY, rightX, rightY } = getEnemyBasis(enemy.aimAngle);
-  const barrels: ReturnType<typeof Skia.Path.Make>[] = [];
-
-  const mainBarrel = createOrientedRectPath(
-    enemy.x + forwardX * (enemy.size * 0.46),
-    enemy.y + forwardY * (enemy.size * 0.46),
-    forwardX,
-    forwardY,
-    rightX,
-    rightY,
-    enemy.kind === 'sniper' ? enemy.size * 0.3 : enemy.size * 0.22,
-    enemy.kind === 'tank' || enemy.kind === 'bomber' ? enemy.size * 0.1 : enemy.size * 0.075
-  );
-  barrels.push(mainBarrel);
-
-  if (
+  const hasSideBarrels =
     enemy.kind === 'bomber' ||
     enemy.kind === 'prismBoss' ||
     enemy.kind === 'hiveCarrierBoss' ||
     enemy.kind === 'vectorLoomBoss' ||
     enemy.kind === 'artillery' ||
-    enemy.kind === 'interceptor'
-  ) {
-    const sideOffset = enemy.kind === 'prismBoss' ? enemy.size * 0.16 : enemy.size * 0.13;
-    const sideBarrelLength =
+    enemy.kind === 'interceptor';
+
+  if (hasSideBarrels) {
+    const sideOff = enemy.kind === 'prismBoss' ? enemy.size * 0.16 : enemy.size * 0.13;
+    const sideHL =
       enemy.kind === 'prismBoss' || enemy.kind === 'hiveCarrierBoss' || enemy.kind === 'vectorLoomBoss'
         ? enemy.size * 0.18
         : enemy.size * 0.16;
-    const sideBarrelWidth = enemy.size * 0.052;
-    barrels.push(
-      createOrientedRectPath(
-        enemy.x + forwardX * (enemy.size * 0.4) + rightX * sideOffset,
-        enemy.y + forwardY * (enemy.size * 0.4) + rightY * sideOffset,
-        forwardX,
-        forwardY,
-        rightX,
-        rightY,
-        sideBarrelLength,
-        sideBarrelWidth
-      )
-    );
-    barrels.push(
-      createOrientedRectPath(
-        enemy.x + forwardX * (enemy.size * 0.4) - rightX * sideOffset,
-        enemy.y + forwardY * (enemy.size * 0.4) - rightY * sideOffset,
-        forwardX,
-        forwardY,
-        rightX,
-        rightY,
-        sideBarrelLength,
-        sideBarrelWidth
-      )
-    );
+    const sideSW = enemy.size * 0.052 * 2;
+    const sideCDist = enemy.size * 0.4;
+    for (const side of [-1, 1] as const) {
+      const cx = enemy.x + forwardX * sideCDist + rightX * sideOff * side;
+      const cy = enemy.y + forwardY * sideCDist + rightY * sideOff * side;
+      lines.push({
+        x1: cx - forwardX * sideHL,
+        y1: cy - forwardY * sideHL,
+        x2: cx + forwardX * sideHL,
+        y2: cy + forwardY * sideHL,
+        strokeWidth: sideSW,
+      });
+    }
   }
 
-  return barrels;
-}
-
-function renderEnemyShipDetails(enemy: ArenaEnemy) {
-  const leftWingPath = createEnemyWingPanelPath(enemy, -1);
-  const rightWingPath = createEnemyWingPanelPath(enemy, 1);
-  const canopyPath = createEnemyCanopyPath(enemy);
-  const gunBarrels = createEnemyGunBarrelPaths(enemy);
-  const { forwardX, forwardY, rightX, rightY } = getEnemyBasis(enemy.aimAngle);
-  const rearKeelPath = createOrientedRectPath(
-    enemy.x - forwardX * (enemy.size * 0.36),
-    enemy.y - forwardY * (enemy.size * 0.36),
-    forwardX,
-    forwardY,
-    rightX,
-    rightY,
-    enemy.size * 0.16,
-    enemy.size * 0.08
-  );
-
-  return (
-    <>
-      <Path path={leftWingPath} color={withAlpha(enemy.color, 0.3)} />
-      <Path path={rightWingPath} color={withAlpha(enemy.color, 0.3)} />
-      <Path path={leftWingPath} style="stroke" strokeWidth={1.1} color={withAlpha('#EAF7FF', 0.48)} />
-      <Path path={rightWingPath} style="stroke" strokeWidth={1.1} color={withAlpha('#EAF7FF', 0.48)} />
-      <Path path={rearKeelPath} color={withAlpha('#E8F2FF', 0.28)} />
-      <Path path={canopyPath} color={withAlpha('#F2F7FF', 0.45)} />
-      <Path path={canopyPath} style="stroke" strokeWidth={1} color={withAlpha('#FFFFFF', 0.72)} />
-      {gunBarrels.map((barrelPath, index) => (
-        <Path key={`enemy-barrel-${enemy.id}-${index}`} path={barrelPath} color={withAlpha('#FEE8CB', enemy.windupTimer > 0 ? 0.94 : 0.78)} />
-      ))}
-      {gunBarrels.map((barrelPath, index) => (
-        <Path
-          key={`enemy-barrel-outline-${enemy.id}-${index}`}
-          path={barrelPath}
-          style="stroke"
-          strokeWidth={0.9}
-          color={withAlpha('#FFF8EA', enemy.windupTimer > 0 ? 0.9 : 0.6)}
-        />
-      ))}
-    </>
-  );
+  return lines;
 }
 
 function createStaticBackgroundScene({
@@ -779,11 +586,17 @@ function createStaticBackgroundScene({
 }
 
 function renderEnemyCore(enemy: ArenaEnemy) {
-  const enemyPath = createEnemyHullPath(enemy);
-  const isElite = enemy.kind === 'interceptor' || enemy.kind === 'carrier' || enemy.kind === 'artillery';
   const isBoss =
     enemy.kind === 'prismBoss' || enemy.kind === 'hiveCarrierBoss' || enemy.kind === 'vectorLoomBoss';
+  const isElite = enemy.kind === 'interceptor' || enemy.kind === 'carrier' || enemy.kind === 'artillery';
+  const isCircleHull = CIRCLE_HULL_ENEMIES.has(enemy.kind);
+
+  const barrelLines = getEnemyBarrelLines(enemy);
+  const barrelFillOpacity = enemy.windupTimer > 0 ? 0.96 : 0.8;
+  const barrelGlowOpacity = enemy.windupTimer > 0 ? 0.72 : 0.38;
+
   const isProtected = enemy.protectedTimer > 0;
+  const strokeColor = enemy.windupTimer > 0 ? '#FFF0C7' : isBoss ? '#FFE8BE' : isElite ? '#E5DDFF' : '#0D1726';
   const auraColor =
     enemy.kind === 'hiveCarrierBoss'
       ? '#93F0D5'
@@ -811,24 +624,43 @@ function renderEnemyCore(enemy: ArenaEnemy) {
       ) : null}
       {isProtected ? (
         <>
-          <Circle
-            cx={enemy.x}
-            cy={enemy.y}
-            r={enemy.size * 0.64}
-            color={withAlpha('#9EEFFF', 0.12)}
-          />
-          <Circle
-            cx={enemy.x}
-            cy={enemy.y}
-            r={enemy.size * 0.64}
-            style="stroke"
-            strokeWidth={2}
-            color={withAlpha('#D9FAFF', 0.72)}
-          />
+          <Circle cx={enemy.x} cy={enemy.y} r={enemy.size * 0.64} color={withAlpha('#9EEFFF', 0.12)} />
+          <Circle cx={enemy.x} cy={enemy.y} r={enemy.size * 0.64} style="stroke" strokeWidth={2} color={withAlpha('#D9FAFF', 0.72)} />
         </>
       ) : null}
-      <PathOrFallback path={enemyPath} fillColor={enemy.color} strokeColor={enemy.windupTimer > 0 ? '#FFF0C7' : isBoss ? '#FFE8BE' : isElite ? '#E5DDFF' : '#0D1726'} strokeWidth={isBoss ? 2.4 : isElite ? 1.8 : 1.4} />
-      {renderEnemyShipDetails(enemy)}
+      {isCircleHull ? (
+        <>
+          <Circle cx={enemy.x} cy={enemy.y} r={enemy.size * 0.44} color={enemy.color} />
+          <Circle cx={enemy.x} cy={enemy.y} r={enemy.size * 0.44} style="stroke" strokeWidth={1.4} color={strokeColor} />
+        </>
+      ) : (
+        <PathOrFallback
+          path={createEnemyHullPath(enemy)}
+          fillColor={enemy.color}
+          strokeColor={strokeColor}
+          strokeWidth={isBoss ? 2.4 : isElite ? 1.8 : 1.4}
+        />
+      )}
+      {barrelLines.map((barrel, index) => (
+        <Line
+          key={`enemy-barrel-${enemy.id}-${index}`}
+          p1={vec(barrel.x1, barrel.y1)}
+          p2={vec(barrel.x2, barrel.y2)}
+          color={withAlpha('#FEE8CB', barrelFillOpacity)}
+          strokeWidth={barrel.strokeWidth}
+          strokeCap="round"
+        />
+      ))}
+      {barrelLines.map((barrel, index) => (
+        <Line
+          key={`enemy-barrel-glow-${enemy.id}-${index}`}
+          p1={vec(barrel.x1, barrel.y1)}
+          p2={vec(barrel.x2, barrel.y2)}
+          color={withAlpha('#FFF8EA', barrelGlowOpacity)}
+          strokeWidth={barrel.strokeWidth * 0.4}
+          strokeCap="round"
+        />
+      ))}
       <Circle cx={enemy.x} cy={enemy.y} r={enemy.size * 0.12} color={withAlpha('#FFFFFF', 0.32)} />
     </Group>
   );
@@ -859,17 +691,19 @@ export function ArenaCanvas({ boardWidth, boardHeight, biomeDefinition, state, v
   const overdriveBlend = clamp(state.overclockVisualBlend, 0, 1);
   const overdrivePulse = 0.5 + Math.sin(state.elapsed * 7.4) * 0.5;
   const isHighVfx = vfxQuality === 'high';
+  // Stress is used only to scale VFX/effect budgets. Enemies use simple geometric shapes
+  // (circles, triangles, diamonds, etc.) so their rendering cost is now fixed and low.
   const renderStress =
     state.enemies.length +
-    Math.floor(state.playerBullets.length / 16) +
-    Math.floor(state.enemyBullets.length / 6) +
+    Math.floor(state.playerBullets.length / 6) +
+    Math.floor(state.enemyBullets.length / 8) +
     state.hazards.length * 2 +
     (state.overclockTimer > 0 ? 3 : 0) +
     (state.ultimateTimer > 0 ? 4 : 0);
-  const renderBudgetScale = renderStress >= 18 ? 0.68 : renderStress >= 12 ? 0.8 : 1;
-  const maxRenderedEffects = Math.max(22, Math.round((isHighVfx ? MAX_RENDERED_EFFECTS : 30) * renderBudgetScale));
-  const maxRenderedPlayerBullets = Math.max(36, Math.round((isHighVfx ? MAX_RENDERED_PLAYER_BULLETS : 56) * renderBudgetScale));
-  const maxRenderedEnemyBullets = Math.max(24, Math.round((isHighVfx ? MAX_RENDERED_ENEMY_BULLETS : 34) * renderBudgetScale));
+  const renderBudgetScale = renderStress >= 28 ? 0.6 : renderStress >= 18 ? 0.76 : renderStress >= 10 ? 0.9 : 1;
+  const maxRenderedEffects = Math.max(18, Math.round((isHighVfx ? MAX_RENDERED_EFFECTS : 28) * renderBudgetScale));
+  const maxRenderedPlayerBullets = Math.max(28, Math.round((isHighVfx ? MAX_RENDERED_PLAYER_BULLETS : 50) * renderBudgetScale));
+  const maxRenderedEnemyBullets = Math.max(18, Math.round((isHighVfx ? MAX_RENDERED_ENEMY_BULLETS : 24) * renderBudgetScale));
 
   const verticalGridLines = useMemo(() => {
     const lineCount = Math.max(6, Math.floor(boardWidth / 62));
@@ -1694,6 +1528,7 @@ export function ArenaCanvas({ boardWidth, boardHeight, biomeDefinition, state, v
       {sampledEnemyBullets.map((bullet) => {
         const basis = getProjectileBasis(bullet.vx, bullet.vy);
         const style = bullet.enemyStyle ?? 'bolt';
+
         const trailLength =
           style === 'needle'
             ? bullet.size * 4.6
@@ -2008,6 +1843,7 @@ export function ArenaCanvas({ boardWidth, boardHeight, biomeDefinition, state, v
             }
 
             const palette = getBuildProjectilePalette(bullet.buildFlavor);
+
             const boltPath =
               bullet.buildFlavor === 'railFocus'
                 ? createOrientedShardPath(

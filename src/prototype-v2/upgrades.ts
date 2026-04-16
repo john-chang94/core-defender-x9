@@ -144,11 +144,11 @@ export function createArenaArmoryChoice(cost: number): ArenaArmoryChoice {
   };
 }
 
-export function createArenaBossArmoryChoice(): ArenaArmoryChoice {
+export function createArenaBossArmoryChoice(bossLabel = "Boss"): ArenaArmoryChoice {
   return {
     title: "Boss Cache",
     prompt:
-      "Prism wreckage exposed a clean tech cache. Pick one premium install for free.",
+      `${bossLabel} wreckage exposed a clean tech cache. Pick one premium install for free.`,
     cost: 0,
     options: [...ARENA_ARMORY_UPGRADE_ORDER],
     source: "boss",

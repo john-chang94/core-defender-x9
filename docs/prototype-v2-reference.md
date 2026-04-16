@@ -561,6 +561,10 @@ These are the major areas that still remain after the current polish pass.
   - season-pass style cosmetic reward tracks
 - the full gameplay power curve should remain earnable through normal play
 
+## Versioning
+
+`ARENA_VERSION_LABEL` is defined in `src/prototype-v2/config.ts`. **Increment it by `0.01` every time code changes are made** to any file under `src/prototype-v2/`. This applies to bug fixes, balance tweaks, UX changes, and refactors alike. The label is displayed in the HUD so players and testers can always identify which build they are running.
+
 ## Current Next Step Recommendation
 
 The immediate next step should probably be production follow-through rather than another foundational systems rewrite.
