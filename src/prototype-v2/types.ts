@@ -507,6 +507,7 @@ export type ArenaGameState = {
   ultimateBuild: ArenaBuildId | null;
   ultimateColumns: number[];
   weapon: ArenaWeapon;
+  weaponsByBuild: ArenaBuildValueMap<ArenaWeapon>;
   enemies: ArenaEnemy[];
   drops: ArenaDrop[];
   hazards: ArenaHazard[];

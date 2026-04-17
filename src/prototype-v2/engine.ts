@@ -841,12 +841,12 @@ export function getArenaActiveWeapon(state: ArenaGameState): ArenaWeapon {
     case 'fractureCore':
       nextWeapon = {
         ...nextWeapon,
-        damage: Math.round(nextWeapon.damage * 1.82),
+        damage: Math.round(nextWeapon.damage * 2.10),
         fireInterval: Math.max(0.32, nextWeapon.fireInterval * 2.3),
         shotCount: Math.min(3, Math.max(1, nextWeapon.shotCount)),
         pierce: Math.min(4, nextWeapon.pierce + 1),
         bulletSpeed: Math.min(1500, nextWeapon.bulletSpeed + 20),
-        bulletSize: Math.min(23.2, nextWeapon.bulletSize + 4.8),
+        bulletSize: Math.min(26.0, nextWeapon.bulletSize + 6.0),
         spread: Math.min(20, nextWeapon.spread),
       };
       break;
@@ -854,9 +854,9 @@ export function getArenaActiveWeapon(state: ArenaGameState): ArenaWeapon {
 
   if (overdriveActive) {
     const projectileCap = getBuildProjectileCap(state.activeBuild, true);
-    const overdriveFireMultiplier = state.activeBuild === 'fractureCore' ? 0.67 : 0.74;
-    const overdriveFireFloor = state.activeBuild === 'fractureCore' ? 0.18 : 0.065;
-    const overdriveBulletSizeCap = state.activeBuild === 'fractureCore' ? 27.5 : 14.2;
+    const overdriveFireMultiplier = state.activeBuild === 'fractureCore' ? 0.54 : 0.74;
+    const overdriveFireFloor = state.activeBuild === 'fractureCore' ? 0.13 : 0.065;
+    const overdriveBulletSizeCap = state.activeBuild === 'fractureCore' ? 30.0 : 14.2;
     nextWeapon = {
       ...nextWeapon,
       damage: nextWeapon.damage + (state.activeBuild === 'fractureCore' ? 16 : 10),
@@ -2634,11 +2634,11 @@ function createFractureShards(state: ArenaGameState, x: number, y: number, baseD
     return;
   }
   const heavyLoad =
-    state.enemyBullets.length >= 12 ||
-    state.effects.length >= 22 ||
+    state.enemyBullets.length >= 8 ||
+    state.effects.length >= 14 ||
     state.overclockTimer > 0 ||
     state.ultimateTimer > 0;
-  const shardCount = Math.min(availableSlots, heavyLoad ? 5 : 8);
+  const shardCount = Math.min(availableSlots, heavyLoad ? 2 : 5);
   if (shardCount <= 0) {
     return;
   }
@@ -2666,7 +2666,7 @@ function createFractureShards(state: ArenaGameState, x: number, y: number, baseD
     state.nextBulletId += 1;
   }
   state.playerBullets = bullets;
-  queueEffect(state, 'fractureBits', x, y, 34, '#CDE5FF', {
+  queueEffect(state, 'fractureBits', x, y, 44, '#CDE5FF', {
     flavor: 'fractureCore',
     intensity: 1.16,
     angle: Math.random() * Math.PI * 2,
@@ -2770,6 +2770,10 @@ export function createInitialArenaState(boardWidth: number): ArenaGameState {
     ultimateBuild: null,
     ultimateColumns: [],
     weapon: BASE_ARENA_WEAPON,
+    weaponsByBuild: {
+      ...createBuildValueMap(() => ({ ...BASE_ARENA_WEAPON })),
+      missileCommand: { ...BASE_ARENA_WEAPON, shotCount: 2 },
+    },
     enemies: [],
     drops: [],
     hazards: [],
@@ -2997,7 +3001,7 @@ export function applyArenaArmoryUpgrade(
   previousState: ArenaGameState,
   key: ArenaArmoryUpgradeKey
 ): ArenaGameState {
-  if (previousState.availableArmoryChoices <= 0 || isArenaArmoryUpgradeMaxed(key, previousState.weapon)) {
+  if (previousState.availableArmoryChoices <= 0 || isArenaArmoryUpgradeMaxed(key, previousState.weapon, previousState.activeBuild)) {
     return previousState;
   }
 
@@ -3014,6 +3018,10 @@ export function applyArenaArmoryUpgrade(
   return {
     ...previousState,
     weapon: nextWeapon,
+    weaponsByBuild: {
+      ...previousState.weaponsByBuild,
+      [previousState.activeBuild]: nextWeapon,
+    },
     maxHull: previousState.maxHull + hullBonus,
     hull: Math.min(previousState.maxHull + hullBonus, previousState.hull + hullBonus),
     maxShield: previousState.maxShield + shieldBonus,
@@ -3039,11 +3047,18 @@ export function setArenaBuild(previousState: ArenaGameState, nextBuild: ArenaBui
   if (previousState.activeBuild === nextBuild) {
     return previousState;
   }
+  const updatedWeaponsByBuild: ArenaBuildValueMap<ArenaWeapon> = {
+    ...previousState.weaponsByBuild,
+    [previousState.activeBuild]: previousState.weapon,
+  };
+  const nextWeapon = updatedWeaponsByBuild[nextBuild];
   return {
     ...previousState,
     activeBuild: nextBuild,
+    weapon: nextWeapon,
+    weaponsByBuild: updatedWeaponsByBuild,
     playerBullets: [],
-    fireCooldown: nextBuild === 'missileCommand' ? 0 : Math.max(0, previousState.fireCooldown),
+    fireCooldown: nextBuild === 'missileCommand' ? 0 : Math.max(0, Math.min(nextWeapon.fireInterval, previousState.fireCooldown)),
     missileCooldown: nextBuild === 'missileCommand' ? 0.32 : previousState.missileCooldown,
     missileBurstTimer: 0,
     missileBurstInterval: 0,
@@ -3520,13 +3535,13 @@ export function tickArenaState(
 
       if (nextState.activeBuild === 'fractureCore' && activeBullet.kind === 'primary' && !triggeredFracture) {
         triggeredFracture = true;
-        queueEffect(nextState, 'fractureBits', activeBullet.x, activeBullet.y, activeBullet.size * 5.8, '#D4E8FF', {
+        queueEffect(nextState, 'fractureBits', activeBullet.x, activeBullet.y, activeBullet.size * 7.0, '#D4E8FF', {
           flavor: 'fractureCore',
           intensity: 1.36,
           angle: Math.random() * Math.PI * 2,
         });
         createFractureShards(nextState, activeBullet.x, activeBullet.y, hitDamage * 1.1);
-        const fracturePulseRadius = 66;
+        const fracturePulseRadius = 90;
         for (const pulseTarget of survivingEnemies) {
           if (pulseTarget === enemy || pulseTarget.health <= 0) {
             continue;
@@ -3547,7 +3562,7 @@ export function tickArenaState(
       }
 
       if (activeBullet.kind === 'shard') {
-        const fragmentSplashRadius = 44;
+        const fragmentSplashRadius = 60;
         for (const fragmentTarget of survivingEnemies) {
           if (fragmentTarget === enemy || fragmentTarget.health <= 0) {
             continue;

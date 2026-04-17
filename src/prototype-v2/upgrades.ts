@@ -53,7 +53,7 @@ export const ARENA_ARMORY_UPGRADES: Record<
     compactHint: "Extra barrel",
     apply: (weapon) => ({
       ...weapon,
-      shotCount: Math.min(4, weapon.shotCount + 1),
+      shotCount: weapon.shotCount + 1,
       spread: Math.min(26, weapon.spread + 3),
     }),
   },
@@ -114,14 +114,14 @@ export const ARENA_ARMORY_UPGRADE_ORDER = Object.keys(
 const BUILD_MAX_SHOT_COUNT: Record<ArenaBuildId, number> = {
   railFocus:      2,
   novaBloom:      4,
-  missileCommand: 4,
+  missileCommand: 6,
   fractureCore:   3,
 };
 
 const BUILD_FIRE_INTERVAL_FLOOR: Record<ArenaBuildId, number> = {
   railFocus:      0.065,
   novaBloom:      0.085,
-  missileCommand: 0.062,
+  missileCommand: 0.065,
   fractureCore:   0.32,
 };
 

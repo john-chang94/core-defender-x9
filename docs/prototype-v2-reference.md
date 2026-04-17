@@ -1,7 +1,7 @@
 # Prototype V2 Reference
 
 Snapshot date: `2026-04-15`
-Board version: `v0.53`
+Board version: `v0.63`
 
 This document is the current reference for the arena-combat shooter in `/Users/johnchang/Desktop/defender/src/prototype-v2`. It replaces the earlier planning-heavy draft with a snapshot of what is actually implemented today, plus the next major gaps.
 
@@ -72,12 +72,16 @@ Other UI behavior:
 - drop labels are rendered under field pickups
 - the player ship now sits higher in the lower arena to keep the live view clearer under the player’s finger
 - a semi-transparent move hint sits below the ship and hides while the player is pressing in that control zone
-- the armory is opened manually from an in-arena button instead of auto-opening on threshold hit
-- the in-game menu now includes `Run`, `Codex`, `Mastery`, and `Collection` tabs
+- the armory is accessible anytime during a run via the HUD button; if no upgrade choices are pending it opens in browse mode showing upgrade status and the next unlock threshold
+- the armory panel has two sub-tabs: `Upgrades` and `Build`; build selection was moved out of the main menu and into the armory `Build` sub-tab
+- the in-game menu now includes `Run`, `Codex`, `Mastery`, and `Collection` tabs (the `Builds` tab was removed)
 - the `Run` tab now shows active biome / sector info, next boss preview, and Arena-local audio controls
 - run-end summary panels now show tier reached, bosses cleared, mastery XP granted, and newly claimable cosmetics
 - codex, mastery, and cosmetic collection state persist across relaunches through a versioned AsyncStorage blob
-- the in-game menu still allows game switching, build switching, and restart
+- the in-game menu still allows game switching and restart
+- the `Codex` tab shows a compact summary line, a `Rewards` unlock chip row, and the enemy log only (Build Log removed)
+- the `Mastery` tab shows mastery cards directly without the showcase header card
+- the `Collection` tab uses a compact pill row for build selection instead of a 4-card grid
 
 ## Current Combat Rules
 
@@ -117,13 +121,17 @@ Identity:
 - precision / lane-control build
 - fewer guns, tighter spread, higher direct damage, higher pierce
 
-Current behavior:
+Combat behavior:
 
 - normal gun cap: `2`
 - overdrive gun cap: `3`
+- runtime damage multiplier: `×1.44` on base damage
+- runtime fire interval: `×1.08` (slightly slower than base, but pierce and bullet speed compensate)
 - stronger direct-hit scaling than the wider-area builds
-- precision bonus against high-value or high-threat targets
+- precision bonus (`×1.58` damage) against elites, bosses, and winding-up enemies
 - fastest-feeling long-lane pressure among the non-missile builds
+- `Rapid Cycle` cap: `5` applications (fire interval floor `0.065s`)
+- `Twin Array` cap: `1` application (`1 → 2` guns)
 
 Ultimate: `Rail Surge`
 
@@ -138,13 +146,16 @@ Identity:
 - fan-shaped primary-fire coverage build
 - crowd-control / coverage build
 
-Current behavior:
+Combat behavior:
 
 - normal gun cap: `4`
 - overdrive gun cap: `5`
+- runtime damage multiplier: `×0.82` (lower per-shot damage, compensated by volume)
+- runtime shotCount floors at `2` (min two barrels always active)
 - broader spread than the other primary-gun builds
-- slightly lower per-projectile damage than the precision build
 - intended to own screen coverage rather than single-target burst
+- `Rapid Cycle` cap: `3` applications (fire interval floor `0.085s`)
+- `Twin Array` cap: `3` applications (`1 → 4` guns)
 
 Ultimate: `Solar Bloom`
 
@@ -159,17 +170,18 @@ Identity:
 - ordnance-only build
 - homing missile pressure with splash
 
-Current behavior:
+Combat behavior:
 
 - does not use the standard primary-gun volley loop
 - fires missiles one at a time inside a volley window
-- missile count per volley depends on current gun count
+- starts with `2` missiles per volley; upgradeable to `6`
 - normal gun cap: `6`
 - overdrive volley count: `12`
 - base volley window: `1.0s`
-- `Rapid Cycle` reduces the window by `0.1s` per step, capped at `0.5s`
-- overdrive forces `12 missiles` in a `0.5s` window
-- missiles are larger and heavier-looking than before and do stronger splash damage
+- `Rapid Cycle` reduces the burst window by `0.1s` per step (`5` applications caps it at `0.5s`)
+- overdrive forces `12 missiles` in a fixed `0.5s` window
+- `Twin Array` cap: `4` applications (`2 → 6` missiles)
+- missiles are homing with strong splash damage; direct hit damage is `×3.35` of base weapon damage
 
 Ultimate: `Missile Barrage`
 
@@ -183,15 +195,17 @@ Identity:
 - slow heavy shot into fragmentation build
 - impact-to-shard chain build
 
-Current behavior:
+Combat behavior:
 
-- slower firing cadence than the other builds
 - normal gun cap: `3`
-- overdrive gun cap: `4`
-- primary shots are large, rock-like projectiles
-- impacts create fragment bursts and shard follow-up damage
-- fragment splash radius is larger than before
-- current VFX now reads as shard spray instead of a soft circular pulse
+- overdrive gun cap: `5`
+- runtime damage multiplier: `×2.10` on base damage (highest single-shot damage of any build)
+- runtime fire interval: clamped to minimum `0.32s` (`×2.3` multiplier on stored interval); `Rapid Cycle` has no effect and is disabled from game start since the runtime clamp always overrides it
+- primary shots are large, rock-like projectiles with `+6.0` bullet size added at runtime (base `8 → 14`), capped at `26.0`
+- on primary impact: spawns up to `8` shards in a `±50°` fan, triggers a fracture pulse with radius `90` that deals `24%` of hit damage to all enemies inside, and queues a VFX burst scaled to `×7.0` the projectile size
+- shard impact: each shard carries `34%` of primary hit damage and has a fragment splash radius of `60` that deals `42%` of shard damage to nearby enemies
+- `Twin Array` cap: `2` applications (`1 → 3` shots)
+- overdrive: fire interval drops to `max(0.13s, 0.32 × 0.54) ≈ 0.173s`, damage gets `+16` bonus (vs `+10` for other builds), projectile size cap raises to `30.0`
 
 Ultimate: `Cascade Break`
 
@@ -227,7 +241,7 @@ Current visual behavior:
 
 ### Standard armory drafts
 
-- the first draft threshold starts at `120`
+- the first draft threshold starts at `120`; early thresholds were deliberately kept higher so upgrades do not arrive trivially in the first few tiers
 - each next standard draft increases by `80`
 - when salvage reaches the threshold, the run banks an available armory upgrade instead of interrupting the fight
 - the armory button lights up when one or more upgrades are available
@@ -255,16 +269,19 @@ Current behavior:
 - the armory shows all available upgrades
 - upgrades that are maxed are disabled instead of disappearing
 - maxed upgrades show a `MAX` overlay in the modal
+- upgrade caps for `Twin Array` (max shot count) and `Rapid Cycle` (fire interval floor) are enforced per active build using `weaponsByBuild`, so each build tracks its own independent weapon state
+- in browse mode (no pending choices) all upgrade cards are disabled and the prompt shows the next unlock threshold
+- each build maintains its own weapon in `weaponsByBuild`; switching builds restores the stored weapon for that build, preserving per-build upgrade progress independently
 
-Practical meanings:
+Practical meanings and caps:
 
-- `Damage Matrix`: raw damage increase
-- `Rapid Cycle`: faster fire loop and slightly tighter spread
-- `Twin Array`: more barrels / projectiles
-- `Phase Pierce`: more target pass-through
-- `Shield Capacitor`: more max shield
-- `Reinforced Plating`: more max health
-- `Accelerator`: faster, larger projectiles with added pierce
+- `Damage Matrix`: `+3` raw damage per shot — **unlimited**
+- `Rapid Cycle`: `−12%` fire interval per step, `−6%` spread — **Rail Focus** `5×` (floor `0.065s`), **Nova Bloom** `3×` (floor `0.085s`), **Missile Command** `5×` (floor `0.065s`, reduces burst window by `0.1s` per step to a min of `0.5s`), **Fracture Core** `0×` (disabled — runtime clamp overrides stored interval)
+- `Twin Array`: `+1` barrel/missile — **Rail Focus** `1×` (`1→2`), **Nova Bloom** `3×` (`1→4`), **Missile Command** `4×` (`2→6`), **Fracture Core** `2×` (`1→3`)
+- `Phase Pierce`: `+1` pierce — **all builds** `3×` (cap: `3` pierce)
+- `Shield Capacitor`: `+16` max shield — **unlimited**
+- `Reinforced Plating`: `+20` max health — **unlimited**
+- `Accelerator`: `+240` bullet speed / `+0.7` bullet size / `+1` pierce — **all builds** `7×` (all three sub-stats max at app 7: speed `980→1700` in 3 apps, pierce `0→4` in 4 apps, size `8→12.5` in 7 apps)
 
 ## Drops
 
@@ -321,14 +338,16 @@ Current live enemy families:
 
 ### Enemy presentation state
 
-Enemy visuals are no longer basic circles and squares only.
+Enemy hulls were refactored from complex custom polygons to clean geometric shapes for better rendering performance.
 
-Current presentation improvements:
+Current presentation state:
 
-- hull silhouettes are ship-like rather than raw geometry only
-- enemy aim direction rotates the firing tip / gun direction
-- enemy wing panels, canopy shapes, and hull accents are rendered in Skia
-- enemy projectile styles now vary by family (`orb`, `bolt`, `needle`, `bomb`, `wave`)
+- non-boss enemies use distinct geometric shapes: `hover` and `orbiter` are circles; `burst` and `interceptor` are triangles; `sniper` and `lancer` are diamonds; `tank` and `warden` are rectangles; `bomber`, `artillery`, and `weaver` are pentagons; `carrier` and `conductor` are hexagons
+- boss enemies (`prismBoss`, `hiveCarrierBoss`, `vectorLoomBoss`) retain their original custom polygon silhouettes
+- enemy aim direction rotates the barrel / gun direction toward the current fire target
+- gun barrels are rendered as native `<Line>` primitives instead of custom path objects
+- enemy projectile styles vary by family (`orb`, `bolt`, `needle`, `bomb`, `wave`)
+- wing panels, canopy shapes, and hull accent overlays were removed as part of the hull simplification
 
 ## Encounter Structure
 
@@ -416,9 +435,12 @@ Current Skia-rendered layers include:
 - effect list is capped
 - render sampling is used for effects and projectile layers
 - player projectile output now sheds excess volleys / shards under heavy stress instead of letting the live projectile count spike indefinitely
-- dense-effect mode reduces visual complexity when the board is saturated
-- impact bursts are throttled under heavy load
-- fracture fragment effects were recently reduced again for performance (`8` normal, `6` dense)
+- `renderStress` metric is recalibrated to control VFX and effect budget scaling only; enemy hull rendering cost is no longer a major stress contributor because enemy shapes are now simple geometry
+- simplified geometry enemy hulls (`<Circle>` or small polygon paths) replaced the earlier complex custom path allocations for non-boss enemies
+- gun barrel rendering was refactored from custom Skia path objects to native `<Line>` primitives across all enemy types
+- conditional render flags `skipEnemyDetails`, `simplifiedBullets`, and `simplifiedEnemies` were removed; all bullets now render at full quality and enemy details are not downgraded at high stress
+- fracture fragment effects were reduced for performance (`8` normal, `6` dense)
+- lane-band hazard bars are capped at `2` simultaneous active lanes for regular enemies (`weaver`, `conductor`); the `vectorLoomBoss` cap is `3`
 
 ### Current known performance hotspots
 
@@ -445,8 +467,41 @@ Primary implementation files:
 
 ## Changelog Snapshot
 
-### 2026-04-15
+### 2026-04-15 (continued)
 
+- Advanced arena board label to `v0.63`.
+- Buffed `Fracture Core`: damage multiplier raised `1.82 → 2.10`; bullet size add raised `+4.8 → +6.0` (base runtime size `8→14`), normal bullet size cap raised `23.2 → 26.0`; fracture pulse radius widened `66 → 90`; shard fragment splash radius widened `44 → 60`; fracture bits VFX radius on impact raised `×5.8 → ×7.0` of projectile size; shard spawn VFX radius raised `34 → 44`; overdrive fire multiplier tightened `0.67 → 0.54`, overdrive fire floor lowered `0.18s → 0.13s` (effective overdrive interval `~0.214s → ~0.173s`); overdrive bullet size cap raised `27.5 → 30.0`.
+- Fixed `Missile Command` `Rapid Cycle` MAX badge: `BUILD_FIRE_INTERVAL_FLOOR['missileCommand']` corrected to `0.065` (matching apply function floor) so the MAX badge triggers after 5 applications.
+- Updated reference doc with full per-build combat stats, runtime multipliers, and armory upgrade cap table.
+- Advanced arena board label to `v0.62`.
+- Fixed `Missile Command` `Rapid Cycle` MAX badge floor from `0.062` to `0.065`.
+- Advanced arena board label to `v0.61`.
+- Fixed `Missile Command` starting `shotCount` to `2`; updated `BUILD_MAX_SHOT_COUNT['missileCommand']` from `5` to `6` to allow 4 `Twin Array` applications (`2→6`).
+- Advanced arena board label to `v0.60`.
+- Fixed armory upgrade system root bug: added `weaponsByBuild` to `ArenaGameState` so each build maintains an independent stored weapon. `setArenaBuild` now swaps weapons between builds on switch. `applyArenaArmoryUpgrade` syncs `weaponsByBuild` after each upgrade. Both the engine guard and the screen-side guard now pass `activeBuild` to `isArenaArmoryUpgradeMaxed`.
+- Renamed armory "Build" sub-tab to "Builds".
+- Fixed armory panel to use fixed height so the modal does not shrink when switching to the Builds tab.
+- Advanced arena board label to `v0.59`.
+- Refactored main menu: removed the `Builds` tab; moved build selection into a new `Build` sub-tab inside the armory modal. Armory now has two sub-tabs: `Upgrades` and `Build`.
+- Armory is now accessible anytime during a run. Opening it without pending choices shows a browse mode with upgrade status and the next threshold.
+- Enforced per-build upgrade caps for `Twin Array` and `Rapid Cycle` so each build's max is matched to what its weapon transform can reach. Added `BUILD_MAX_SHOT_COUNT` and `BUILD_FIRE_INTERVAL_FLOOR` lookup tables in `upgrades.ts`.
+- Cleaned up main menu tabs: `Codex` no longer shows a showcase header card or Build Log section; `Mastery` no longer shows a showcase header card; `Collection` replaced the 4-card build grid and second showcase card with a compact horizontal pill row.
+- Renamed `Reward Hooks` section in Codex tab to `Rewards`.
+- Tab bar buttons now use `adjustsFontSizeToFit` to prevent text wrapping; reduced `paddingVertical` on tab buttons.
+- Advanced arena board label to `v0.58`.
+- Capped lane-band hazard bars at `2` simultaneous lanes for regular enemies (`weaver`, `conductor`) and `3` for `vectorLoomBoss`.
+- Buffed `Fracture Core`: increased damage multiplier per level, more aggressive fire interval reduction across levels, overdrive gun cap raised from `4` to `5`, faster overdrive fire floor, larger overdrive damage bonus (`+16` vs `+10` for other builds).
+- Advanced arena board label to `v0.57`.
+- Enforced per-build armory upgrade caps. `isArenaArmoryUpgradeMaxed` now accepts `buildId` and checks build-specific ceilings for `twinArray` and `rapidCycle`.
+- Advanced arena board label to `v0.56`.
+- Replaced non-boss enemy hull polygon definitions with simplified geometric shapes (circle, triangle, diamond, rectangle, pentagon, hexagon) in `ArenaCanvas.tsx`. Boss hulls unchanged.
+- Removed `renderEnemyShipDetails` function and its helpers (`createEnemyWingPanelPath`, `createEnemyCanopyPath`). Wing panels, canopy shapes, and hull accents are no longer rendered.
+- Removed `skipEnemyDetails`, `simplifiedBullets`, and `simplifiedEnemies` conditional flags. All bullets render at full quality. `renderStress` now drives VFX budget scaling only.
+- Advanced arena board label to `v0.55`.
+- Refactored enemy gun barrel rendering from custom Skia path objects to native `<Line>` primitives across all enemy types.
+- Advanced arena board label to `v0.54`.
+- Increased early-tier salvage thresholds slightly to slow upgrade pace in the first few tiers.
+- Moved player projectile spawn point upward so shots originate directly above the player ship instead of from the bottom of the arena.
 - Advanced arena board label to `v0.53`.
 - Moved the malformed encoded audio asset URL normalization into Metro middleware so simulator asset requests are rewritten before Metro resolves the filesystem path.
 - Advanced arena board label to `v0.52`.

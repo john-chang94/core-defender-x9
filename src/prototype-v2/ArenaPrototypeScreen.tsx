@@ -2276,7 +2276,7 @@ export function ArenaPrototypeScreen({
     if (!hasArmoryChoices) {
       return;
     }
-    if (isArenaArmoryUpgradeMaxed(key, gameState.weapon)) {
+    if (isArenaArmoryUpgradeMaxed(key, gameState.weapon, gameState.activeBuild)) {
       return;
     }
 
@@ -2986,7 +2986,7 @@ export function ArenaPrototypeScreen({
                         armoryTab === tab && arenaStyles.armoryTabTextActive,
                       ]}
                     >
-                      {tab === "upgrade" ? "Upgrades" : "Build"}
+                      {tab === "upgrade" ? "Upgrades" : "Builds"}
                     </Text>
                   </Pressable>
                 ))}
@@ -4715,7 +4715,7 @@ const arenaStyles = StyleSheet.create({
   armoryPanel: {
     width: "100%",
     maxWidth: 380,
-    maxHeight: "86%",
+    height: "84%",
     borderRadius: 18,
     borderWidth: 1,
     borderColor: "#37536F",
@@ -4778,7 +4778,7 @@ const arenaStyles = StyleSheet.create({
     textTransform: "uppercase",
   },
   armoryOptionsScroll: {
-    maxHeight: 360,
+    flex: 1,
   },
   armoryOptions: {
     flexDirection: "row",
