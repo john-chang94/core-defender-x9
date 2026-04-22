@@ -53,6 +53,15 @@ const ARENA_ULTIMATE_DURATION_SECONDS = 1.15;
 const ARENA_BUILD_DEFAULT: ArenaBuildId = 'railFocus';
 const ARENA_GLOBAL_HEALTH_MULTIPLIER = 1.52;
 const ARENA_MAX_HAZARDS = 6;
+const ARENA_MAX_LANE_BAND_HAZARDS = 3;
+const ARENA_DAMAGE_ULTIMATE_CHARGE_SCALE = 0.035;
+const ARENA_DAMAGE_ULTIMATE_CHARGE_CAP = 3.2;
+const ARENA_KILL_ULTIMATE_CHARGE_MIN = 1.4;
+const ARENA_KILL_ULTIMATE_CHARGE_SCALE = 135;
+const ARENA_KILL_ULTIMATE_CHARGE_CAP = 5.2;
+const ARENA_RAIL_PRECISION_ULTIMATE_CHARGE = 0.28;
+const ARENA_MINI_BOSS_CLEAR_ULTIMATE_CHARGE = 10;
+const ARENA_BOSS_CLEAR_ULTIMATE_CHARGE = 20;
 
 function clamp(value: number, min: number, max: number) {
   return Math.max(min, Math.min(max, value));
@@ -131,6 +140,12 @@ function getArenaPlayerBulletCap(state: ArenaGameState) {
   if (displayTier >= 16) {
     cap -= 6;
   }
+  if (displayTier >= 45) {
+    cap -= state.activeBuild === 'missileCommand' ? 8 : 4;
+  }
+  if (displayTier >= 60) {
+    cap -= state.activeBuild === 'missileCommand' ? 6 : 3;
+  }
   if (state.overclockTimer > 0) {
     cap -= state.activeBuild === 'missileCommand' ? 14 : 10;
   }
@@ -142,8 +157,11 @@ function getArenaPlayerBulletCap(state: ArenaGameState) {
   } else if (combatStress >= 12) {
     cap -= 8;
   }
+  if (state.activeBuild === 'missileCommand' && state.overclockTimer > 0 && combatStress >= 18) {
+    cap -= 6;
+  }
 
-  return Math.max(56, cap);
+  return Math.max(50, cap);
 }
 
 function createArenaEffect(
@@ -332,11 +350,47 @@ function clearEncounterHazards(state: ArenaGameState, encounterTag?: ArenaEncoun
   state.hazards = state.hazards.filter((hazard) => hazard.encounterTag !== encounterTag);
 }
 
-function pushArenaHazard(state: ArenaGameState, hazard: ArenaHazard) {
-  if (state.hazards.length >= ARENA_MAX_HAZARDS) {
-    state.hazards = state.hazards.slice(state.hazards.length - ARENA_MAX_HAZARDS + 1);
+function getLaneBandHazardCount(hazards: readonly ArenaHazard[]) {
+  return hazards.reduce(
+    (count, hazard) => count + (hazard.kind === 'laneBand' ? 1 : 0),
+    0
+  );
+}
+
+function getLaneBandHazardBudget(state: ArenaGameState) {
+  return Math.max(0, ARENA_MAX_LANE_BAND_HAZARDS - getLaneBandHazardCount(state.hazards));
+}
+
+function trimArenaHazardsToCaps(hazards: readonly ArenaHazard[]) {
+  let laneBandCount = 0;
+  const keptLaneBandIds = new Set<string>();
+
+  for (let index = hazards.length - 1; index >= 0; index -= 1) {
+    const hazard = hazards[index];
+    if (hazard.kind !== 'laneBand') {
+      continue;
+    }
+    if (laneBandCount >= ARENA_MAX_LANE_BAND_HAZARDS) {
+      continue;
+    }
+    keptLaneBandIds.add(hazard.id);
+    laneBandCount += 1;
   }
-  state.hazards = [...state.hazards, hazard];
+
+  const laneCappedHazards = hazards.filter(
+    (hazard) => hazard.kind !== 'laneBand' || keptLaneBandIds.has(hazard.id)
+  );
+  if (laneCappedHazards.length <= ARENA_MAX_HAZARDS) {
+    return laneCappedHazards;
+  }
+  return laneCappedHazards.slice(laneCappedHazards.length - ARENA_MAX_HAZARDS);
+}
+
+function pushArenaHazard(state: ArenaGameState, hazard: ArenaHazard) {
+  if (hazard.kind === 'laneBand' && getLaneBandHazardBudget(state) <= 0) {
+    return;
+  }
+  state.hazards = trimArenaHazardsToCaps([...state.hazards, hazard]);
   state.nextHazardId += 1;
 }
 
@@ -492,7 +546,15 @@ function queueLaneBandPattern(
 ) {
   const { lanes, width, y, height } = getLaneBandMetrics(boardWidth, boardHeight);
   const displayTier = getArenaDisplayTier(state.elapsed);
-  const hazardBudget = Math.max(0, Math.min(options?.maxBands ?? 2, getArenaHazardCap(displayTier) - state.hazards.length));
+  const totalHazardBudget = Math.max(
+    0,
+    getArenaHazardCap(displayTier) - state.hazards.length
+  );
+  const laneBandBudget = getLaneBandHazardBudget(state);
+  const hazardBudget = Math.max(
+    0,
+    Math.min(options?.maxBands ?? 2, totalHazardBudget, laneBandBudget)
+  );
   if (hazardBudget <= 0) {
     return;
   }
@@ -706,7 +768,7 @@ function tickHazards(state: ArenaGameState, boardWidth: number, boardHeight: num
     });
   }
 
-  state.hazards = nextHazards;
+  state.hazards = trimArenaHazardsToCaps(nextHazards);
 }
 
 function getBossPhaseIndex(state: ArenaGameState, enemy: ArenaEnemy) {
@@ -2420,7 +2482,13 @@ function applyDamageToEnemy(
   }
 
   if (options?.grantCharge !== false) {
-    addUltimateCharge(state, Math.min(4.8, finalDamage * 0.05));
+    addUltimateCharge(
+      state,
+      Math.min(
+        ARENA_DAMAGE_ULTIMATE_CHARGE_CAP,
+        finalDamage * ARENA_DAMAGE_ULTIMATE_CHARGE_SCALE
+      )
+    );
   }
 
   if (enemy.health > 0) {
@@ -2443,7 +2511,16 @@ function applyDamageToEnemy(
   maybeSpawnEnemyDrop(state, enemy);
 
   if (options?.grantCharge !== false) {
-    addUltimateCharge(state, Math.min(8, Math.max(2, enemy.reward / 95)));
+    addUltimateCharge(
+      state,
+      Math.min(
+        ARENA_KILL_ULTIMATE_CHARGE_CAP,
+        Math.max(
+          ARENA_KILL_ULTIMATE_CHARGE_MIN,
+          enemy.reward / ARENA_KILL_ULTIMATE_CHARGE_SCALE
+        )
+      )
+    );
   }
 
   if (options?.allowDrafts && !state.activeEncounter) {
@@ -3530,7 +3607,7 @@ export function tickArenaState(
       });
 
       if (railPrecisionHit) {
-        addUltimateCharge(nextState, 0.45);
+        addUltimateCharge(nextState, ARENA_RAIL_PRECISION_ULTIMATE_CHARGE);
       }
 
       if (nextState.activeBuild === 'fractureCore' && activeBullet.kind === 'primary' && !triggeredFracture) {
@@ -3746,7 +3823,12 @@ export function tickArenaState(
       const completedEncounter = nextState.activeEncounter;
       nextState.activeEncounter = null;
       nextState.salvage += completedEncounter.rewardSalvage;
-      addUltimateCharge(nextState, completedEncounter.type === 'boss' ? 30 : 16);
+      addUltimateCharge(
+        nextState,
+        completedEncounter.type === 'boss'
+          ? ARENA_BOSS_CLEAR_ULTIMATE_CHARGE
+          : ARENA_MINI_BOSS_CLEAR_ULTIMATE_CHARGE
+      );
       if (nextState.runFirstClearTierByEnemy[completedEncounter.anchorKind] === null) {
         nextState.runFirstClearTierByEnemy[completedEncounter.anchorKind] = completedEncounter.startedAtTier;
       }

@@ -28,6 +28,7 @@ export type ArenaBuildValueMap<T> = Record<ArenaBuildId, T>;
 export type ArenaEnemyValueMap<T> = Record<ArenaEnemyKind, T>;
 export type ArenaUnlockValueMap<T> = Record<ArenaUnlockId, T>;
 export type ArenaCosmeticValueMap<T> = Record<ArenaCosmeticId, T>;
+export type ArenaCoachHintValueMap<T> = Record<ArenaCoachHintId, T>;
 
 export type ArenaEffectKind =
   | 'burst'
@@ -376,16 +377,24 @@ export type ArenaUnlockId =
   | 'hiveCarrierFirstClear'
   | 'vectorLoomFirstClear'
   | 'bossTriadComplete'
+  | 'singleRunBossTriadClear'
   | 'tier24Clear'
+  | 'tier30Clear'
+  | 'tier45Clear'
+  | 'tier60Clear'
   | 'enemyCodexComplete'
   | 'railFocusMastery4'
   | 'railFocusMastery8'
+  | 'railFocusMastery10'
   | 'novaBloomMastery4'
   | 'novaBloomMastery8'
+  | 'novaBloomMastery10'
   | 'missileCommandMastery4'
   | 'missileCommandMastery8'
+  | 'missileCommandMastery10'
   | 'fractureCoreMastery4'
-  | 'fractureCoreMastery8';
+  | 'fractureCoreMastery8'
+  | 'fractureCoreMastery10';
 
 export type ArenaUnlockEntry = {
   id: ArenaUnlockId;
@@ -410,18 +419,26 @@ export type ArenaCosmeticId =
   | 'bannerPrismShard'
   | 'bannerHiveTrace'
   | 'bannerLoomStatic'
+  | 'bannerTriadBreaker'
+  | 'bannerDeepCycle'
   | 'codexFrameDefault'
   | 'codexFrameFullSpectrum'
   | 'codexFrameEndlessApex'
   | 'codexFrameTriadGrid'
+  | 'codexFrameThreatCartographer'
+  | 'codexFrameOuterLimit'
   | 'railFocusAccentDefault'
   | 'railFocusAccentHalo'
+  | 'railFocusAccentApexRail'
   | 'novaBloomAccentDefault'
   | 'novaBloomAccentEcho'
+  | 'novaBloomAccentSolarCrown'
   | 'missileCommandAccentDefault'
   | 'missileCommandAccentStrikeMesh'
+  | 'missileCommandAccentSiegeMesh'
   | 'fractureCoreAccentDefault'
   | 'fractureCoreAccentFractureVein'
+  | 'fractureCoreAccentSingularityVein'
   | 'railFocusCrestDefault'
   | 'railFocusCrestZenith'
   | 'novaBloomCrestDefault'
@@ -460,6 +477,24 @@ export type ArenaEquippedCosmetics = {
   buildCrest: ArenaBuildValueMap<ArenaCosmeticId>;
 };
 
+export type ArenaCoachHintId =
+  | 'movement'
+  | 'salvageArmory'
+  | 'buildSwitching'
+  | 'overdrive'
+  | 'ultimateCharge'
+  | 'impactHazard'
+  | 'laneBandHazard'
+  | 'bossPhase'
+  | 'collectionClaim'
+  | 'tierRewards';
+
+export type ArenaCoachHintEntry = {
+  id: ArenaCoachHintId;
+  seen: boolean;
+  seenAt: string | null;
+};
+
 export type ArenaMetaState = {
   version: number;
   lastUpdatedAt: string;
@@ -469,6 +504,7 @@ export type ArenaMetaState = {
   unlocks: ArenaUnlockValueMap<ArenaUnlockEntry>;
   cosmetics: ArenaCosmeticValueMap<ArenaCosmeticOwnershipEntry>;
   equippedCosmetics: ArenaEquippedCosmetics;
+  coachHints: ArenaCoachHintValueMap<ArenaCoachHintEntry>;
 };
 
 export type ArenaRunMetaSummary = {

@@ -700,9 +700,18 @@ export function ArenaCanvas({ boardWidth, boardHeight, biomeDefinition, state, v
     state.hazards.length * 2 +
     (state.overclockTimer > 0 ? 3 : 0) +
     (state.ultimateTimer > 0 ? 4 : 0);
-  const renderBudgetScale = renderStress >= 28 ? 0.6 : renderStress >= 18 ? 0.76 : renderStress >= 10 ? 0.9 : 1;
+  const renderBudgetScale =
+    renderStress >= 34
+      ? 0.52
+      : renderStress >= 28
+        ? 0.6
+        : renderStress >= 18
+          ? 0.76
+          : renderStress >= 10
+            ? 0.9
+            : 1;
   const maxRenderedEffects = Math.max(18, Math.round((isHighVfx ? MAX_RENDERED_EFFECTS : 28) * renderBudgetScale));
-  const maxRenderedPlayerBullets = Math.max(28, Math.round((isHighVfx ? MAX_RENDERED_PLAYER_BULLETS : 50) * renderBudgetScale));
+  const maxRenderedPlayerBullets = Math.max(26, Math.round((isHighVfx ? MAX_RENDERED_PLAYER_BULLETS : 50) * renderBudgetScale));
   const maxRenderedEnemyBullets = Math.max(18, Math.round((isHighVfx ? MAX_RENDERED_ENEMY_BULLETS : 24) * renderBudgetScale));
 
   const verticalGridLines = useMemo(() => {

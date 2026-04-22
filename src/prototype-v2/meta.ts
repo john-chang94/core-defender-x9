@@ -16,6 +16,9 @@ import type {
   ArenaBuildId,
   ArenaBuildMastery,
   ArenaBuildValueMap,
+  ArenaCoachHintEntry,
+  ArenaCoachHintId,
+  ArenaCoachHintValueMap,
   ArenaCosmeticDisplayState,
   ArenaCosmeticId,
   ArenaCosmeticOwnershipEntry,
@@ -35,8 +38,21 @@ import type {
 } from './types';
 
 export const ARENA_META_STORAGE_KEY = 'arena-v2-meta-v1';
-export const ARENA_META_VERSION = 5;
+export const ARENA_META_VERSION = 6;
 export const ARENA_BUILD_MASTERY_THRESHOLDS = [0, 100, 220, 360, 520, 700, 900, 1120, 1360, 1620, 1900] as const;
+
+export const ARENA_COACH_HINT_ORDER: ArenaCoachHintId[] = [
+  'movement',
+  'salvageArmory',
+  'buildSwitching',
+  'overdrive',
+  'ultimateCharge',
+  'impactHazard',
+  'laneBandHazard',
+  'bossPhase',
+  'collectionClaim',
+  'tierRewards',
+];
 
 const ARENA_BUILD_MASTERY_TITLES = [
   'Cadet',
@@ -95,16 +111,24 @@ export const ARENA_UNLOCK_ORDER: ArenaUnlockId[] = [
   'hiveCarrierFirstClear',
   'vectorLoomFirstClear',
   'bossTriadComplete',
+  'singleRunBossTriadClear',
   'tier24Clear',
+  'tier30Clear',
+  'tier45Clear',
+  'tier60Clear',
   'enemyCodexComplete',
   'railFocusMastery4',
   'railFocusMastery8',
+  'railFocusMastery10',
   'novaBloomMastery4',
   'novaBloomMastery8',
+  'novaBloomMastery10',
   'missileCommandMastery4',
   'missileCommandMastery8',
+  'missileCommandMastery10',
   'fractureCoreMastery4',
   'fractureCoreMastery8',
+  'fractureCoreMastery10',
 ];
 
 const ARENA_UNLOCK_DEFINITIONS: ArenaUnlockValueMap<Omit<ArenaUnlockEntry, 'unlocked' | 'unlockedAt'>> = {
@@ -144,6 +168,15 @@ const ARENA_UNLOCK_DEFINITIONS: ArenaUnlockValueMap<Omit<ArenaUnlockEntry, 'unlo
     buildId: null,
     sourceMilestoneId: 'boss:triad:complete',
   },
+  singleRunBossTriadClear: {
+    id: 'singleRunBossTriadClear',
+    label: 'Single-Run Triad Break',
+    description: 'Clear Prism Core, Hive Carrier, and Vector Loom in one run.',
+    rewardLabel: 'Boss Banner: Triad Breaker',
+    category: 'boss',
+    buildId: null,
+    sourceMilestoneId: 'boss:triad:single-run',
+  },
   tier24Clear: {
     id: 'tier24Clear',
     label: 'Tier 24 Clear',
@@ -152,6 +185,33 @@ const ARENA_UNLOCK_DEFINITIONS: ArenaUnlockValueMap<Omit<ArenaUnlockEntry, 'unlo
     category: 'codex',
     buildId: null,
     sourceMilestoneId: 'tier:24:first-clear',
+  },
+  tier30Clear: {
+    id: 'tier30Clear',
+    label: 'Tier 30 Clear',
+    description: 'Reach pressure tier 30 in a single run.',
+    rewardLabel: 'Codex Frame: Threat Cartographer',
+    category: 'codex',
+    buildId: null,
+    sourceMilestoneId: 'tier:30:first-clear',
+  },
+  tier45Clear: {
+    id: 'tier45Clear',
+    label: 'Tier 45 Clear',
+    description: 'Reach pressure tier 45 in a single run.',
+    rewardLabel: 'Boss Banner: Deep Cycle',
+    category: 'codex',
+    buildId: null,
+    sourceMilestoneId: 'tier:45:first-clear',
+  },
+  tier60Clear: {
+    id: 'tier60Clear',
+    label: 'Tier 60 Clear',
+    description: 'Reach pressure tier 60 in a single run.',
+    rewardLabel: 'Codex Frame: Outer Limit',
+    category: 'codex',
+    buildId: null,
+    sourceMilestoneId: 'tier:60:first-clear',
   },
   enemyCodexComplete: {
     id: 'enemyCodexComplete',
@@ -180,6 +240,15 @@ const ARENA_UNLOCK_DEFINITIONS: ArenaUnlockValueMap<Omit<ArenaUnlockEntry, 'unlo
     buildId: 'railFocus',
     sourceMilestoneId: 'mastery:railFocus:8',
   },
+  railFocusMastery10: {
+    id: 'railFocusMastery10',
+    label: 'Rail Focus Rank 10',
+    description: 'Reach Rail Focus mastery rank 10.',
+    rewardLabel: 'Rail Focus: Apex Rail',
+    category: 'mastery',
+    buildId: 'railFocus',
+    sourceMilestoneId: 'mastery:railFocus:10',
+  },
   novaBloomMastery4: {
     id: 'novaBloomMastery4',
     label: 'Nova Bloom Rank 4',
@@ -197,6 +266,15 @@ const ARENA_UNLOCK_DEFINITIONS: ArenaUnlockValueMap<Omit<ArenaUnlockEntry, 'unlo
     category: 'mastery',
     buildId: 'novaBloom',
     sourceMilestoneId: 'mastery:novaBloom:8',
+  },
+  novaBloomMastery10: {
+    id: 'novaBloomMastery10',
+    label: 'Nova Bloom Rank 10',
+    description: 'Reach Nova Bloom mastery rank 10.',
+    rewardLabel: 'Nova Bloom: Solar Crown',
+    category: 'mastery',
+    buildId: 'novaBloom',
+    sourceMilestoneId: 'mastery:novaBloom:10',
   },
   missileCommandMastery4: {
     id: 'missileCommandMastery4',
@@ -216,6 +294,15 @@ const ARENA_UNLOCK_DEFINITIONS: ArenaUnlockValueMap<Omit<ArenaUnlockEntry, 'unlo
     buildId: 'missileCommand',
     sourceMilestoneId: 'mastery:missileCommand:8',
   },
+  missileCommandMastery10: {
+    id: 'missileCommandMastery10',
+    label: 'Missile Command Rank 10',
+    description: 'Reach Missile Command mastery rank 10.',
+    rewardLabel: 'Missile Command: Siege Mesh',
+    category: 'mastery',
+    buildId: 'missileCommand',
+    sourceMilestoneId: 'mastery:missileCommand:10',
+  },
   fractureCoreMastery4: {
     id: 'fractureCoreMastery4',
     label: 'Fracture Core Rank 4',
@@ -234,13 +321,22 @@ const ARENA_UNLOCK_DEFINITIONS: ArenaUnlockValueMap<Omit<ArenaUnlockEntry, 'unlo
     buildId: 'fractureCore',
     sourceMilestoneId: 'mastery:fractureCore:8',
   },
+  fractureCoreMastery10: {
+    id: 'fractureCoreMastery10',
+    label: 'Fracture Core Rank 10',
+    description: 'Reach Fracture Core mastery rank 10.',
+    rewardLabel: 'Fracture Core: Singularity Vein',
+    category: 'mastery',
+    buildId: 'fractureCore',
+    sourceMilestoneId: 'mastery:fractureCore:10',
+  },
 };
 
 const ARENA_BUILD_UNLOCK_ORDER: ArenaBuildValueMap<ArenaUnlockId[]> = {
-  railFocus: ['railFocusMastery4', 'railFocusMastery8'],
-  novaBloom: ['novaBloomMastery4', 'novaBloomMastery8'],
-  missileCommand: ['missileCommandMastery4', 'missileCommandMastery8'],
-  fractureCore: ['fractureCoreMastery4', 'fractureCoreMastery8'],
+  railFocus: ['railFocusMastery4', 'railFocusMastery8', 'railFocusMastery10'],
+  novaBloom: ['novaBloomMastery4', 'novaBloomMastery8', 'novaBloomMastery10'],
+  missileCommand: ['missileCommandMastery4', 'missileCommandMastery8', 'missileCommandMastery10'],
+  fractureCore: ['fractureCoreMastery4', 'fractureCoreMastery8', 'fractureCoreMastery10'],
 };
 
 function createArenaEnemyValueMap<T>(factory: (kind: ArenaEnemyKind) => T): ArenaEnemyValueMap<T> {
@@ -262,6 +358,13 @@ function createArenaCosmeticValueMap<T>(factory: (cosmeticId: ArenaCosmeticId) =
     accumulator[cosmeticId] = factory(cosmeticId);
     return accumulator;
   }, {} as ArenaCosmeticValueMap<T>);
+}
+
+function createArenaCoachHintValueMap<T>(factory: (hintId: ArenaCoachHintId) => T): ArenaCoachHintValueMap<T> {
+  return ARENA_COACH_HINT_ORDER.reduce((accumulator, hintId) => {
+    accumulator[hintId] = factory(hintId);
+    return accumulator;
+  }, {} as ArenaCoachHintValueMap<T>);
 }
 
 function createCodexEnemyEntry(kind: ArenaEnemyKind): ArenaCodexEnemyEntry {
@@ -323,6 +426,14 @@ function createCosmeticOwnershipEntry(cosmeticId: ArenaCosmeticId): ArenaCosmeti
     id: cosmeticId,
     state: definition.sourceType === 'default' ? 'owned' : 'locked',
     claimedAt: null,
+  };
+}
+
+function createCoachHintEntry(hintId: ArenaCoachHintId): ArenaCoachHintEntry {
+  return {
+    id: hintId,
+    seen: false,
+    seenAt: null,
   };
 }
 
@@ -401,15 +512,48 @@ function isBossTriadComplete(codexEnemies: ArenaEnemyValueMap<ArenaCodexEnemyEnt
   );
 }
 
-function hasReachedTier24(mastery: ArenaBuildValueMap<ArenaBuildMastery>) {
-  return ARENA_BUILD_ORDER.some((buildId) => mastery[buildId].bestTier >= 24);
+function hasReachedTier(mastery: ArenaBuildValueMap<ArenaBuildMastery>, tier: number) {
+  return ARENA_BUILD_ORDER.some((buildId) => mastery[buildId].bestTier >= tier);
+}
+
+function getTierUnlockThreshold(unlockId: ArenaUnlockId) {
+  switch (unlockId) {
+    case 'tier24Clear':
+      return 24;
+    case 'tier30Clear':
+      return 30;
+    case 'tier45Clear':
+      return 45;
+    case 'tier60Clear':
+      return 60;
+    default:
+      return null;
+  }
+}
+
+function isSingleRunBossTriadComplete(runSummary: ArenaRunMetaSummary | undefined) {
+  if (!runSummary) {
+    return false;
+  }
+
+  return (
+    runSummary.bossClearCounts.prismBoss > 0 &&
+    runSummary.bossClearCounts.hiveCarrierBoss > 0 &&
+    runSummary.bossClearCounts.vectorLoomBoss > 0
+  );
 }
 
 function isUnlockSatisfied(
   unlockId: ArenaUnlockId,
   codexEnemies: ArenaEnemyValueMap<ArenaCodexEnemyEntry>,
-  mastery: ArenaBuildValueMap<ArenaBuildMastery>
+  mastery: ArenaBuildValueMap<ArenaBuildMastery>,
+  runSummary?: ArenaRunMetaSummary
 ) {
+  const tierThreshold = getTierUnlockThreshold(unlockId);
+  if (tierThreshold !== null) {
+    return hasReachedTier(mastery, tierThreshold);
+  }
+
   switch (unlockId) {
     case 'prismCoreFirstClear':
       return codexEnemies.prismBoss.bossClears > 0;
@@ -419,40 +563,51 @@ function isUnlockSatisfied(
       return codexEnemies.vectorLoomBoss.bossClears > 0;
     case 'bossTriadComplete':
       return isBossTriadComplete(codexEnemies);
-    case 'tier24Clear':
-      return hasReachedTier24(mastery);
+    case 'singleRunBossTriadClear':
+      return isSingleRunBossTriadComplete(runSummary);
     case 'enemyCodexComplete':
       return isEnemyCodexComplete(codexEnemies);
     case 'railFocusMastery4':
       return mastery.railFocus.level >= 4;
     case 'railFocusMastery8':
       return mastery.railFocus.level >= 8;
+    case 'railFocusMastery10':
+      return mastery.railFocus.level >= 10;
     case 'novaBloomMastery4':
       return mastery.novaBloom.level >= 4;
     case 'novaBloomMastery8':
       return mastery.novaBloom.level >= 8;
+    case 'novaBloomMastery10':
+      return mastery.novaBloom.level >= 10;
     case 'missileCommandMastery4':
       return mastery.missileCommand.level >= 4;
     case 'missileCommandMastery8':
       return mastery.missileCommand.level >= 8;
+    case 'missileCommandMastery10':
+      return mastery.missileCommand.level >= 10;
     case 'fractureCoreMastery4':
       return mastery.fractureCore.level >= 4;
     case 'fractureCoreMastery8':
       return mastery.fractureCore.level >= 8;
+    case 'fractureCoreMastery10':
+      return mastery.fractureCore.level >= 10;
   }
+
+  return false;
 }
 
 function applyArenaUnlockProgress(
   previousUnlocks: ArenaUnlockValueMap<ArenaUnlockEntry>,
   codexEnemies: ArenaEnemyValueMap<ArenaCodexEnemyEntry>,
   mastery: ArenaBuildValueMap<ArenaBuildMastery>,
-  unlockedAt: string
+  unlockedAt: string,
+  runSummary?: ArenaRunMetaSummary
 ) {
   let didChange = false;
   const nextUnlocks = createArenaUnlockValueMap((unlockId) => {
     const previousEntry = previousUnlocks[unlockId] ?? createUnlockEntry(unlockId);
     const definition = ARENA_UNLOCK_DEFINITIONS[unlockId];
-    const shouldUnlock = isUnlockSatisfied(unlockId, codexEnemies, mastery);
+    const shouldUnlock = isUnlockSatisfied(unlockId, codexEnemies, mastery, runSummary);
     const nextEntry: ArenaUnlockEntry = {
       ...definition,
       unlocked: previousEntry.unlocked || shouldUnlock,
@@ -518,6 +673,7 @@ export function createArenaMetaState(): ArenaMetaState {
     unlocks: createArenaUnlockValueMap((unlockId) => createUnlockEntry(unlockId)),
     cosmetics: createArenaCosmeticValueMap((cosmeticId) => createCosmeticOwnershipEntry(cosmeticId)),
     equippedCosmetics: createEquippedCosmetics(),
+    coachHints: createArenaCoachHintValueMap((hintId) => createCoachHintEntry(hintId)),
   };
 }
 
@@ -565,6 +721,16 @@ function normalizeArenaMetaState(raw: unknown): ArenaMetaState {
     ...(candidate.cosmetics?.[cosmeticId] ?? {}),
     id: cosmeticId,
   }));
+  const normalizedCoachHints = createArenaCoachHintValueMap((hintId) => {
+    const previousEntry = candidate.coachHints?.[hintId];
+    return {
+      ...createCoachHintEntry(hintId),
+      ...(previousEntry ?? {}),
+      id: hintId,
+      seen: previousEntry?.seen ?? false,
+      seenAt: previousEntry?.seenAt ?? null,
+    };
+  });
   const unlockedAt = typeof candidate.lastUpdatedAt === 'string' ? candidate.lastUpdatedAt : defaultState.lastUpdatedAt;
   const unlockProgress = applyArenaUnlockProgress(
     normalizedUnlocks,
@@ -584,6 +750,7 @@ function normalizeArenaMetaState(raw: unknown): ArenaMetaState {
     unlocks: unlockProgress.nextUnlocks,
     cosmetics: cosmeticProgress.nextCosmetics,
     equippedCosmetics,
+    coachHints: normalizedCoachHints,
   };
 }
 
@@ -606,6 +773,46 @@ export async function saveArenaMetaState(metaState: ArenaMetaState) {
   } catch (error) {
     console.warn('Failed to save Arena V2 meta state', error);
   }
+}
+
+export function markArenaCoachHintSeen(metaState: ArenaMetaState, hintId: ArenaCoachHintId) {
+  const previousEntry = metaState.coachHints[hintId];
+  if (previousEntry.seen) {
+    return metaState;
+  }
+
+  const nowIso = new Date().toISOString();
+  return {
+    ...metaState,
+    lastUpdatedAt: nowIso,
+    coachHints: {
+      ...metaState.coachHints,
+      [hintId]: {
+        id: hintId,
+        seen: true,
+        seenAt: nowIso,
+      },
+    },
+  };
+}
+
+export function resetArenaCoachHints(metaState: ArenaMetaState) {
+  const nextCoachHints = createArenaCoachHintValueMap((hintId) => createCoachHintEntry(hintId));
+  const didChange = ARENA_COACH_HINT_ORDER.some(
+    (hintId) =>
+      metaState.coachHints[hintId].seen !== nextCoachHints[hintId].seen ||
+      metaState.coachHints[hintId].seenAt !== nextCoachHints[hintId].seenAt
+  );
+
+  if (!didChange) {
+    return metaState;
+  }
+
+  return {
+    ...metaState,
+    lastUpdatedAt: new Date().toISOString(),
+    coachHints: nextCoachHints,
+  };
 }
 
 export function getArenaMasteryLevelFromXp(xp: number) {
@@ -802,7 +1009,13 @@ export function applyArenaRunSummary(
   });
 
   const nowIso = new Date().toISOString();
-  const unlockProgress = applyArenaUnlockProgress(previousMetaState.unlocks, nextEnemies, nextMastery, nowIso);
+  const unlockProgress = applyArenaUnlockProgress(
+    previousMetaState.unlocks,
+    nextEnemies,
+    nextMastery,
+    nowIso,
+    runSummary
+  );
   const cosmeticProgress = applyArenaCosmeticProgress(previousMetaState.cosmetics, unlockProgress.nextUnlocks);
   didChange = didChange || unlockProgress.didChange || cosmeticProgress.didChange;
 

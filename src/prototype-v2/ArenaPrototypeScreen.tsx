@@ -1,6 +1,13 @@
 import type { AudioPlayer } from "expo-audio";
 import { createAudioPlayer, setAudioModeAsync } from "expo-audio";
-import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import {
+  useCallback,
+  useEffect,
+  useLayoutEffect,
+  useMemo,
+  useRef,
+  useState,
+} from "react";
 import type { LayoutChangeEvent } from "react-native";
 import {
   AppState,
@@ -84,6 +91,8 @@ import {
   getArenaNextBuildUnlock,
   getArenaUnlockRewardCosmeticEntry,
   loadArenaMetaState,
+  markArenaCoachHintSeen,
+  resetArenaCoachHints,
   saveArenaMetaState,
 } from "./meta";
 import type {
@@ -91,6 +100,7 @@ import type {
   ArenaAudioSettings,
   ArenaBiomeId,
   ArenaBuildId,
+  ArenaCoachHintId,
   ArenaCosmeticDefinition,
   ArenaCosmeticDisplayState,
   ArenaCosmeticId,
@@ -126,15 +136,65 @@ type ArenaRunEndSummary = {
 const FEATURED_COLLECTION_REWARD_IDS: ArenaCosmeticId[] = [
   "bannerPrismShard",
   "codexFrameEndlessApex",
+  "codexFrameThreatCartographer",
+  "bannerDeepCycle",
+  "codexFrameOuterLimit",
+  "bannerTriadBreaker",
 ];
 const BOSS_ENEMY_ORDER = [
   "prismBoss",
   "hiveCarrierBoss",
   "vectorLoomBoss",
 ] as const;
+const ARENA_COACH_HINT_COPY: Record<
+  ArenaCoachHintId,
+  { title: string; body: string }
+> = {
+  movement: {
+    title: "Move zone",
+    body: "Press and drag near the circle below the ship to steer without covering the hull.",
+  },
+  salvageArmory: {
+    title: "Armory queued",
+    body: "Salvage banks upgrade picks. Open the left armory button when there is a safe window.",
+  },
+  buildSwitching: {
+    title: "Build swap",
+    body: "The armory Builds tab lets you switch kits mid-run; mastery XP goes to the build used most.",
+  },
+  overdrive: {
+    title: "Overdrive",
+    body: "Overdrive temporarily pushes installed stats above cap. Use it to stabilize swarm spikes.",
+  },
+  ultimateCharge: {
+    title: "Ultimate charge",
+    body: "Ultimate charge is earned more slowly now. Save the right button for boss or swarm pressure.",
+  },
+  impactHazard: {
+    title: "Impact warning",
+    body: "Circular markers are delayed shell impacts. Leave the marker before it flashes solid.",
+  },
+  laneBandHazard: {
+    title: "Lane band",
+    body: "Column bands punish staying still. Cross into the open lane as the telegraph settles.",
+  },
+  bossPhase: {
+    title: "Boss phase",
+    body: "Bosses change pressure at health breaks. Expect a short pattern reset after each phase callout.",
+  },
+  collectionClaim: {
+    title: "Rewards ready",
+    body: "Claimable cosmetics wait in Collection. Claiming never auto-equips or changes combat stats.",
+  },
+  tierRewards: {
+    title: "Long-run goals",
+    body: "New cosmetic milestones now extend through T30, T45, and T60.",
+  },
+};
 const ARENA_AUDIO_CUE_ORDER = Object.keys(
   ARENA_AUDIO_CUE_FILES,
 ) as ArenaAudioCueKey[];
+const ARENA_LOSS_TRANSITION_SECONDS = 1.35;
 
 function clamp(value: number, min: number, max: number) {
   return Math.max(min, Math.min(max, value));
@@ -1189,7 +1249,10 @@ export function ArenaPrototypeScreen({
   const [pendingCollectionNoticeIds, setPendingCollectionNoticeIds] = useState<
     ArenaCosmeticId[]
   >([]);
+  const [activeCoachHintId, setActiveCoachHintId] =
+    useState<ArenaCoachHintId | null>(null);
   const [sectorBannerTier, setSectorBannerTier] = useState<number | null>(null);
+  const [lossTransitionTimer, setLossTransitionTimer] = useState(0);
   const [runEndSummary, setRunEndSummary] = useState<ArenaRunEndSummary | null>(
     null,
   );
@@ -1491,8 +1554,9 @@ export function ArenaPrototypeScreen({
     playerVisualX,
   ]);
 
-  useEffect(() => {
+  useLayoutEffect(() => {
     if (gameState.status === "lost") {
+      setLossTransitionTimer(ARENA_LOSS_TRANSITION_SECONDS);
       setIsPaused(true);
       setIsArmoryOpen(false);
       setIsMoveHintPressed(false);
@@ -1500,6 +1564,22 @@ export function ArenaPrototypeScreen({
       armoryResumeOnCloseRef.current = false;
     }
   }, [gameState.status]);
+
+  useEffect(() => {
+    if (lossTransitionTimer <= 0) {
+      return;
+    }
+
+    const timeoutId = setTimeout(() => {
+      setLossTransitionTimer((previousTimer) =>
+        Math.max(0, previousTimer - 1 / 30),
+      );
+    }, 1000 / 30);
+
+    return () => {
+      clearTimeout(timeoutId);
+    };
+  }, [lossTransitionTimer]);
 
   const discoverySignature = ARENA_ENEMY_ORDER.map(
     (kind) => `${kind}:${gameState.runSeenTierByEnemy[kind] ?? "-"}`,
@@ -1607,9 +1687,13 @@ export function ArenaPrototypeScreen({
   );
   const claimableCosmeticIds = getArenaClaimableCosmeticIds(arenaMeta);
   const claimableCosmeticIdSet = new Set(claimableCosmeticIds);
-  const newClaimableCount = pendingCollectionNoticeIds.filter((cosmeticId) =>
+  const pendingClaimableNoticeIds = pendingCollectionNoticeIds.filter((cosmeticId) =>
     claimableCosmeticIdSet.has(cosmeticId),
-  ).length;
+  );
+  const newClaimableCount = pendingClaimableNoticeIds.length;
+  const pendingClaimableLabels = pendingClaimableNoticeIds
+    .slice(0, 2)
+    .map((cosmeticId) => getArenaCosmeticDefinition(cosmeticId).label);
   const featuredRewardIds = [...FEATURED_COLLECTION_REWARD_IDS].sort(
     (leftId, rightId) => {
       const leftState = getArenaCosmeticDisplayState(arenaMeta, leftId);
@@ -1622,13 +1706,24 @@ export function ArenaPrototypeScreen({
   );
   const collectionNoticeText =
     newClaimableCount > 0
-      ? `New cosmetics ready in Collection: ${newClaimableCount}.`
+      ? `New rewards ready: ${pendingClaimableLabels.join(" • ")}${newClaimableCount > pendingClaimableLabels.length ? ` +${newClaimableCount - pendingClaimableLabels.length}` : ""}. Claim in Collection.`
       : claimableCosmeticIds.length > 0
         ? `Collection has ${claimableCosmeticIds.length} reward${claimableCosmeticIds.length === 1 ? "" : "s"} ready to claim.`
         : null;
   const fireRate = (1 / activeWeapon.fireInterval).toFixed(1);
   const ultimateChargeProgress = clamp(gameState.ultimateCharge / 100, 0, 1);
   const ultimateReady = gameState.ultimateCharge >= 100;
+  const isLossTransitionActive =
+    gameState.status === "lost" && lossTransitionTimer > 0;
+  const lossTransitionProgress = isLossTransitionActive
+    ? clamp(
+        1 - lossTransitionTimer / ARENA_LOSS_TRANSITION_SECONDS,
+        0,
+        1,
+      )
+    : 1;
+  const lossCurtainOffset =
+    boardSize.height * 0.5 * (1 - lossTransitionProgress);
   const activeEncounterAnchor = gameState.activeEncounter
     ? ((gameState.activeEncounter.anchorEnemyId
         ? gameState.enemies.find(
@@ -1647,6 +1742,65 @@ export function ArenaPrototypeScreen({
       : gameState.availableArmoryChoices === 1
         ? "1 upgrade available"
         : `${gameState.availableArmoryChoices} upgrades available`;
+  const canShowCoachHint =
+    isMetaReady &&
+    hasStarted &&
+    !isPaused &&
+    !isArmoryOpen &&
+    !isMenuOpen &&
+    gameState.status === "running";
+  const eligibleCoachHintId: ArenaCoachHintId | null = (() => {
+    if (!canShowCoachHint || activeCoachHintId !== null) {
+      return null;
+    }
+
+    const isUnseen = (hintId: ArenaCoachHintId) =>
+      !arenaMeta.coachHints[hintId]?.seen;
+    if (
+      isUnseen("laneBandHazard") &&
+      gameState.hazards.some((hazard) => hazard.kind === "laneBand")
+    ) {
+      return "laneBandHazard";
+    }
+    if (
+      isUnseen("impactHazard") &&
+      gameState.hazards.some((hazard) => hazard.kind === "impact")
+    ) {
+      return "impactHazard";
+    }
+    if (
+      isUnseen("bossPhase") &&
+      gameState.activeEncounter?.type === "boss" &&
+      gameState.activeEncounter.bossPhaseIndex > 0
+    ) {
+      return "bossPhase";
+    }
+    if (isUnseen("collectionClaim") && claimableCosmeticIds.length > 0) {
+      return "collectionClaim";
+    }
+    if (isUnseen("salvageArmory") && hasArmoryChoices) {
+      return "salvageArmory";
+    }
+    if (isUnseen("ultimateCharge") && (ultimateReady || gameState.ultimateCharge >= 70)) {
+      return "ultimateCharge";
+    }
+    if (isUnseen("overdrive") && gameState.overclockTimer > 0) {
+      return "overdrive";
+    }
+    if (isUnseen("buildSwitching") && displayTier >= 3) {
+      return "buildSwitching";
+    }
+    if (isUnseen("tierRewards") && displayTier >= 24) {
+      return "tierRewards";
+    }
+    if (isUnseen("movement")) {
+      return "movement";
+    }
+    return null;
+  })();
+  const activeCoachHintCopy = activeCoachHintId
+    ? ARENA_COACH_HINT_COPY[activeCoachHintId]
+    : null;
   const healthProgress = clamp(
     gameState.hull / Math.max(1, gameState.maxHull),
     0,
@@ -1706,26 +1860,41 @@ export function ArenaPrototypeScreen({
   const ultimateReadyPulse = ultimateReady
     ? 0.5 + Math.sin(gameState.elapsed * 5.8) * 0.5
     : 0;
-  const statusText = !hasStarted
-    ? "Press Start to deploy the arena test."
-    : isArmoryOpen
-      ? `Armory open. ${armoryAvailabilityLabel}.`
-      : isMenuOpen
-        ? collectionNoticeText
-          ? `Menu open. ${collectionNoticeText}`
-          : "Menu open. Simulation paused."
-        : gameState.status === "lost"
-          ? "Health depleted. Restart to run again."
-          : isPaused
-            ? "Arena Prototype paused."
-            : (gameState.pickupMessage ??
-              (activeEncounterAnchor && gameState.activeEncounter
-                ? `${gameState.activeEncounter.label} ${formatArenaValue(activeEncounterAnchor.health)}`
-                : gameState.activeEncounter
-                  ? `${gameState.activeEncounter.label} active`
-                  : gameState.overclockTimer > 0
-                    ? `${activeBuildMeta.shortLabel} Overdrive ${gameState.overclockTimer.toFixed(1)}s. Threat ${gameState.enemies.length}/${activeEnemyCap}`
-                    : `${activeBuildMeta.shortLabel} Build online. Threat ${gameState.enemies.length}/${activeEnemyCap}`));
+  const statusText = (() => {
+    if (!hasStarted) {
+      return "Press Start to deploy the arena test.";
+    }
+    if (isArmoryOpen) {
+      return `Armory open. ${armoryAvailabilityLabel}.`;
+    }
+    if (isMenuOpen) {
+      return collectionNoticeText
+        ? `Menu open. ${collectionNoticeText}`
+        : "Menu open. Simulation paused.";
+    }
+    if (isLossTransitionActive) {
+      return "Ship critical. Closing telemetry...";
+    }
+    if (gameState.status === "lost") {
+      return "Health depleted. Restart to run again.";
+    }
+    if (isPaused) {
+      return "Arena Prototype paused.";
+    }
+    return (
+      gameState.pickupMessage ??
+      (activeEncounterAnchor && gameState.activeEncounter
+        ? `${gameState.activeEncounter.label} ${formatArenaValue(activeEncounterAnchor.health)}`
+        : gameState.activeEncounter
+          ? `${gameState.activeEncounter.label} active`
+          : gameState.overclockTimer > 0
+            ? `${activeBuildMeta.shortLabel} Overdrive ${gameState.overclockTimer.toFixed(1)}s. Threat ${gameState.enemies.length}/${activeEnemyCap}`
+            : `${activeBuildMeta.shortLabel} Build online. Threat ${gameState.enemies.length}/${activeEnemyCap}`)
+    );
+  })();
+  const shouldShowRunEndOverlay =
+    (gameState.status === "lost" && !isLossTransitionActive) ||
+    pendingRestartSummary !== null;
   const armorySubtitle = `${armoryAvailabilityLabel}. Next standard unlock ${gameState.nextArmoryCost} salvage.`;
   const armoryUpgrades = ARENA_ARMORY_UPGRADE_ORDER.map((key) => {
     const definition = ARENA_ARMORY_UPGRADES[key];
@@ -1742,6 +1911,11 @@ export function ArenaPrototypeScreen({
   const globalUnlockEntries = getArenaGlobalUnlockIds().map(
     (unlockId) => arenaMeta.unlocks[unlockId],
   );
+  const nextGlobalRewardEntry =
+    globalUnlockEntries.find((entry) => !entry.unlocked) ?? null;
+  const nextRewardPreviewLabel = nextGlobalRewardEntry
+    ? `${nextGlobalRewardEntry.rewardLabel} • ${nextGlobalRewardEntry.description}`
+    : "All current global rewards unlocked.";
   const masteryCards = ARENA_BUILD_ORDER.map((buildId) => {
     const buildMeta = ARENA_BUILD_META[buildId];
     const accentDefinition = getArenaCosmeticDefinition(
@@ -1916,6 +2090,40 @@ export function ArenaPrototypeScreen({
     moveHintTop,
     playerVisualX,
   ]);
+
+  useEffect(() => {
+    if (!eligibleCoachHintId || activeCoachHintId !== null) {
+      return;
+    }
+
+    setActiveCoachHintId(eligibleCoachHintId);
+    setArenaMeta((previousMetaState) => {
+      const nextMetaState = markArenaCoachHintSeen(
+        previousMetaState,
+        eligibleCoachHintId,
+      );
+      if (nextMetaState !== previousMetaState) {
+        void saveArenaMetaState(nextMetaState);
+      }
+      return nextMetaState;
+    });
+  }, [activeCoachHintId, eligibleCoachHintId]);
+
+  useEffect(() => {
+    if (!activeCoachHintId) {
+      return;
+    }
+
+    const timeoutId = setTimeout(() => {
+      setActiveCoachHintId((previousHintId) =>
+        previousHintId === activeCoachHintId ? null : previousHintId,
+      );
+    }, 5200);
+
+    return () => {
+      clearTimeout(timeoutId);
+    };
+  }, [activeCoachHintId]);
 
   useEffect(() => {
     if (!isArenaAudioReady) {
@@ -2230,9 +2438,11 @@ export function ArenaPrototypeScreen({
     setIsArmoryOpen(false);
     setMenuTab("run");
     setIsMoveHintPressed(false);
+    setActiveCoachHintId(null);
     setRunEndSummary(null);
     setPendingRestartSummary(null);
     setSectorBannerTier(null);
+    setLossTransitionTimer(0);
     armoryResumeOnCloseRef.current = false;
     runMetaCommittedRef.current = false;
     lastBiomeBannerKeyRef.current = "";
@@ -2313,6 +2523,16 @@ export function ArenaPrototypeScreen({
   const handleEquipCosmetic = (cosmeticId: ArenaCosmeticId) => {
     setArenaMeta((previousMetaState) => {
       const nextMetaState = equipArenaCosmetic(previousMetaState, cosmeticId);
+      if (nextMetaState !== previousMetaState) {
+        void saveArenaMetaState(nextMetaState);
+      }
+      return nextMetaState;
+    });
+  };
+  const handleResetCoachHints = () => {
+    setActiveCoachHintId(null);
+    setArenaMeta((previousMetaState) => {
+      const nextMetaState = resetArenaCoachHints(previousMetaState);
       if (nextMetaState !== previousMetaState) {
         void saveArenaMetaState(nextMetaState);
       }
@@ -2636,13 +2856,29 @@ export function ArenaPrototypeScreen({
               style={[
                 arenaStyles.playerWingBaseLeft,
                 {
-                  backgroundColor: activeAccentDefinition.secondaryColor,
+                  borderRightColor: activeAccentDefinition.secondaryColor,
                 },
               ]}
             />
             <View
               style={[
                 arenaStyles.playerWingBaseRight,
+                {
+                  borderLeftColor: activeAccentDefinition.secondaryColor,
+                },
+              ]}
+            />
+            <View
+              style={[
+                arenaStyles.playerRearFinLeft,
+                {
+                  backgroundColor: activeAccentDefinition.secondaryColor,
+                },
+              ]}
+            />
+            <View
+              style={[
+                arenaStyles.playerRearFinRight,
                 {
                   backgroundColor: activeAccentDefinition.secondaryColor,
                 },
@@ -2742,6 +2978,17 @@ export function ArenaPrototypeScreen({
             </Text>
           </View>
 
+          {activeCoachHintCopy && canShowCoachHint ? (
+            <View pointerEvents="none" style={arenaStyles.coachHintChip}>
+              <Text style={arenaStyles.coachHintTitle}>
+                {activeCoachHintCopy.title}
+              </Text>
+              <Text style={arenaStyles.coachHintBody}>
+                {activeCoachHintCopy.body}
+              </Text>
+            </View>
+          ) : null}
+
           {sectorBannerTier !== null ? (
             <View pointerEvents="none" style={arenaStyles.sectorBannerWrap}>
               <View
@@ -2834,6 +3081,68 @@ export function ArenaPrototypeScreen({
           {gameState.enemies.map((enemy) => (
             <EnemyNode key={enemy.id} enemy={enemy} />
           ))}
+
+          {isLossTransitionActive ? (
+            <View pointerEvents="none" style={arenaStyles.lossTransitionOverlay}>
+              <View
+                style={[
+                  arenaStyles.lossTransitionCurtain,
+                  arenaStyles.lossTransitionCurtainTop,
+                  {
+                    opacity: 0.72 + lossTransitionProgress * 0.16,
+                    transform: [{ translateY: -lossCurtainOffset }],
+                  },
+                ]}
+              />
+              <View
+                style={[
+                  arenaStyles.lossTransitionCurtain,
+                  arenaStyles.lossTransitionCurtainBottom,
+                  {
+                    opacity: 0.72 + lossTransitionProgress * 0.16,
+                    transform: [{ translateY: lossCurtainOffset }],
+                  },
+                ]}
+              />
+              <View
+                style={[
+                  arenaStyles.lossTransitionGlow,
+                  {
+                    backgroundColor: hexToRgba(
+                      activeBiomeDefinition.announcementGlow,
+                      0.16 + lossTransitionProgress * 0.2,
+                    ),
+                    transform: [
+                      { scale: 0.78 + lossTransitionProgress * 0.36 },
+                    ],
+                  },
+                ]}
+              />
+              <View
+                style={[
+                  arenaStyles.lossTransitionBeam,
+                  {
+                    backgroundColor: hexToRgba(
+                      activeBiomeDefinition.detailColor,
+                      0.24 + lossTransitionProgress * 0.3,
+                    ),
+                    opacity: 0.5 + lossTransitionProgress * 0.45,
+                  },
+                ]}
+              />
+              <Text
+                style={[
+                  arenaStyles.lossTransitionTitle,
+                  { color: activeBiomeDefinition.detailColor },
+                ]}
+              >
+                Ship Lost
+              </Text>
+              <Text style={arenaStyles.lossTransitionSubtitle}>
+                Telemetry closing
+              </Text>
+            </View>
+          ) : null}
 
           <Pressable
             onPress={handleOpenArmory}
@@ -3209,7 +3518,7 @@ export function ArenaPrototypeScreen({
                 <MetaShowcaseCard
                   title={activeBiomeDefinition.label}
                   subtitle={`Sector ${activeSectorLabel}`}
-                  note={`${activeBiomeDefinition.subtitle} Next boss ${nextBossPreviewLabel}.`}
+                  note={`${activeBiomeDefinition.subtitle} Next boss ${nextBossPreviewLabel}. Next reward ${nextRewardPreviewLabel}`}
                   bannerDefinition={activeBannerDefinition}
                   frameDefinition={activeFrameDefinition}
                   biomeDefinition={activeBiomeDefinition}
@@ -3298,6 +3607,21 @@ export function ArenaPrototypeScreen({
                   >
                     <Text style={arenaStyles.menuButtonText}>High</Text>
                   </Pressable>
+                </View>
+
+                <Text style={arenaStyles.menuLabel}>Tips</Text>
+                <View style={arenaStyles.menuRow}>
+                  <Pressable
+                    onPress={handleResetCoachHints}
+                    style={arenaStyles.menuButton}
+                  >
+                    <Text style={arenaStyles.menuButtonText}>Reset tips</Text>
+                  </Pressable>
+                  <View style={arenaStyles.tipStatusCard}>
+                    <Text style={arenaStyles.tipStatusText}>
+                      Coaching chips are shown once and never pause combat.
+                    </Text>
+                  </View>
                 </View>
 
                 <Text style={arenaStyles.menuLabel}>Audio</Text>
@@ -3853,7 +4177,7 @@ export function ArenaPrototypeScreen({
         ) : null}
       </View>
 
-      {gameState.status === "lost" || pendingRestartSummary ? (
+      {shouldShowRunEndOverlay ? (
         <View style={arenaStyles.overlay}>
           <View style={arenaStyles.gameOverModal}>
             <Text style={arenaStyles.gameOverTitle}>
@@ -4313,6 +4637,37 @@ const arenaStyles = StyleSheet.create({
     fontWeight: "800",
     letterSpacing: 0.4,
   },
+  coachHintChip: {
+    position: "absolute",
+    left: 18,
+    right: 18,
+    bottom: 86,
+    zIndex: 8,
+    borderRadius: 13,
+    borderWidth: 1,
+    borderColor: "rgba(222, 243, 255, 0.42)",
+    backgroundColor: "rgba(8, 18, 29, 0.82)",
+    paddingHorizontal: 12,
+    paddingVertical: 9,
+    shadowColor: "#9ADFFF",
+    shadowOffset: { width: 0, height: 0 },
+    shadowOpacity: 0.2,
+    shadowRadius: 12,
+  },
+  coachHintTitle: {
+    color: "#F3FAFF",
+    fontSize: 11.5,
+    fontWeight: "900",
+    textTransform: "uppercase",
+    letterSpacing: 0.5,
+  },
+  coachHintBody: {
+    marginTop: 3,
+    color: "#BFD3E8",
+    fontSize: 10.5,
+    lineHeight: 14,
+    fontWeight: "700",
+  },
   boardAnnouncementGlow: {
     position: "absolute",
     width: 260,
@@ -4514,8 +4869,8 @@ const arenaStyles = StyleSheet.create({
   },
   playerShell: {
     position: "absolute",
-    width: 60,
-    height: 42,
+    width: 68,
+    height: 48,
     alignItems: "center",
   },
   playerShellHit: {
@@ -4592,86 +4947,120 @@ const arenaStyles = StyleSheet.create({
   },
   playerThrusterGlow: {
     position: "absolute",
-    bottom: 1,
-    width: 42,
-    height: 12,
+    bottom: 0,
+    width: 46,
+    height: 13,
     borderRadius: 999,
     backgroundColor: "rgba(110, 231, 255, 0.2)",
   },
   playerFuselage: {
-    width: 20,
-    height: 27,
-    borderRadius: 10,
+    width: 22,
+    height: 31,
+    borderTopLeftRadius: 5,
+    borderTopRightRadius: 5,
+    borderBottomLeftRadius: 2,
+    borderBottomRightRadius: 2,
     backgroundColor: "#5BDDF9",
-    borderWidth: 1.4,
+    borderWidth: 1.2,
     borderColor: "#E9FCFF",
     alignItems: "center",
     justifyContent: "flex-start",
   },
   playerCanopy: {
-    marginTop: 4,
-    width: 9,
-    height: 11,
-    borderRadius: 6,
+    marginTop: 5,
+    width: 8,
+    height: 14,
+    borderTopLeftRadius: 4,
+    borderTopRightRadius: 4,
+    borderBottomLeftRadius: 2,
+    borderBottomRightRadius: 2,
     backgroundColor: "#FFF0CA",
     borderWidth: 1,
     borderColor: "#FFF9EA",
   },
   playerSpine: {
     marginTop: 2,
-    width: 4,
-    height: 8,
-    borderRadius: 3,
+    width: 3,
+    height: 9,
+    borderRadius: 1,
     backgroundColor: "#218EC0",
   },
   playerNose: {
     position: "absolute",
-    top: -3,
+    top: -8,
     width: 0,
     height: 0,
-    borderLeftWidth: 6,
-    borderRightWidth: 6,
-    borderBottomWidth: 10,
+    borderLeftWidth: 9,
+    borderRightWidth: 9,
+    borderBottomWidth: 17,
     borderLeftColor: "transparent",
     borderRightColor: "transparent",
     borderBottomColor: "#FFE7B0",
   },
   playerWingBaseLeft: {
     position: "absolute",
-    left: 3,
-    top: 16,
-    width: 15,
-    height: 8,
-    borderRadius: 6,
-    backgroundColor: "#2D79BD",
-    transform: [{ rotate: "-14deg" }],
+    left: 5,
+    top: 14,
+    width: 0,
+    height: 0,
+    borderTopWidth: 8,
+    borderBottomWidth: 19,
+    borderRightWidth: 30,
+    borderTopColor: "transparent",
+    borderBottomColor: "transparent",
+    borderRightColor: "#2D79BD",
+    transform: [{ rotate: "-10deg" }],
   },
   playerWingBaseRight: {
     position: "absolute",
-    right: 3,
-    top: 16,
-    width: 15,
-    height: 8,
-    borderRadius: 6,
+    right: 5,
+    top: 14,
+    width: 0,
+    height: 0,
+    borderTopWidth: 8,
+    borderBottomWidth: 19,
+    borderLeftWidth: 30,
+    borderTopColor: "transparent",
+    borderBottomColor: "transparent",
+    borderLeftColor: "#2D79BD",
+    transform: [{ rotate: "10deg" }],
+  },
+  playerRearFinLeft: {
+    position: "absolute",
+    left: 22,
+    bottom: 7,
+    width: 6,
+    height: 14,
+    borderRadius: 1,
     backgroundColor: "#2D79BD",
-    transform: [{ rotate: "14deg" }],
+    transform: [{ rotate: "23deg" }],
+  },
+  playerRearFinRight: {
+    position: "absolute",
+    right: 22,
+    bottom: 7,
+    width: 6,
+    height: 14,
+    borderRadius: 1,
+    backgroundColor: "#2D79BD",
+    transform: [{ rotate: "-23deg" }],
   },
   playerEngineLeft: {
     position: "absolute",
-    left: 20,
-    bottom: 2,
-    width: 5,
-    height: 8,
-    borderRadius: 4,
+    left: 26,
+    bottom: 1,
+    width: 4,
+    height: 10,
+    borderRadius: 2,
     backgroundColor: "#FFDCA1",
   },
   playerEngineRight: {
     position: "absolute",
-    right: 20,
-    bottom: 2,
-    width: 5,
-    height: 8,
-    borderRadius: 4,
+    right: 26,
+    bottom: 1,
+    width: 4,
+    height: 10,
+    borderRadius: 2,
     backgroundColor: "#FFDCA1",
   },
   effectMuzzle: {
@@ -4991,6 +5380,22 @@ const arenaStyles = StyleSheet.create({
     fontSize: 12,
     fontWeight: "700",
   },
+  tipStatusCard: {
+    flex: 1.4,
+    borderRadius: 10,
+    borderWidth: 1,
+    borderColor: "#2F4A66",
+    backgroundColor: "#0E1D2B",
+    paddingHorizontal: 10,
+    paddingVertical: 8,
+    justifyContent: "center",
+  },
+  tipStatusText: {
+    color: "#AFC4DC",
+    fontSize: 10.5,
+    lineHeight: 14,
+    fontWeight: "700",
+  },
   audioControlCard: {
     flex: 1,
     borderRadius: 10,
@@ -5265,6 +5670,60 @@ const arenaStyles = StyleSheet.create({
     fontSize: 10,
     fontWeight: "700",
   },
+  lossTransitionOverlay: {
+    ...StyleSheet.absoluteFillObject,
+    zIndex: 28,
+    justifyContent: "center",
+    alignItems: "center",
+    backgroundColor: "rgba(4, 8, 15, 0.28)",
+    gap: 6,
+    overflow: "hidden",
+    paddingHorizontal: 18,
+  },
+  lossTransitionCurtain: {
+    position: "absolute",
+    left: 0,
+    right: 0,
+    height: "50%",
+    backgroundColor: "rgba(4, 8, 15, 0.88)",
+  },
+  lossTransitionCurtainTop: {
+    top: 0,
+    borderBottomWidth: 1,
+    borderBottomColor: "rgba(222, 240, 255, 0.18)",
+  },
+  lossTransitionCurtainBottom: {
+    bottom: 0,
+    borderTopWidth: 1,
+    borderTopColor: "rgba(222, 240, 255, 0.18)",
+  },
+  lossTransitionGlow: {
+    position: "absolute",
+    width: 240,
+    height: 240,
+    borderRadius: 120,
+  },
+  lossTransitionBeam: {
+    position: "absolute",
+    width: 18,
+    top: "22%",
+    bottom: "22%",
+    borderRadius: 999,
+  },
+  lossTransitionTitle: {
+    fontSize: 20,
+    fontWeight: "900",
+    letterSpacing: 0.4,
+    textAlign: "center",
+    textTransform: "uppercase",
+  },
+  lossTransitionSubtitle: {
+    color: "#D8E7F8",
+    fontSize: 11,
+    fontWeight: "800",
+    letterSpacing: 0.6,
+    textTransform: "uppercase",
+  },
   overlay: {
     ...StyleSheet.absoluteFillObject,
     backgroundColor: "rgba(5, 10, 18, 0.66)",
@@ -5274,8 +5733,8 @@ const arenaStyles = StyleSheet.create({
   },
   playerCrestWrap: {
     position: "absolute",
-    left: 22,
-    top: 11,
+    left: 26,
+    top: 12,
     width: 16,
     height: 16,
     borderRadius: 999,

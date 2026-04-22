@@ -1,7 +1,7 @@
 # Prototype V2 Reference
 
-Snapshot date: `2026-04-15`
-Board version: `v0.63`
+Snapshot date: `2026-04-21`
+Board version: `v0.66`
 
 This document is the current reference for the arena-combat shooter in `/Users/johnchang/Desktop/defender/src/prototype-v2`. It replaces the earlier planning-heavy draft with a snapshot of what is actually implemented today, plus the next major gaps.
 
@@ -25,7 +25,7 @@ Core loop:
 
 This mode is no longer just a redesign concept. It is a production prototype with live combat, encounters, progression, and Skia rendering.
 
-The current build also includes persistent between-run `Codex + Mastery` data stored locally, a scripted encounter registry, a rotating three-boss cadence, named biome sectors, Arena-local audio settings plus music / SFX playback, impact + lane-band hazard telegraphs, and a local cosmetic collection / equip layer on top of the meta flow.
+The current build also includes persistent between-run `Codex + Mastery` data stored locally, a scripted encounter registry, a rotating three-boss cadence, named biome sectors, Arena-local audio settings plus music / SFX playback, impact + lane-band hazard telegraphs, one-time coaching chips, and a local cosmetic collection / equip layer on top of the meta flow.
 
 ## Current Playable State
 
@@ -71,12 +71,15 @@ Other UI behavior:
 - enemy health numbers are rendered as floating labels over enemies
 - drop labels are rendered under field pickups
 - the player ship now sits higher in the lower arena to keep the live view clearer under the player’s finger
+- the default ship silhouette is now a sharper low-poly rail-shooter hull with a pointed nose, swept triangular wings, rear fins, and twin engine slits
 - a semi-transparent move hint sits below the ship and hides while the player is pressing in that control zone
+- one-time coaching chips can appear during live play for movement, armory queueing, build switching, overdrive, ultimate charge, hazards, boss phases, Collection claims, and high-tier goals; `Reset tips` in the `Run` menu clears the seen state
 - the armory is accessible anytime during a run via the HUD button; if no upgrade choices are pending it opens in browse mode showing upgrade status and the next unlock threshold
 - the armory panel has two sub-tabs: `Upgrades` and `Build`; build selection was moved out of the main menu and into the armory `Build` sub-tab
 - the in-game menu now includes `Run`, `Codex`, `Mastery`, and `Collection` tabs (the `Builds` tab was removed)
-- the `Run` tab now shows active biome / sector info, next boss preview, and Arena-local audio controls
+- the `Run` tab now shows active biome / sector info, next boss preview, next reward preview, coaching reset, and Arena-local audio controls
 - run-end summary panels now show tier reached, bosses cleared, mastery XP granted, and newly claimable cosmetics
+- player death now plays a short closing telemetry transition before the run-end summary appears
 - codex, mastery, and cosmetic collection state persist across relaunches through a versioned AsyncStorage blob
 - the in-game menu still allows game switching and restart
 - the `Codex` tab shows a compact summary line, a `Rewards` unlock chip row, and the enemy log only (Build Log removed)
@@ -107,7 +110,7 @@ Other UI behavior:
 
 ## Build System
 
-There are four live builds. The active build can be switched in-run from the menu.
+There are four live builds. The active build can be switched in-run from the armory `Build` sub-tab.
 
 Important implementation note:
 
@@ -299,6 +302,38 @@ Current live effects:
 - overdrive activates the temporary over-max combat state
 - salvage burst adds a flat salvage chunk and can immediately trigger an armory draft if the threshold is crossed
 
+## Meta Progression / Collection
+
+Persistent Arena meta is stored as one versioned AsyncStorage blob.
+
+Current persisted layers:
+
+- `Codex`: enemy discovery, first-seen tier, first kill / clear tier, total kills, and boss clears
+- `Mastery`: build XP, rank title, run count, best tier, mini-boss clears, and boss clears
+- `Collection`: locked / claimable / owned cosmetic inventory plus equipped banner, codex frame, build accent, and build crest
+- `Coach hints`: one-time seen state for Arena V2 coaching chips
+
+Current global reward cosmetics:
+
+- `Boss Banner: Prism Shard`: first `Prism Core` clear
+- `Boss Banner: Hive Trace`: first `Hive Carrier` clear
+- `Boss Banner: Loom Static`: first `Vector Loom` clear
+- `Boss Banner: Triad Breaker`: clear `Prism Core`, `Hive Carrier`, and `Vector Loom` in one run
+- `Boss Banner: Deep Cycle`: reach `T45`
+- `Codex Frame: Full Spectrum`: discover every enemy / boss signal
+- `Codex Frame: Endless Apex`: reach `T24`
+- `Codex Frame: Threat Cartographer`: reach `T30`
+- `Codex Frame: Triad Grid`: clear all three bosses across lifetime progression
+- `Codex Frame: Outer Limit`: reach `T60`
+
+Current build-specific reward cosmetics:
+
+- mastery rank `4`: one build accent per build
+- mastery rank `8`: one build crest per build
+- mastery rank `10`: one apex build accent per build (`Apex Rail`, `Solar Crown`, `Siege Mesh`, `Singularity Vein`)
+
+Tier and mastery rewards are retroactive from persisted `bestTier` and mastery rank data. The single-run triad banner is intentionally not retroactive unless the current run summary proves all three bosses were cleared in that same run.
+
 ## Enemy Roster
 
 Current live enemy families:
@@ -314,8 +349,11 @@ Current live enemy families:
 - `lancer`
 - `carrier`
 - `artillery`
+- `weaver`
+- `conductor`
 - `prismBoss`
 - `hiveCarrierBoss`
+- `vectorLoomBoss`
 
 ### Current enemy identity summary
 
@@ -407,8 +445,8 @@ Current Skia-rendered layers include:
 
 ### Theme progression
 
-- arena theme changes every `5` tiers
-- each theme shifts color balance and background atmosphere
+- arena biome sector changes every `6` tiers and follows the boss cadence
+- the named sector rotation is `Prism Verge`, `Hive Forge`, and `Vector Spindle`, then repeats every `18` tiers
 - overdrive adds an additional warm overlay pass on top of the current theme
 
 ### Screen shake
@@ -440,14 +478,17 @@ Current Skia-rendered layers include:
 - gun barrel rendering was refactored from custom Skia path objects to native `<Line>` primitives across all enemy types
 - conditional render flags `skipEnemyDetails`, `simplifiedBullets`, and `simplifiedEnemies` were removed; all bullets now render at full quality and enemy details are not downgraded at high stress
 - fracture fragment effects were reduced for performance (`8` normal, `6` dense)
-- lane-band hazard bars are capped at `2` simultaneous active lanes for regular enemies (`weaver`, `conductor`); the `vectorLoomBoss` cap is `3`
+- lane-band hazard bars are hard-capped at `3` total simultaneous active lanes across the entire arena
+- regular / mini-boss `weaver` and `conductor` patterns normally budget up to `2` lane bands; `vectorLoomBoss` can budget up to `3`, but the global cap still wins
+- high-tier projectile caps tighten further at `T45` and `T60`, with extra shedding for `Missile Command` during overdrive under high combat stress
+- extreme render stress now applies an additional projectile / VFX render-budget step to smooth late-tier swarm + ultimate overlaps
 
 ### Current known performance hotspots
 
-The build is playable, but these are still the most expensive combat situations:
+The build reached `T60` in playtest with mostly stable performance, but these are still the most expensive combat situations:
 
 - high-threat screens with maxed `Nova Bloom`
-- maxed `Missile Command` during overdrive
+- maxed `Missile Command` during overdrive or ultimate
 - dense enemy clustering plus frequent simultaneous hit effects
 - boss overlaps with large projectile counts and active arena effects
 
@@ -459,13 +500,31 @@ Primary implementation files:
 - `/Users/johnchang/Desktop/defender/src/prototype-v2/config.ts`
 - `/Users/johnchang/Desktop/defender/src/prototype-v2/builds.ts`
 - `/Users/johnchang/Desktop/defender/src/prototype-v2/upgrades.ts`
+- `/Users/johnchang/Desktop/defender/src/prototype-v2/encounters.ts`
 - `/Users/johnchang/Desktop/defender/src/prototype-v2/engine.ts`
 - `/Users/johnchang/Desktop/defender/src/prototype-v2/biomes.ts`
 - `/Users/johnchang/Desktop/defender/src/prototype-v2/audio.ts`
+- `/Users/johnchang/Desktop/defender/src/prototype-v2/meta.ts`
+- `/Users/johnchang/Desktop/defender/src/prototype-v2/cosmetics.ts`
 - `/Users/johnchang/Desktop/defender/src/prototype-v2/ArenaCanvas.tsx`
 - `/Users/johnchang/Desktop/defender/src/prototype-v2/ArenaPrototypeScreen.tsx`
 
 ## Changelog Snapshot
+
+### 2026-04-21
+
+- Advanced arena board label to `v0.66`.
+- Added the T60 cosmetic reward ladder: `Codex Frame: Threat Cartographer` (`T30`), `Boss Banner: Deep Cycle` (`T45`), `Codex Frame: Outer Limit` (`T60`), and `Boss Banner: Triad Breaker` for clearing all three bosses in one run.
+- Added mastery rank `10` build accents for all four builds and wired retroactive unlocks from persisted mastery levels.
+- Added persisted one-time Arena coaching chips plus `Reset tips` in the `Run` menu.
+- Replaced the rounded player ship with a sharper angular rail-shooter silhouette while preserving equipped accent / crest presentation.
+- Added late-tier projectile and render-budget tuning for T45 / T60 pressure, especially `Missile Command` overdrive / ultimate overlaps.
+- No audio files, cue mappings, settings, or asset-pack behavior changed in this update.
+- Advanced arena board label to `v0.65`.
+- Added a global hard cap of `3` simultaneous lane-band hazards across the entire arena, regardless of how many mini-boss / boss sources are active.
+- Slowed ultimate charge recovery from damage, kills, rail precision hits, mini-boss clears, and boss clears.
+- Added a short player-death closing telemetry transition before the run-end summary modal appears.
+- Updated stale reference details for current board version, enemy roster, named biome cadence, and lane-band hazard caps.
 
 ### 2026-04-15 (continued)
 
@@ -601,7 +660,7 @@ These are the major areas that still remain after the current polish pass.
 ### Retention / presentation
 
 - more arena biomes and environment-specific visual language
-- more audio layering and event-specific sound design
+- more audio layering and event-specific sound design once a stronger sound set is available
 - cosmetic surface area for later monetization
 
 ### Monetization direction
@@ -626,7 +685,7 @@ The immediate next step should probably be production follow-through rather than
 
 Recommended order:
 
-1. Playtest and balance the new pressure-control pack until `Weaver`, `Conductor`, and `Vector Loom` feel readable under real swarm pressure.
-2. Add more cosmetic content and reward destinations on top of the current Collection flow without touching combat power.
-3. Expand presentation with audio layering, biome variety, and targeted event polish.
-4. Continue performance passes where lane hazards, boss overlaps, and late-tier projectile density still stress the board.
+1. Smoke-test the new T30 / T45 / T60 reward ladder across all four builds, with special attention to `Missile Command` overdrive and ultimate overlaps.
+2. Add more non-pay-to-win cosmetic destinations on top of the current Collection flow, likely starting with broader presentation surfaces rather than combat power.
+3. Consider the next combat pack only after the current T60 stability and reward loop are validated.
+4. Keep audio expansion deferred until better source sounds are available.
