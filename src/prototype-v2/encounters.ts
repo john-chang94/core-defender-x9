@@ -443,6 +443,159 @@ const FORMATION_SCRIPTS: readonly ArenaEncounterScript[] = [
       { kind: 'hover', laneOffset: -1, cruiseYRatio: 0.22, healthMultiplier: 1.04 },
     ],
   },
+  {
+    id: 'razorPincer',
+    type: 'formation',
+    label: 'Razor Pincer',
+    announcement: 'Raider pincer wing is cutting across the lane.',
+    accentColor: '#FFB36E',
+    rewardSalvage: 0,
+    anchorKind: 'raider',
+    minTier: 22,
+    requiredCapacity: 4,
+    maxBulletPressure: 0.78,
+    selectionWeight: 3,
+    steps: [
+      {
+        kind: 'raider',
+        anchor: true,
+        laneOffset: 0,
+        cruiseYRatio: 0.2,
+        healthMultiplier: 1.12,
+        attackCooldownMultiplier: 0.96,
+      },
+      { kind: 'burst', laneOffset: -1, cruiseYRatio: 0.23, healthMultiplier: 1.04 },
+      { kind: 'burst', laneOffset: 1, cruiseYRatio: 0.23, healthMultiplier: 1.04 },
+    ],
+  },
+  {
+    id: 'hunterMark',
+    type: 'formation',
+    label: 'Hunter Mark',
+    announcement: 'Hunter mark acquired. Move after the lock paints.',
+    accentColor: '#D8B9FF',
+    rewardSalvage: 0,
+    anchorKind: 'hunter',
+    minTier: 23,
+    requiredCapacity: 4,
+    maxBulletPressure: 0.74,
+    selectionWeight: 3,
+    steps: [
+      {
+        kind: 'hunter',
+        anchor: true,
+        laneOffset: 0,
+        cruiseYRatio: 0.18,
+        healthMultiplier: 1.12,
+        attackCooldownMultiplier: 0.98,
+      },
+      { kind: 'hover', laneOffset: -1, cruiseYRatio: 0.22, healthMultiplier: 1.04 },
+      { kind: 'sniper', laneOffset: 1, cruiseYRatio: 0.16, healthMultiplier: 1.04, attackCooldownMultiplier: 1.04 },
+    ],
+  },
+  {
+    id: 'flankRelay',
+    type: 'formation',
+    label: 'Flank Relay',
+    announcement: 'Double raiders are relaying flanks through carrier pressure.',
+    accentColor: '#FFBC7C',
+    rewardSalvage: 0,
+    anchorKind: 'raider',
+    minTier: 25,
+    requiredCapacity: 5,
+    maxBulletPressure: 0.76,
+    selectionWeight: 2,
+    steps: [
+      {
+        kind: 'raider',
+        anchor: true,
+        laneOffset: -1,
+        cruiseYRatio: 0.2,
+        healthMultiplier: 1.1,
+      },
+      {
+        kind: 'raider',
+        laneOffset: 1,
+        cruiseYRatio: 0.2,
+        healthMultiplier: 1.08,
+      },
+      { kind: 'carrier', laneOffset: 0, cruiseYRatio: 0.18, healthMultiplier: 1.08, deployChargeBonus: 1 },
+      { kind: 'hover', laneOffset: 2, cruiseYRatio: 0.22, healthMultiplier: 1.02 },
+    ],
+  },
+  {
+    id: 'markedCrossfire',
+    type: 'formation',
+    label: 'Marked Crossfire',
+    announcement: 'Hunter marks are crossing lancer and sniper sightlines.',
+    accentColor: '#E1C8FF',
+    rewardSalvage: 0,
+    anchorKind: 'hunter',
+    minTier: 26,
+    requiredCapacity: 5,
+    maxBulletPressure: 0.72,
+    selectionWeight: 2,
+    steps: [
+      {
+        kind: 'hunter',
+        anchor: true,
+        laneOffset: 0,
+        cruiseYRatio: 0.18,
+        healthMultiplier: 1.14,
+      },
+      { kind: 'lancer', laneOffset: -1, cruiseYRatio: 0.2, healthMultiplier: 1.08 },
+      { kind: 'sniper', laneOffset: 2, cruiseYRatio: 0.16, healthMultiplier: 1.04, attackCooldownMultiplier: 1.04 },
+    ],
+  },
+  {
+    id: 'shieldedPursuit',
+    type: 'formation',
+    label: 'Shielded Pursuit',
+    announcement: 'Warden screen is protecting a hunter pursuit line.',
+    accentColor: '#D8C6FF',
+    rewardSalvage: 0,
+    anchorKind: 'hunter',
+    minTier: 28,
+    requiredCapacity: 5,
+    maxBulletPressure: 0.78,
+    selectionWeight: 2,
+    steps: [
+      {
+        kind: 'hunter',
+        anchor: true,
+        laneOffset: 0,
+        cruiseYRatio: 0.18,
+        healthMultiplier: 1.16,
+      },
+      { kind: 'warden', laneOffset: -1, cruiseYRatio: 0.18, healthMultiplier: 1.08 },
+      { kind: 'tank', laneOffset: 1, cruiseYRatio: 0.24, healthMultiplier: 1.1 },
+    ],
+  },
+  {
+    id: 'eclipseNet',
+    type: 'formation',
+    label: 'Eclipse Net',
+    announcement: 'Raider and hunter net is closing under conductor timing.',
+    accentColor: '#FFD09D',
+    rewardSalvage: 0,
+    anchorKind: 'raider',
+    minTier: 30,
+    requiredCapacity: 5,
+    maxBulletPressure: 0.72,
+    maxHazardPressure: 0.48,
+    selectionWeight: 2,
+    steps: [
+      {
+        kind: 'raider',
+        anchor: true,
+        laneOffset: -1,
+        cruiseYRatio: 0.2,
+        healthMultiplier: 1.12,
+      },
+      { kind: 'hunter', laneOffset: 1, cruiseYRatio: 0.18, healthMultiplier: 1.12 },
+      { kind: 'conductor', laneOffset: 0, cruiseYRatio: 0.2, healthMultiplier: 1.06 },
+    ],
+  },
 ];
 
 const MINI_BOSS_SCRIPTS: readonly ArenaEncounterScript[] = [
@@ -651,6 +804,54 @@ const MINI_BOSS_SCRIPTS: readonly ArenaEncounterScript[] = [
       { kind: 'artillery', laneIndex: 2, cruiseYRatio: 0.17, healthMultiplier: 1.08, rewardMultiplier: 0.92 },
     ],
   },
+  {
+    id: 'raiderTalon',
+    type: 'miniBoss',
+    label: 'Raider Talon',
+    announcement: 'Raider talon is dashing through the flank band.',
+    accentColor: '#FFB36E',
+    rewardSalvage: 120,
+    anchorKind: 'raider',
+    minTier: 27,
+    steps: [
+      {
+        kind: 'raider',
+        anchor: true,
+        xRatio: 0.5,
+        cruiseYRatio: 0.2,
+        healthMultiplier: 1.48,
+        rewardMultiplier: 1.38,
+        attackCooldownMultiplier: 0.88,
+      },
+      { kind: 'burst', laneIndex: 1, cruiseYRatio: 0.23, healthMultiplier: 1.08, rewardMultiplier: 0.86 },
+      { kind: 'hover', laneIndex: 4, cruiseYRatio: 0.22, healthMultiplier: 1.06, rewardMultiplier: 0.84 },
+      { kind: 'hover', laneIndex: 2, cruiseYRatio: 0.22, healthMultiplier: 1.04, rewardMultiplier: 0.82 },
+    ],
+  },
+  {
+    id: 'hunterPack',
+    type: 'miniBoss',
+    label: 'Hunter Pack',
+    announcement: 'Hunter pack is marking delayed pursuit volleys.',
+    accentColor: '#D8B9FF',
+    rewardSalvage: 124,
+    anchorKind: 'hunter',
+    minTier: 33,
+    steps: [
+      {
+        kind: 'hunter',
+        anchor: true,
+        xRatio: 0.5,
+        cruiseYRatio: 0.18,
+        healthMultiplier: 1.5,
+        rewardMultiplier: 1.4,
+        attackCooldownMultiplier: 0.86,
+      },
+      { kind: 'sniper', laneIndex: 1, cruiseYRatio: 0.16, healthMultiplier: 1.08, rewardMultiplier: 0.9 },
+      { kind: 'hover', laneIndex: 4, cruiseYRatio: 0.22, healthMultiplier: 1.06, rewardMultiplier: 0.84 },
+      { kind: 'raider', laneIndex: 2, cruiseYRatio: 0.2, healthMultiplier: 1.04, rewardMultiplier: 0.86 },
+    ],
+  },
 ];
 
 const PRISM_BOSS_SCRIPT: ArenaEncounterScript = {
@@ -736,6 +937,32 @@ const VECTOR_LOOM_BOSS_SCRIPT: ArenaEncounterScript = {
     { kind: 'weaver', laneIndex: 1, cruiseYRatio: 0.18, healthMultiplier: 1.1, rewardMultiplier: 0.88 },
     { kind: 'hover', laneIndex: 4, cruiseYRatio: 0.22, healthMultiplier: 1.08, rewardMultiplier: 0.84 },
     { kind: 'conductor', laneIndex: 2, cruiseYRatio: 0.2, healthMultiplier: 1.08, rewardMultiplier: 0.92 },
+  ],
+};
+
+const ECLIPSE_TALON_BOSS_SCRIPT: ArenaEncounterScript = {
+  id: 'eclipseTalon',
+  type: 'boss',
+  label: 'Eclipse Talon',
+  announcement: 'Boss intercept. Break the eclipse talon before the flank net closes.',
+  accentColor: '#FFB36E',
+  rewardSalvage: 206,
+  anchorKind: 'eclipseTalonBoss',
+  minTier: 24,
+  steps: [
+    {
+      kind: 'eclipseTalonBoss',
+      anchor: true,
+      xRatio: 0.5,
+      cruiseYRatio: 0.2,
+      healthMultiplier: 1.2,
+      rewardMultiplier: 1.42,
+      attackCooldownMultiplier: 0.94,
+      specialCooldownMultiplier: 0.92,
+    },
+    { kind: 'raider', laneIndex: 1, cruiseYRatio: 0.2, healthMultiplier: 1.1, rewardMultiplier: 0.88 },
+    { kind: 'hover', laneIndex: 4, cruiseYRatio: 0.22, healthMultiplier: 1.08, rewardMultiplier: 0.84 },
+    { kind: 'hunter', laneIndex: 2, cruiseYRatio: 0.18, healthMultiplier: 1.08, rewardMultiplier: 0.92 },
   ],
 };
 
@@ -891,10 +1118,75 @@ const VECTOR_LOOM_PHASES: readonly ArenaBossPhaseDefinition[] = [
   },
 ];
 
-const BOSS_PHASES: Record<'prismCore' | 'hiveCarrier' | 'vectorLoom', readonly ArenaBossPhaseDefinition[]> = {
+const ECLIPSE_TALON_PHASES: readonly ArenaBossPhaseDefinition[] = [
+  {
+    phaseIndex: 0,
+    threshold: 1,
+    label: 'Razor Orbit',
+    announcement: 'Razor orbit active. Read the flank dashes before the crossing bursts.',
+    accentColor: '#FFB36E',
+    steps: [],
+  },
+  {
+    phaseIndex: 1,
+    threshold: 0.7,
+    label: 'Marked Eclipse',
+    announcement: 'Marked eclipse active. Move after the hunter locks paint the lane.',
+    accentColor: '#D8B9FF',
+    steps: [
+      {
+        kind: 'hunter',
+        laneIndex: 1,
+        cruiseYRatio: 0.18,
+        healthMultiplier: 1.16,
+        rewardMultiplier: 0.9,
+        attackCooldownMultiplier: 0.94,
+      },
+      {
+        kind: 'hunter',
+        laneIndex: 4,
+        cruiseYRatio: 0.18,
+        healthMultiplier: 1.14,
+        rewardMultiplier: 0.9,
+        attackCooldownMultiplier: 0.96,
+      },
+      { kind: 'hover', laneIndex: 2, cruiseYRatio: 0.22, healthMultiplier: 1.06, rewardMultiplier: 0.82 },
+    ],
+  },
+  {
+    phaseIndex: 2,
+    threshold: 0.35,
+    label: 'Talon Collapse',
+    announcement: 'Talon collapse active. Flank bursts and pursuit marks are overlapping.',
+    accentColor: '#FFD09D',
+    steps: [
+      {
+        kind: 'raider',
+        laneIndex: 1,
+        cruiseYRatio: 0.2,
+        healthMultiplier: 1.16,
+        rewardMultiplier: 0.9,
+        attackCooldownMultiplier: 0.92,
+      },
+      {
+        kind: 'hunter',
+        laneIndex: 4,
+        cruiseYRatio: 0.18,
+        healthMultiplier: 1.16,
+        rewardMultiplier: 0.9,
+        attackCooldownMultiplier: 0.94,
+      },
+      { kind: 'burst', laneIndex: 2, cruiseYRatio: 0.23, healthMultiplier: 1.08, rewardMultiplier: 0.84 },
+      { kind: 'hover', laneIndex: 3, cruiseYRatio: 0.22, healthMultiplier: 1.06, rewardMultiplier: 0.82 },
+    ],
+  },
+];
+
+const BOSS_PHASES: Record<'prismCore' | 'hiveCarrier' | 'vectorLoom' | 'eclipseTalon', readonly ArenaBossPhaseDefinition[]> = {
   prismCore: PRISM_BOSS_PHASES,
   hiveCarrier: HIVE_CARRIER_PHASES,
   vectorLoom: VECTOR_LOOM_PHASES,
+  eclipseTalon: ECLIPSE_TALON_PHASES,
 };
 
 const ENCOUNTER_REGISTRY: Record<ArenaEncounterScriptId, ArenaEncounterScript> = {
@@ -913,6 +1205,12 @@ const ENCOUNTER_REGISTRY: Record<ArenaEncounterScriptId, ArenaEncounterScript> =
   suppressionRail: FORMATION_SCRIPTS[12],
   pinnedScreen: FORMATION_SCRIPTS[13],
   corridorCollapse: FORMATION_SCRIPTS[14],
+  razorPincer: FORMATION_SCRIPTS[15],
+  hunterMark: FORMATION_SCRIPTS[16],
+  flankRelay: FORMATION_SCRIPTS[17],
+  markedCrossfire: FORMATION_SCRIPTS[18],
+  shieldedPursuit: FORMATION_SCRIPTS[19],
+  eclipseNet: FORMATION_SCRIPTS[20],
   interceptorSweep: MINI_BOSS_SCRIPTS[0],
   bombardWing: MINI_BOSS_SCRIPTS[1],
   wardenBastion: MINI_BOSS_SCRIPTS[2],
@@ -921,12 +1219,20 @@ const ENCOUNTER_REGISTRY: Record<ArenaEncounterScriptId, ArenaEncounterScript> =
   artilleryBastion: MINI_BOSS_SCRIPTS[5],
   weaverLoom: MINI_BOSS_SCRIPTS[6],
   conductorArray: MINI_BOSS_SCRIPTS[7],
+  raiderTalon: MINI_BOSS_SCRIPTS[8],
+  hunterPack: MINI_BOSS_SCRIPTS[9],
   prismCore: PRISM_BOSS_SCRIPT,
   hiveCarrier: HIVE_CARRIER_BOSS_SCRIPT,
   vectorLoom: VECTOR_LOOM_BOSS_SCRIPT,
+  eclipseTalon: ECLIPSE_TALON_BOSS_SCRIPT,
 };
 
-const BOSS_ROTATION = [PRISM_BOSS_SCRIPT, HIVE_CARRIER_BOSS_SCRIPT, VECTOR_LOOM_BOSS_SCRIPT] as const;
+const BOSS_ROTATION = [
+  PRISM_BOSS_SCRIPT,
+  HIVE_CARRIER_BOSS_SCRIPT,
+  VECTOR_LOOM_BOSS_SCRIPT,
+  ECLIPSE_TALON_BOSS_SCRIPT,
+] as const;
 
 function pickWeightedScript(scripts: readonly ArenaEncounterScript[]) {
   const weightedPool = scripts.flatMap((script) =>
@@ -940,7 +1246,7 @@ export function getArenaEncounterScript(scriptId: ArenaEncounterScriptId) {
 }
 
 export function getArenaBossPhaseDefinition(
-  scriptId: Extract<ArenaEncounterScriptId, 'prismCore' | 'hiveCarrier' | 'vectorLoom'>,
+  scriptId: Extract<ArenaEncounterScriptId, 'prismCore' | 'hiveCarrier' | 'vectorLoom' | 'eclipseTalon'>,
   phaseIndex: 0 | 1 | 2
 ) {
   return BOSS_PHASES[scriptId][phaseIndex];

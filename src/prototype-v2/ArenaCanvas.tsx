@@ -352,6 +352,33 @@ function createMissileFinPath(
   return path;
 }
 
+function createMiniUltimateMissilePaths(
+  x: number,
+  y: number,
+  forwardX: number,
+  forwardY: number,
+  size: number
+) {
+  const rightX = -forwardY;
+  const rightY = forwardX;
+  return {
+    bodyPath: createMissileBodyPath(x, y, forwardX, forwardY, rightX, rightY, size),
+    nosePath: createMissileNosePath(x, y, forwardX, forwardY, rightX, rightY, size),
+    finLeftPath: createMissileFinPath(x, y, forwardX, forwardY, rightX, rightY, size, -1),
+    finRightPath: createMissileFinPath(x, y, forwardX, forwardY, rightX, rightY, size, 1),
+    corePath: createOrientedRectPath(
+      x + forwardX * size * 0.04,
+      y + forwardY * size * 0.04,
+      forwardX,
+      forwardY,
+      rightX,
+      rightY,
+      size * 0.42,
+      size * 0.14
+    ),
+  };
+}
+
 function createNovaSweepPath(centerX: number, boardWidth: number, boardHeight: number) {
   const nearY = Math.max(0, boardHeight - ARENA_PLAYER_HEIGHT - ARENA_PLAYER_FLOOR_OFFSET + 6);
   const farY = boardHeight * 0.01;
@@ -385,6 +412,9 @@ const ENEMY_HULL_POINTS: Record<ArenaEnemy['kind'], readonly EnemyLocalPoint[]> 
   sniper: [[1.2, 0], [0, 0.32], [-0.88, 0], [0, -0.32]],
   // Diamond — wider for lancer
   lancer: [[1.02, 0], [0, 0.56], [-0.84, 0], [0, -0.56]],
+  // Diamond — swept flank/pursuit silhouettes
+  raider: [[1.14, 0], [0.1, 0.72], [-0.92, 0.42], [-0.54, 0], [-0.92, -0.42], [0.1, -0.72]],
+  hunter: [[1.08, 0], [0.18, 0.58], [-0.72, 0.5], [-1.0, 0], [-0.72, -0.5], [0.18, -0.58]],
 
   // Rectangle — wide blocky tank
   tank:   [[0.9, 0.64], [0.9, -0.64], [-0.9, -0.64], [-0.9, 0.64]],
@@ -429,6 +459,18 @@ const ENEMY_HULL_POINTS: Record<ArenaEnemy['kind'], readonly EnemyLocalPoint[]> 
     [-0.5, -0.74],
     [0.18, -1.04],
     [0.68, -0.52],
+  ],
+  eclipseTalonBoss: [
+    [1.18, 0],
+    [0.72, 0.64],
+    [0.12, 0.48],
+    [-0.48, 1.02],
+    [-0.92, 0.32],
+    [-1.1, 0],
+    [-0.92, -0.32],
+    [-0.48, -1.02],
+    [0.12, -0.48],
+    [0.72, -0.64],
   ],
 };
 
@@ -507,13 +549,17 @@ function getEnemyBarrelLines(enemy: ArenaEnemy): BarrelLine[] {
     enemy.kind === 'prismBoss' ||
     enemy.kind === 'hiveCarrierBoss' ||
     enemy.kind === 'vectorLoomBoss' ||
+    enemy.kind === 'eclipseTalonBoss' ||
     enemy.kind === 'artillery' ||
     enemy.kind === 'interceptor';
 
   if (hasSideBarrels) {
     const sideOff = enemy.kind === 'prismBoss' ? enemy.size * 0.16 : enemy.size * 0.13;
     const sideHL =
-      enemy.kind === 'prismBoss' || enemy.kind === 'hiveCarrierBoss' || enemy.kind === 'vectorLoomBoss'
+      enemy.kind === 'prismBoss' ||
+      enemy.kind === 'hiveCarrierBoss' ||
+      enemy.kind === 'vectorLoomBoss' ||
+      enemy.kind === 'eclipseTalonBoss'
         ? enemy.size * 0.18
         : enemy.size * 0.16;
     const sideSW = enemy.size * 0.052 * 2;
@@ -587,8 +633,16 @@ function createStaticBackgroundScene({
 
 function renderEnemyCore(enemy: ArenaEnemy) {
   const isBoss =
-    enemy.kind === 'prismBoss' || enemy.kind === 'hiveCarrierBoss' || enemy.kind === 'vectorLoomBoss';
-  const isElite = enemy.kind === 'interceptor' || enemy.kind === 'carrier' || enemy.kind === 'artillery';
+    enemy.kind === 'prismBoss' ||
+    enemy.kind === 'hiveCarrierBoss' ||
+    enemy.kind === 'vectorLoomBoss' ||
+    enemy.kind === 'eclipseTalonBoss';
+  const isElite =
+    enemy.kind === 'interceptor' ||
+    enemy.kind === 'carrier' ||
+    enemy.kind === 'artillery' ||
+    enemy.kind === 'raider' ||
+    enemy.kind === 'hunter';
   const isCircleHull = CIRCLE_HULL_ENEMIES.has(enemy.kind);
 
   const barrelLines = getEnemyBarrelLines(enemy);
@@ -602,12 +656,18 @@ function renderEnemyCore(enemy: ArenaEnemy) {
       ? '#93F0D5'
       : enemy.kind === 'vectorLoomBoss'
         ? '#C8D7FF'
+        : enemy.kind === 'eclipseTalonBoss'
+          ? '#FFD19A'
       : isBoss
         ? '#FF89C0'
         : enemy.kind === 'carrier'
           ? '#B5F5D7'
           : enemy.kind === 'artillery'
             ? '#FFD5AD'
+            : enemy.kind === 'raider'
+              ? '#FFD0A0'
+              : enemy.kind === 'hunter'
+                ? '#E5D4FF'
             : isElite
               ? '#CBBFFF'
               : enemy.color;
@@ -1191,6 +1251,16 @@ export function ArenaCanvas({ boardWidth, boardHeight, biomeDefinition, state, v
                 const phase = state.elapsed * 8 + index * 0.7;
                 const wobble = Math.sin(phase) * 10;
                 const bodyY = boardHeight * (0.92 - ((state.ultimateTimer + index * 0.06) % 1.2) * 0.72);
+                const missileX = columnX - wobble * 0.2;
+                const missileSize = 4.8 + ultimatePulse * 1.25;
+                const driftBasis = getProjectileBasis(wobble * -0.04, -1);
+                const miniMissilePaths = createMiniUltimateMissilePaths(
+                  missileX,
+                  bodyY + 12,
+                  driftBasis.forwardX,
+                  driftBasis.forwardY,
+                  missileSize
+                );
                 return (
                   <Group key={`ultimate-missile-${index}`}>
                     <Line
@@ -1200,8 +1270,11 @@ export function ArenaCanvas({ boardWidth, boardHeight, biomeDefinition, state, v
                       strokeWidth={8}
                       strokeCap="round"
                     />
-                    <Circle cx={columnX - wobble * 0.2} cy={bodyY + 18} r={7 + ultimatePulse * 3} color={withAlpha('#FFF1D2', 0.48)} />
-                    <Circle cx={columnX - wobble * 0.2} cy={bodyY + 7} r={4} color={withAlpha('#FFF5E1', 0.82)} />
+                    <Path path={miniMissilePaths.bodyPath} color={withAlpha('#FFF1D2', 0.48)} />
+                    <Path path={miniMissilePaths.nosePath} color={withAlpha('#FFF5E1', 0.82)} />
+                    <Path path={miniMissilePaths.finLeftPath} color={withAlpha('#FFF5E1', 0.82)} />
+                    <Path path={miniMissilePaths.finRightPath} color={withAlpha('#FFF5E1', 0.82)} />
+                    <Path path={miniMissilePaths.corePath} color={withAlpha('#FFF5E1', 0.82)} />
                   </Group>
                 );
               })}
@@ -1306,6 +1379,15 @@ export function ArenaCanvas({ boardWidth, boardHeight, biomeDefinition, state, v
           const phase = progress * 1.2;
           const bodyY = effect.y - effect.size * phase;
           const wobble = Math.sin(progress * Math.PI * 2 + effect.x * 0.02) * 8;
+          const missileX = effect.x + wobble;
+          const driftBasis = getProjectileBasis(wobble * 0.05, -1);
+          const miniMissilePaths = createMiniUltimateMissilePaths(
+            missileX,
+            bodyY + 8,
+            driftBasis.forwardX,
+            driftBasis.forwardY,
+            4.35
+          );
           return (
             <Group key={effect.id} opacity={opacity}>
               <Line
@@ -1315,8 +1397,11 @@ export function ArenaCanvas({ boardWidth, boardHeight, biomeDefinition, state, v
                 strokeWidth={6}
                 strokeCap="round"
               />
-              <Circle cx={effect.x + wobble} cy={bodyY + 12} r={6} color={withAlpha('#FFEFD3', 0.64)} />
-              <Circle cx={effect.x + wobble} cy={bodyY + 4} r={3.3} color={withAlpha('#FFF6E7', 0.9)} />
+              <Path path={miniMissilePaths.bodyPath} color={withAlpha('#FFEFD3', 0.64)} />
+              <Path path={miniMissilePaths.nosePath} color={withAlpha('#FFF6E7', 0.9)} />
+              <Path path={miniMissilePaths.finLeftPath} color={withAlpha('#FFF6E7', 0.9)} />
+              <Path path={miniMissilePaths.finRightPath} color={withAlpha('#FFF6E7', 0.9)} />
+              <Path path={miniMissilePaths.corePath} color={withAlpha('#FFF6E7', 0.9)} />
             </Group>
           );
         }

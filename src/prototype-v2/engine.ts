@@ -76,7 +76,7 @@ function randomChoice<T>(items: readonly T[]): T {
 }
 
 function isBossKind(kind: ArenaEnemyKind) {
-  return kind === 'prismBoss' || kind === 'hiveCarrierBoss' || kind === 'vectorLoomBoss';
+  return kind === 'prismBoss' || kind === 'hiveCarrierBoss' || kind === 'vectorLoomBoss' || kind === 'eclipseTalonBoss';
 }
 
 function createBuildValueMap<T>(factory: (buildId: ArenaBuildId) => T): ArenaBuildValueMap<T> {
@@ -1048,6 +1048,12 @@ function getEnemyKindPool(displayTier: number): ArenaEnemyKind[] {
   if (displayTier >= 18) {
     addWeighted('conductor', displayTier <= 26 ? 1 : 2);
   }
+  if (displayTier >= 22) {
+    addWeighted('raider', displayTier <= 30 ? 1 : 2);
+  }
+  if (displayTier >= 23) {
+    addWeighted('hunter', displayTier <= 32 ? 1 : 2);
+  }
   if (displayTier >= 15) {
     addWeighted('interceptor', 1);
   }
@@ -1075,9 +1081,12 @@ function getEnemyAttackCooldown(
     artillery: 0.012,
     weaver: 0.013,
     conductor: 0.017,
+    raider: 0.021,
+    hunter: 0.016,
     prismBoss: 0.014,
     hiveCarrierBoss: 0.013,
     vectorLoomBoss: 0.013,
+    eclipseTalonBoss: 0.014,
   };
   const floorByKind: Record<ArenaEnemyKind, number> = {
     hover: 0.92,
@@ -1093,9 +1102,12 @@ function getEnemyAttackCooldown(
     artillery: 1.8,
     weaver: 1.62,
     conductor: 1.54,
+    raider: 1.06,
+    hunter: 1.34,
     prismBoss: 1.15,
     hiveCarrierBoss: 1.24,
     vectorLoomBoss: 1.2,
+    eclipseTalonBoss: 1.16,
   };
   const tierReduction = Math.min(0.75, Math.max(0, displayTier - 1) * tierReductionPerTier[kind]);
   const bulletBackPressure = Math.min(0.44, Math.max(0, activeEnemyBulletCount - 8) * 0.025);
@@ -1131,6 +1143,12 @@ function getEnemyTierHealthMultiplier(displayTier: number, kind: ArenaEnemyKind)
   }
   if (kind === 'conductor') {
     return postT10Multiplier * 1.14;
+  }
+  if (kind === 'raider') {
+    return postT10Multiplier * 1.08;
+  }
+  if (kind === 'hunter') {
+    return postT10Multiplier * 1.12;
   }
   if (kind === 'lancer') {
     return postT10Multiplier * 1.15;
@@ -1264,31 +1282,46 @@ function createSymmetricLaneOffsetPattern(count: number, adjacentGap: number) {
 
 function getEnemyAimAngle(enemy: ArenaEnemy, playerX: number, boardHeight: number) {
   const targetY = getPlayerShipTop(boardHeight) + ARENA_PLAYER_HEIGHT * 0.22;
-  const leadFactor =
-    enemy.kind === 'sniper'
-      ? 0.18
-      : enemy.kind === 'interceptor'
-        ? 0.24
-        : enemy.kind === 'lancer'
-        ? 0.14
-        : enemy.kind === 'prismBoss'
-          ? 0.22
-          : enemy.kind === 'hiveCarrierBoss'
-            ? 0.22
-            : enemy.kind === 'vectorLoomBoss'
-              ? 0.2
-          : enemy.kind === 'warden'
-            ? 0.06
-            : enemy.kind === 'carrier'
-              ? 0.08
-              : enemy.kind === 'artillery'
-                ? 0.04
-                : enemy.kind === 'weaver'
-                  ? 0.05
-                  : enemy.kind === 'conductor'
-                    ? 0.11
-                    : 0.08;
-  const targetX = enemy.kind === 'lancer' && enemy.laneTargetX !== null ? enemy.laneTargetX : playerX;
+  const leadFactor = (() => {
+    switch (enemy.kind) {
+      case 'sniper':
+        return 0.18;
+      case 'interceptor':
+        return 0.24;
+      case 'lancer':
+        return 0.14;
+      case 'prismBoss':
+      case 'hiveCarrierBoss':
+      case 'eclipseTalonBoss':
+        return 0.22;
+      case 'vectorLoomBoss':
+        return 0.2;
+      case 'warden':
+        return 0.06;
+      case 'carrier':
+        return 0.08;
+      case 'artillery':
+        return 0.04;
+      case 'weaver':
+        return 0.05;
+      case 'conductor':
+        return 0.11;
+      case 'raider':
+        return 0.2;
+      case 'hunter':
+        return 0.16;
+      default:
+        return 0.08;
+    }
+  })();
+  const targetX =
+    (enemy.kind === 'lancer' ||
+      enemy.kind === 'hunter' ||
+      enemy.kind === 'raider' ||
+      enemy.kind === 'eclipseTalonBoss') &&
+    enemy.laneTargetX !== null
+      ? enemy.laneTargetX
+      : playerX;
   const leadX = targetX + enemy.vx * leadFactor;
   let angle = Math.atan2(leadX - enemy.x, targetY - enemy.y);
   if (enemy.kind === 'orbiter') {
@@ -1314,6 +1347,15 @@ function getEnemyAimAngle(enemy: ArenaEnemy, playerX: number, boardHeight: numbe
   }
   if (enemy.kind === 'vectorLoomBoss') {
     angle += Math.sin(enemy.phase * 0.92) * 0.07;
+  }
+  if (enemy.kind === 'eclipseTalonBoss') {
+    angle += Math.sin(enemy.phase * 1.05) * 0.12;
+  }
+  if (enemy.kind === 'raider') {
+    angle += Math.sin(enemy.phase * 2.2) * 0.08;
+  }
+  if (enemy.kind === 'hunter') {
+    angle *= 0.82;
   }
   if (enemy.kind === 'bomber') {
     angle += Math.sin(enemy.phase * 0.8) * 0.06;
@@ -1364,10 +1406,16 @@ function createEnemyProjectile(
         return '#DCE4FF';
       case 'conductor':
         return '#FFF0BA';
+      case 'raider':
+        return '#FFD0A0';
+      case 'hunter':
+        return '#E5D4FF';
       case 'hiveCarrierBoss':
         return '#CFFFF0';
       case 'vectorLoomBoss':
         return '#E3EAFF';
+      case 'eclipseTalonBoss':
+        return '#FFE1B5';
       case 'prismBoss':
         return '#FFC2DF';
       default:
@@ -1380,6 +1428,7 @@ function createEnemyProjectile(
       switch (enemy.kind) {
         case 'sniper':
         case 'lancer':
+        case 'hunter':
           return 'needle' as const;
         case 'tank':
         case 'bomber':
@@ -1387,6 +1436,8 @@ function createEnemyProjectile(
         case 'hiveCarrierBoss':
         case 'vectorLoomBoss':
           return 'bomb' as const;
+        case 'eclipseTalonBoss':
+          return 'needle' as const;
         case 'orbiter':
           return 'wave' as const;
         case 'hover':
@@ -1396,6 +1447,8 @@ function createEnemyProjectile(
           return 'orb' as const;
         case 'conductor':
           return 'wave' as const;
+        case 'raider':
+          return 'bolt' as const;
         default:
           return 'bolt' as const;
       }
@@ -1458,6 +1511,10 @@ function createEnemyLaneStrike(
               ? '#D4FFF0'
               : enemy.kind === 'vectorLoomBoss'
                 ? '#E5EDFF'
+                : enemy.kind === 'eclipseTalonBoss'
+                  ? '#FFE4BE'
+                  : enemy.kind === 'hunter'
+                    ? '#E9D6FF'
               : '#FFE8C8',
         age: 0,
         maxAge: Math.max(1.8, (boardHeight - enemy.y) / Math.max(220, config.bulletSpeed) + 0.8),
@@ -1522,6 +1579,17 @@ function fireEnemyPattern(state: ArenaGameState, enemy: ArenaEnemy, boardWidth: 
       const lane = index - (fanCount - 1) / 2;
       fireShot(desiredAngle + lane * adjustedSpreadAngle, damageScale, speedScale, sizeScale, options);
     }
+  };
+  const fireAtPoint = (
+    targetX: number,
+    targetY: number,
+    damageScale: number,
+    speedScale: number,
+    sizeScale: number,
+    options?: Parameters<typeof createEnemyProjectile>[7]
+  ) => {
+    const angle = Math.atan2(targetX - enemy.x, targetY - enemy.y);
+    fireShot(angle, damageScale, speedScale, sizeScale, options);
   };
 
   switch (enemy.kind) {
@@ -1626,6 +1694,38 @@ function fireEnemyPattern(state: ArenaGameState, enemy: ArenaEnemy, boardWidth: 
         });
       }
       break;
+    case 'raider': {
+      const targetX = enemy.laneTargetX ?? state.playerX;
+      const targetY = getPlayerShipTop(boardHeight) + ARENA_PLAYER_HEIGHT * 0.22;
+      const flankCount = displayTier >= 32 ? 4 : 3;
+      const offsets = createSymmetricLaneOffsetPattern(Math.min(budget, scaledCount(flankCount, 3)), displayTier >= 30 ? 62 : 56);
+      for (const offset of offsets) {
+        fireAtPoint(clamp(targetX + offset, 22, boardWidth - 22), targetY, 0.9, 1.12, 0.86, { style: 'bolt' });
+      }
+      if (pressureRatio < 0.72) {
+        fireShot(desiredAngle + Math.sign(Math.sin(enemy.phase) || 1) * 0.16, 0.86, 1.08, 0.82, { style: 'bolt' });
+      }
+      enemy.laneTargetX = null;
+      break;
+    }
+    case 'hunter': {
+      const targetX = enemy.laneTargetX ?? state.playerX;
+      if (budget > 0) {
+        budget -= createEnemyLaneStrike(state, enemy, targetX, boardHeight, {
+          offsetPattern: createSymmetricLaneOffsetPattern(Math.min(budget, displayTier >= 32 ? 4 : 3), displayTier >= 30 ? 62 : 58),
+          speedScale: displayTier >= 30 ? 1.08 : 1.04,
+          damageScale: 1.04,
+          sizeScale: 0.86,
+        });
+      }
+      if (pressureRatio < 0.7) {
+        const targetY = getPlayerShipTop(boardHeight) + ARENA_PLAYER_HEIGHT * 0.18;
+        fireAtPoint(clamp(targetX - 82, 22, boardWidth - 22), targetY, 0.88, 1.06, 0.78, { style: 'needle' });
+        fireAtPoint(clamp(targetX + 82, 22, boardWidth - 22), targetY, 0.88, 1.06, 0.78, { style: 'needle' });
+      }
+      enemy.laneTargetX = null;
+      break;
+    }
     case 'tank':
       fireShot(desiredAngle, 1.42, 0.8, 1.28, { style: 'bomb' });
       if (displayTier >= 15 && pressureRatio < 0.84) {
@@ -1822,6 +1922,47 @@ function fireEnemyPattern(state: ArenaGameState, enemy: ArenaEnemy, boardWidth: 
         }
       }
       break;
+    case 'eclipseTalonBoss': {
+      const targetX = enemy.laneTargetX ?? state.playerX;
+      const targetY = getPlayerShipTop(boardHeight) + ARENA_PLAYER_HEIGHT * 0.22;
+      if (bossPhase === 0) {
+        const offsets = createSymmetricLaneOffsetPattern(Math.min(budget, scaledCount(5, 3)), 58);
+        for (const offset of offsets) {
+          fireAtPoint(clamp(targetX + offset, 24, boardWidth - 24), targetY, 0.94, 1.08, 0.9, { style: 'bolt' });
+        }
+        if (pressureRatio < 0.82) {
+          fireFan(scaledCount(3, 2), 0.18, 0.9, 1.06, 0.86, { style: 'needle' });
+        }
+      } else if (bossPhase === 1) {
+        if (budget > 0) {
+          budget -= createEnemyLaneStrike(state, enemy, targetX, boardHeight, {
+            offsetPattern: createSymmetricLaneOffsetPattern(Math.min(budget, 4), 58),
+            speedScale: 1.08,
+            damageScale: 1.08,
+            sizeScale: 0.9,
+          });
+        }
+        if (pressureRatio < 0.78) {
+          fireAtPoint(clamp(targetX - 96, 24, boardWidth - 24), targetY, 0.9, 1.08, 0.82, { style: 'needle' });
+          fireAtPoint(clamp(targetX + 96, 24, boardWidth - 24), targetY, 0.9, 1.08, 0.82, { style: 'needle' });
+        }
+      } else {
+        if (budget > 0) {
+          budget -= createEnemyLaneStrike(state, enemy, targetX, boardHeight, {
+            offsetPattern: createSymmetricLaneOffsetPattern(Math.min(budget, 4), 56),
+            speedScale: 1.1,
+            damageScale: 1.08,
+            sizeScale: 0.9,
+          });
+        }
+        const offsets = createSymmetricLaneOffsetPattern(Math.min(budget, scaledCount(5, 3)), 62);
+        for (const offset of offsets) {
+          fireAtPoint(clamp(targetX + offset, 24, boardWidth - 24), targetY, 0.9, 1.1, 0.84, { style: 'bolt' });
+        }
+      }
+      enemy.laneTargetX = null;
+      break;
+    }
     default:
       if (config.burstCount <= 1) {
         fireShot(desiredAngle, 1, 1, 1);
@@ -1856,6 +1997,10 @@ function beginEnemyAttackWindup(
           ? 0.94
           : enemy.kind === 'weaver'
             ? 0.96
+            : enemy.kind === 'raider'
+              ? 0.9
+              : enemy.kind === 'hunter'
+                ? 0.94
         : 1;
 
   enemy.windupTimer = config.windupDuration;
@@ -1869,6 +2014,8 @@ function beginEnemyAttackWindup(
 
   if (
     enemy.kind === 'lancer' ||
+    enemy.kind === 'hunter' ||
+    (enemy.kind === 'eclipseTalonBoss' && bossPhase >= 1) ||
     (enemy.kind === 'prismBoss' && bossPhase === 2) ||
     (enemy.kind === 'hiveCarrierBoss' && bossPhase === 2)
   ) {
@@ -1880,8 +2027,16 @@ function beginEnemyAttackWindup(
       enemy.y + enemy.size * 0.18,
       boardHeight,
       isBossKind(enemy.kind) ? 4 : 3,
-      enemy.kind === 'prismBoss' ? '#FFD8E7' : '#E3FFEF'
+      enemy.kind === 'prismBoss'
+        ? '#FFD8E7'
+        : enemy.kind === 'hunter'
+          ? '#E6D3FF'
+          : enemy.kind === 'eclipseTalonBoss'
+            ? '#FFE0B4'
+            : '#E3FFEF'
     );
+  } else if (enemy.kind === 'raider' || (enemy.kind === 'eclipseTalonBoss' && bossPhase === 0)) {
+    enemy.laneTargetX = clamp(state.playerX, 24, boardWidth - 24);
   } else {
     enemy.laneTargetX = null;
   }
@@ -1928,7 +2083,9 @@ function spawnEnemy(
         ? 2.45
         : kind === 'vectorLoomBoss'
           ? 2.5
-        : 2.3
+          : kind === 'eclipseTalonBoss'
+            ? 2.55
+            : 2.3
       : kind === 'interceptor'
         ? 1.4
         : kind === 'carrier'
@@ -1939,6 +2096,10 @@ function spawnEnemy(
               ? 1.08
               : kind === 'conductor'
                 ? 1.06
+                : kind === 'raider'
+                  ? 1.04
+                  : kind === 'hunter'
+                    ? 1.08
             : 1;
   const tierHealthMultiplier = getEnemyTierHealthMultiplier(displayTier, kind);
   const health = Math.round(
@@ -1993,6 +2154,12 @@ function spawnEnemy(
               ? (1.45 + Math.random() * 0.35) * (options?.specialCooldownMultiplier ?? 1)
               : kind === 'vectorLoomBoss'
                 ? (1.35 + Math.random() * 0.3) * (options?.specialCooldownMultiplier ?? 1)
+                : kind === 'eclipseTalonBoss'
+                  ? (1.15 + Math.random() * 0.3) * (options?.specialCooldownMultiplier ?? 1)
+                  : kind === 'raider'
+                    ? (0.75 + Math.random() * 0.3) * (options?.specialCooldownMultiplier ?? 1)
+                    : kind === 'hunter'
+                      ? (0.9 + Math.random() * 0.35) * (options?.specialCooldownMultiplier ?? 1)
               : 0,
     protectedTimer: 0,
     protectedByEnemyId: null,
@@ -2046,9 +2213,12 @@ function spawnEnemyGroup(state: ArenaGameState, boardWidth: number, boardHeight:
     artillery: 0.1,
     weaver: 0.14,
     conductor: 0.12,
+    raider: 0.14,
+    hunter: 0.12,
     prismBoss: 0,
     hiveCarrierBoss: 0,
     vectorLoomBoss: 0,
+    eclipseTalonBoss: 0,
   };
   const wingmanChance = Math.max(0.08, wingmanChanceByKind[primaryKind] - bulletPressure * 0.24);
   if (displayTier >= 4 && Math.random() < wingmanChance) {
@@ -2132,6 +2302,10 @@ function maybeSpawnEnemyDrop(state: ArenaGameState, enemy: ArenaEnemy) {
               ? 0.08
               : enemy.kind === 'conductor'
                 ? 0.075
+                : enemy.kind === 'raider'
+                  ? 0.08
+                  : enemy.kind === 'hunter'
+                    ? 0.075
         : enemy.kind === 'burst'
           ? 0.07
           : 0.045;
@@ -2187,6 +2361,22 @@ function maybeSpawnEnemyDrop(state: ArenaGameState, enemy: ArenaEnemy) {
           : roll < 0.44
             ? 'overdrive'
             : roll < 0.62
+              ? 'shieldCell'
+              : 'hullPatch'
+      : enemy.kind === 'raider'
+        ? roll < 0.36
+          ? 'overdrive'
+          : roll < 0.54
+            ? 'salvageBurst'
+            : roll < 0.66
+              ? 'shieldCell'
+              : 'hullPatch'
+      : enemy.kind === 'hunter'
+        ? roll < 0.3
+          ? 'salvageBurst'
+          : roll < 0.5
+            ? 'overdrive'
+            : roll < 0.66
               ? 'shieldCell'
               : 'hullPatch'
       : roll < 0.12
@@ -2386,7 +2576,7 @@ function maybeAdvanceBossPhase(
   }
 
   const nextPhaseDefinition = getArenaBossPhaseDefinition(
-    state.activeEncounter.scriptId as Extract<ArenaEncounter['scriptId'], 'prismCore' | 'hiveCarrier' | 'vectorLoom'>,
+    state.activeEncounter.scriptId as Extract<ArenaEncounter['scriptId'], 'prismCore' | 'hiveCarrier' | 'vectorLoom' | 'eclipseTalon'>,
     nextPhaseIndex as 1 | 2
   );
   const anchorHealthRatio = anchorEnemy.health / Math.max(1, anchorEnemy.maxHealth);
@@ -3338,6 +3528,10 @@ export function tickArenaState(
                                 ? 0.88
                                 : enemy.kind === 'conductor'
                                   ? 1.35
+                                  : enemy.kind === 'raider'
+                                    ? 2.35
+                                    : enemy.kind === 'hunter'
+                                      ? 1.15
                               : enemy.kind === 'interceptor'
                                 ? 2.6
                                 : enemy.kind === 'prismBoss'
@@ -3346,6 +3540,8 @@ export function tickArenaState(
                                     ? 0.68
                                     : enemy.kind === 'vectorLoomBoss'
                                       ? 0.72
+                                      : enemy.kind === 'eclipseTalonBoss'
+                                        ? 0.82
                                     : 1),
     };
     if (nextEnemy.protectedTimer <= 0) {
@@ -3396,6 +3592,18 @@ export function tickArenaState(
         const sweepDirection = Math.sign(nextState.playerX - nextEnemy.x) || Math.sign(nextEnemy.vx || 1);
         const sweepTarget = sweepDirection * config.strafeSpeed * 0.82;
         nextEnemy.vx += (sweepTarget - nextEnemy.vx) * Math.min(1, deltaSeconds * 1.35);
+      } else if (enemy.kind === 'raider') {
+        const targetX = nextEnemy.laneTargetX ?? nextState.playerX;
+        const sideBias = targetX < boardWidth * 0.5 ? 1 : -1;
+        const orbitDirection = Math.sign(Math.sin(nextEnemy.phase * 0.72)) || sideBias;
+        const dashScale = nextEnemy.windupTimer > 0 ? 1.45 : 1.05;
+        const flankTarget = orbitDirection * config.strafeSpeed * dashScale + sideBias * config.strafeSpeed * 0.26;
+        nextEnemy.vx += (flankTarget - nextEnemy.vx) * Math.min(1, deltaSeconds * 2.1);
+      } else if (enemy.kind === 'hunter') {
+        const targetX = nextEnemy.laneTargetX ?? nextState.playerX;
+        const lockScale = nextEnemy.windupTimer > 0 ? 0.38 : 0.78;
+        const desiredVx = clamp(targetX - nextEnemy.x, -1, 1) * config.strafeSpeed * lockScale;
+        nextEnemy.vx += (desiredVx - nextEnemy.vx) * Math.min(1, deltaSeconds * 1.8);
       } else if (enemy.kind === 'prismBoss') {
         const prismBossPhase = getBossPhaseIndex(nextState, nextEnemy);
         const phaseSpeedMultiplier = prismBossPhase === 2 ? 1.58 : prismBossPhase === 1 ? 0.92 : 1.18;
@@ -3418,6 +3626,16 @@ export function tickArenaState(
           config.strafeSpeed *
           (loomPhase === 0 ? 1.02 : loomPhase === 1 ? 1.18 : 1.3);
         nextEnemy.vx += (weaveTarget - nextEnemy.vx) * Math.min(1, deltaSeconds * 1.08);
+      } else if (enemy.kind === 'eclipseTalonBoss') {
+        const eclipsePhase = getBossPhaseIndex(nextState, nextEnemy);
+        const targetX = nextEnemy.laneTargetX ?? nextState.playerX;
+        const flankBias = Math.sign(targetX - nextEnemy.x) || Math.sign(nextEnemy.vx || 1);
+        const orbitWave =
+          Math.sin(nextEnemy.phase * (eclipsePhase === 2 ? 1.08 : eclipsePhase === 1 ? 0.92 : 0.82)) *
+          config.strafeSpeed *
+          (eclipsePhase === 0 ? 1.16 : eclipsePhase === 1 ? 0.92 : 1.34);
+        const pursuitBlend = flankBias * config.strafeSpeed * (eclipsePhase === 1 ? 0.42 : 0.26);
+        nextEnemy.vx += (orbitWave + pursuitBlend - nextEnemy.vx) * Math.min(1, deltaSeconds * 1.12);
       }
 
       nextEnemy.x += nextEnemy.vx * deltaSeconds;
@@ -3467,6 +3685,12 @@ export function tickArenaState(
         case 'conductor':
           nextEnemy.y = nextEnemy.cruiseY + Math.sin(nextEnemy.phase * 1.5) * config.bobAmplitude * 0.48;
           break;
+        case 'raider':
+          nextEnemy.y = nextEnemy.cruiseY + Math.sin(nextEnemy.phase * 2.0) * config.bobAmplitude * 0.58;
+          break;
+        case 'hunter':
+          nextEnemy.y = nextEnemy.cruiseY + Math.sin(nextEnemy.phase * 1.1) * config.bobAmplitude * 0.42;
+          break;
         case 'interceptor':
           nextEnemy.y = nextEnemy.cruiseY + Math.sin(nextEnemy.phase * 2.4) * config.bobAmplitude * 0.5;
           break;
@@ -3490,6 +3714,13 @@ export function tickArenaState(
             Math.sin(nextEnemy.phase * (getBossPhaseIndex(nextState, nextEnemy) === 2 ? 1.2 : 0.96)) *
               config.bobAmplitude *
               (getBossPhaseIndex(nextState, nextEnemy) === 1 ? 1.64 : getBossPhaseIndex(nextState, nextEnemy) === 2 ? 1.9 : 1.42);
+          break;
+        case 'eclipseTalonBoss':
+          nextEnemy.y =
+            nextEnemy.cruiseY +
+            Math.sin(nextEnemy.phase * (getBossPhaseIndex(nextState, nextEnemy) === 2 ? 1.18 : 0.96)) *
+              config.bobAmplitude *
+              (getBossPhaseIndex(nextState, nextEnemy) === 2 ? 1.86 : getBossPhaseIndex(nextState, nextEnemy) === 1 ? 1.5 : 1.36);
           break;
         default:
           nextEnemy.y = nextEnemy.cruiseY;

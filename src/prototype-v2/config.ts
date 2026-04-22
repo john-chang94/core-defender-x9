@@ -15,7 +15,7 @@ export const ARENA_MIN_ENEMY_CRUISE_Y_RATIO = 0.15;
 export const ARENA_MAX_ENEMY_CRUISE_Y_RATIO = 0.41;
 export const ARENA_SHIELD_REGEN_DELAY_SECONDS = 2.2;
 export const ARENA_SHIELD_REGEN_PER_SECOND = 11;
-export const ARENA_VERSION_LABEL = 'v0.66';
+export const ARENA_VERSION_LABEL = 'v0.68';
 
 export const ARENA_ENEMY_ORDER: ArenaEnemyKind[] = [
   'hover',
@@ -31,9 +31,12 @@ export const ARENA_ENEMY_ORDER: ArenaEnemyKind[] = [
   'artillery',
   'weaver',
   'conductor',
+  'raider',
+  'hunter',
   'prismBoss',
   'hiveCarrierBoss',
   'vectorLoomBoss',
+  'eclipseTalonBoss',
 ];
 
 export const BASE_ARENA_WEAPON: ArenaWeapon = {
@@ -60,9 +63,12 @@ export const ARENA_ENEMY_COLORS: Record<ArenaEnemyKind, string> = {
   artillery: '#FFC99A',
   weaver: '#B9C8FF',
   conductor: '#FFE58C',
+  raider: '#FFB36E',
+  hunter: '#D8B9FF',
   prismBoss: '#FF6EAE',
   hiveCarrierBoss: '#8FF0D6',
   vectorLoomBoss: '#B7C8FF',
+  eclipseTalonBoss: '#FFD19A',
 };
 
 export const ARENA_ENEMY_SHAPES: Record<ArenaEnemyKind, ArenaEnemyShape> = {
@@ -79,9 +85,12 @@ export const ARENA_ENEMY_SHAPES: Record<ArenaEnemyKind, ArenaEnemyShape> = {
   artillery: 'square',
   weaver: 'diamond',
   conductor: 'diamond',
+  raider: 'diamond',
+  hunter: 'diamond',
   prismBoss: 'diamond',
   hiveCarrierBoss: 'square',
   vectorLoomBoss: 'diamond',
+  eclipseTalonBoss: 'diamond',
 };
 
 export const ARENA_ENEMY_CONFIG: Record<
@@ -311,6 +320,38 @@ export const ARENA_ENEMY_CONFIG: Record<
     spreadAngle: 0.12,
     bobAmplitude: 5,
   },
+  raider: {
+    size: 52,
+    baseHealth: 118,
+    healthPerTier: 19,
+    strafeSpeed: 78,
+    descendSpeed: 104,
+    fireInterval: 2.65,
+    windupDuration: 0.62,
+    bulletSpeed: 360,
+    bulletDamage: 13,
+    bulletSize: 8,
+    reward: 300,
+    burstCount: 3,
+    spreadAngle: 0.18,
+    bobAmplitude: 7,
+  },
+  hunter: {
+    size: 54,
+    baseHealth: 136,
+    healthPerTier: 22,
+    strafeSpeed: 48,
+    descendSpeed: 94,
+    fireInterval: 3.25,
+    windupDuration: 0.92,
+    bulletSpeed: 430,
+    bulletDamage: 17,
+    bulletSize: 8,
+    reward: 330,
+    burstCount: 2,
+    spreadAngle: 0.08,
+    bobAmplitude: 5,
+  },
   prismBoss: {
     size: 96,
     baseHealth: 680,
@@ -357,6 +398,22 @@ export const ARENA_ENEMY_CONFIG: Record<
     reward: 1160,
     burstCount: 4,
     spreadAngle: 0.17,
+    bobAmplitude: 0,
+  },
+  eclipseTalonBoss: {
+    size: 112,
+    baseHealth: 900,
+    healthPerTier: 148,
+    strafeSpeed: 44,
+    descendSpeed: 78,
+    fireInterval: 2.62,
+    windupDuration: 0.72,
+    bulletSpeed: 340,
+    bulletDamage: 18,
+    bulletSize: 10,
+    reward: 1220,
+    burstCount: 5,
+    spreadAngle: 0.16,
     bobAmplitude: 0,
   },
 };

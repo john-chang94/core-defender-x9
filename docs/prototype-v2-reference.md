@@ -1,7 +1,7 @@
 # Prototype V2 Reference
 
 Snapshot date: `2026-04-21`
-Board version: `v0.66`
+Board version: `v0.68`
 
 This document is the current reference for the arena-combat shooter in `/Users/johnchang/Desktop/defender/src/prototype-v2`. It replaces the earlier planning-heavy draft with a snapshot of what is actually implemented today, plus the next major gaps.
 
@@ -25,7 +25,7 @@ Core loop:
 
 This mode is no longer just a redesign concept. It is a production prototype with live combat, encounters, progression, and Skia rendering.
 
-The current build also includes persistent between-run `Codex + Mastery` data stored locally, a scripted encounter registry, a rotating three-boss cadence, named biome sectors, Arena-local audio settings plus music / SFX playback, impact + lane-band hazard telegraphs, one-time coaching chips, and a local cosmetic collection / equip layer on top of the meta flow.
+The current build also includes persistent between-run `Codex + Mastery` data stored locally, a scripted encounter registry, a rotating four-boss cadence, named biome sectors, Arena-local audio settings plus music / SFX playback, impact + lane-band hazard telegraphs, one-time coaching chips, and a local cosmetic collection / equip layer on top of the meta flow.
 
 ## Current Playable State
 
@@ -318,12 +318,14 @@ Current global reward cosmetics:
 - `Boss Banner: Prism Shard`: first `Prism Core` clear
 - `Boss Banner: Hive Trace`: first `Hive Carrier` clear
 - `Boss Banner: Loom Static`: first `Vector Loom` clear
+- `Boss Banner: Eclipse Cut`: first `Eclipse Talon` clear
 - `Boss Banner: Triad Breaker`: clear `Prism Core`, `Hive Carrier`, and `Vector Loom` in one run
 - `Boss Banner: Deep Cycle`: reach `T45`
 - `Codex Frame: Full Spectrum`: discover every enemy / boss signal
 - `Codex Frame: Endless Apex`: reach `T24`
 - `Codex Frame: Threat Cartographer`: reach `T30`
-- `Codex Frame: Triad Grid`: clear all three bosses across lifetime progression
+- `Codex Frame: Triad Grid`: clear the original three bosses across lifetime progression
+- `Codex Frame: Full Rotation`: clear all four rotating bosses across lifetime progression
 - `Codex Frame: Outer Limit`: reach `T60`
 
 Current build-specific reward cosmetics:
@@ -351,9 +353,12 @@ Current live enemy families:
 - `artillery`
 - `weaver`
 - `conductor`
+- `raider`
+- `hunter`
 - `prismBoss`
 - `hiveCarrierBoss`
 - `vectorLoomBoss`
+- `eclipseTalonBoss`
 
 ### Current enemy identity summary
 
@@ -370,9 +375,12 @@ Current live enemy families:
 - `artillery`: siege ship that telegraphs delayed lower-arena impact zones
 - `weaver`: control ship that deploys paired lane-band hazards while keeping at least one lane open
 - `conductor`: control striker that sweeps adjacent lane bands in readable beats
+- `raider`: fast flank craft that telegraphs a side dash before firing angled crossing bursts
+- `hunter`: pursuit marksman that marks a lane, delays, then fires staggered needle volleys around the lock
 - `prismBoss`: boss anchor with the heaviest health and multi-pattern pressure
 - `hiveCarrierBoss`: rotating boss carrier that mixes escort deployment, artillery pressure, and lane sweeps
 - `vectorLoomBoss`: rotating control boss that layers thread walls, sweep beats, and support spawns
+- `eclipseTalonBoss`: rotating flank boss that combines raider dashes, hunter marks, and support pressure
 
 ### Enemy presentation state
 
@@ -380,8 +388,8 @@ Enemy hulls were refactored from complex custom polygons to clean geometric shap
 
 Current presentation state:
 
-- non-boss enemies use distinct geometric shapes: `hover` and `orbiter` are circles; `burst` and `interceptor` are triangles; `sniper` and `lancer` are diamonds; `tank` and `warden` are rectangles; `bomber`, `artillery`, and `weaver` are pentagons; `carrier` and `conductor` are hexagons
-- boss enemies (`prismBoss`, `hiveCarrierBoss`, `vectorLoomBoss`) retain their original custom polygon silhouettes
+- non-boss enemies use distinct geometric shapes: `hover` and `orbiter` are circles; `burst` and `interceptor` are triangles; `sniper`, `lancer`, `raider`, and `hunter` are diamonds / swept diamonds; `tank` and `warden` are rectangles; `bomber`, `artillery`, and `weaver` are pentagons; `carrier` and `conductor` are hexagons
+- boss enemies (`prismBoss`, `hiveCarrierBoss`, `vectorLoomBoss`, `eclipseTalonBoss`) retain custom polygon silhouettes
 - enemy aim direction rotates the barrel / gun direction toward the current fire target
 - gun barrels are rendered as native `<Line>` primitives instead of custom path objects
 - enemy projectile styles vary by family (`orb`, `bolt`, `needle`, `bomb`, `wave`)
@@ -393,7 +401,8 @@ Current presentation state:
 
 - mini-boss encounter every `3` tiers
 - boss encounter every `6` tiers
-- boss rotation currently runs `Prism Core` at `T6`, `Hive Carrier` at `T12`, `Vector Loom` at `T18`, then repeats every `18` tiers
+- boss rotation currently runs `Prism Core` at `T6`, `Hive Carrier` at `T12`, `Vector Loom` at `T18`, `Eclipse Talon` at `T24`, then repeats every `24` tiers
+- flank / pursuit formation scripts begin after the Vector tier band: `Razor Pincer`, `Hunter Mark`, `Flank Relay`, `Marked Crossfire`, `Shielded Pursuit`, and `Eclipse Net`
 
 ### Current live encounter anchors
 
@@ -413,12 +422,18 @@ Current presentation state:
   - anchor: `weaver`
 - `Conductor Array`
   - anchor: `conductor`
+- `Raider Talon`
+  - anchor: `raider`
+- `Hunter Pack`
+  - anchor: `hunter`
 - `Prism Core`
   - anchor: `prismBoss`
 - `Hive Carrier`
   - anchor: `hiveCarrierBoss`
 - `Vector Loom`
   - anchor: `vectorLoomBoss`
+- `Eclipse Talon`
+  - anchor: `eclipseTalonBoss`
 
 ### Encounter reward behavior
 
@@ -445,7 +460,7 @@ Current Skia-rendered layers include:
 
 ### Theme progression
 
-- arena biome sector changes every `6` tiers and follows the boss cadence
+- arena biome sector changes every `6` tiers
 - the named sector rotation is `Prism Verge`, `Hive Forge`, and `Vector Spindle`, then repeats every `18` tiers
 - overdrive adds an additional warm overlay pass on top of the current theme
 
@@ -513,6 +528,13 @@ Primary implementation files:
 
 ### 2026-04-21
 
+- Advanced arena board label to `v0.68`.
+- Added the flank / pursuit combat pack: `Raider` and `Hunter` enemy jobs, six new regular formation scripts, and two new mini-boss scripts (`Raider Talon`, `Hunter Pack`).
+- Added `Eclipse Talon` as the fourth rotating three-phase boss; boss cadence is still every `6` tiers and now rotates over `24` tiers (`T6`, `T12`, `T18`, `T24`, repeat).
+- Added reward-only Collection items `Boss Banner: Eclipse Cut` and `Codex Frame: Full Rotation`; the original `Boss Triad Complete` reward still tracks only `Prism Core`, `Hive Carrier`, and `Vector Loom`.
+- No audio files, cue mappings, settings, or asset-pack behavior changed in this update.
+- Advanced arena board label to `v0.67`.
+- Updated `Missile Command` ultimate trailing glyphs from stacked glow circles into mini missile silhouettes while preserving the existing colors and opacity.
 - Advanced arena board label to `v0.66`.
 - Added the T60 cosmetic reward ladder: `Codex Frame: Threat Cartographer` (`T30`), `Boss Banner: Deep Cycle` (`T45`), `Codex Frame: Outer Limit` (`T60`), and `Boss Banner: Triad Breaker` for clearing all three bosses in one run.
 - Added mastery rank `10` build accents for all four builds and wired retroactive unlocks from persisted mastery levels.
@@ -649,8 +671,8 @@ These are the major areas that still remain after the current polish pass.
 ### Content expansion
 
 - more encounter scripts on top of the now broader registry
-- more enemy jobs beyond the current `Warden` / `Lancer` / `Carrier` / `Artillery` / `Weaver` / `Conductor` roster expansion
-- more bosses after the current `Prism Core` / `Hive Carrier` / `Vector Loom` rotation
+- more enemy jobs beyond the current `Warden` / `Lancer` / `Carrier` / `Artillery` / `Weaver` / `Conductor` / `Raider` / `Hunter` roster expansion
+- more bosses after the current `Prism Core` / `Hive Carrier` / `Vector Loom` / `Eclipse Talon` rotation
 
 ### Progression expansion
 
@@ -685,7 +707,7 @@ The immediate next step should probably be production follow-through rather than
 
 Recommended order:
 
-1. Smoke-test the new T30 / T45 / T60 reward ladder across all four builds, with special attention to `Missile Command` overdrive and ultimate overlaps.
-2. Add more non-pay-to-win cosmetic destinations on top of the current Collection flow, likely starting with broader presentation surfaces rather than combat power.
-3. Consider the next combat pack only after the current T60 stability and reward loop are validated.
+1. Smoke-test the new flank / pursuit content through at least `T24` / `T30`, with special attention to `Raider` dash reads, `Hunter` mark readability, and `Eclipse Talon` phase transitions.
+2. Re-test T45 / T60 stability across all four builds, especially `Missile Command` overdrive and ultimate overlaps with the expanded roster.
+3. Add more non-pay-to-win cosmetic destinations on top of the current Collection flow, likely starting with broader presentation surfaces rather than combat power.
 4. Keep audio expansion deferred until better source sounds are available.

@@ -38,7 +38,7 @@ import type {
 } from './types';
 
 export const ARENA_META_STORAGE_KEY = 'arena-v2-meta-v1';
-export const ARENA_META_VERSION = 6;
+export const ARENA_META_VERSION = 7;
 export const ARENA_BUILD_MASTERY_THRESHOLDS = [0, 100, 220, 360, 520, 700, 900, 1120, 1360, 1620, 1900] as const;
 
 export const ARENA_COACH_HINT_ORDER: ArenaCoachHintId[] = [
@@ -82,9 +82,12 @@ export const ARENA_ENEMY_LABELS: ArenaEnemyValueMap<string> = {
   artillery: 'Artillery',
   weaver: 'Weaver',
   conductor: 'Conductor',
+  raider: 'Raider',
+  hunter: 'Hunter',
   prismBoss: 'Prism Core',
   hiveCarrierBoss: 'Hive Carrier',
   vectorLoomBoss: 'Vector Loom',
+  eclipseTalonBoss: 'Eclipse Talon',
 };
 
 const ARENA_ENEMY_SUMMARIES: ArenaEnemyValueMap<string> = {
@@ -101,16 +104,21 @@ const ARENA_ENEMY_SUMMARIES: ArenaEnemyValueMap<string> = {
   artillery: 'Siege craft that paints delayed impact zones in the lower arena.',
   weaver: 'Control ship that deploys paired lane-band hazards while preserving one full safe lane.',
   conductor: 'Control striker that sweeps adjacent lane bands in readable multi-beat patterns.',
+  raider: 'Fast flank craft that telegraphs a side dash before firing angled crossing bursts.',
+  hunter: 'Pursuit marksman that marks a lane, delays, then fires staggered needle volleys around the lock.',
   prismBoss: 'Phase-driven boss core that mutates its pressure patterns as health breaks.',
   hiveCarrierBoss: 'Rotating boss carrier that mixes escort deployment, shelling, and lane pressure.',
   vectorLoomBoss: 'Rotating control boss that combines thread walls, sweep beats, and support pressure.',
+  eclipseTalonBoss: 'Rotating flank boss that combines raider dashes, hunter marks, and support pressure.',
 };
 
 export const ARENA_UNLOCK_ORDER: ArenaUnlockId[] = [
   'prismCoreFirstClear',
   'hiveCarrierFirstClear',
   'vectorLoomFirstClear',
+  'eclipseTalonFirstClear',
   'bossTriadComplete',
+  'bossFullRotationComplete',
   'singleRunBossTriadClear',
   'tier24Clear',
   'tier30Clear',
@@ -159,6 +167,15 @@ const ARENA_UNLOCK_DEFINITIONS: ArenaUnlockValueMap<Omit<ArenaUnlockEntry, 'unlo
     buildId: null,
     sourceMilestoneId: 'boss:vector-loom:first-clear',
   },
+  eclipseTalonFirstClear: {
+    id: 'eclipseTalonFirstClear',
+    label: 'Eclipse Talon Clear',
+    description: 'Clear Eclipse Talon once.',
+    rewardLabel: 'Boss Banner: Eclipse Cut',
+    category: 'boss',
+    buildId: null,
+    sourceMilestoneId: 'boss:eclipse-talon:first-clear',
+  },
   bossTriadComplete: {
     id: 'bossTriadComplete',
     label: 'Boss Triad Complete',
@@ -167,6 +184,15 @@ const ARENA_UNLOCK_DEFINITIONS: ArenaUnlockValueMap<Omit<ArenaUnlockEntry, 'unlo
     category: 'codex',
     buildId: null,
     sourceMilestoneId: 'boss:triad:complete',
+  },
+  bossFullRotationComplete: {
+    id: 'bossFullRotationComplete',
+    label: 'Full Boss Rotation',
+    description: 'Clear Prism Core, Hive Carrier, Vector Loom, and Eclipse Talon at least once each.',
+    rewardLabel: 'Codex Frame: Full Rotation',
+    category: 'codex',
+    buildId: null,
+    sourceMilestoneId: 'boss:rotation:complete',
   },
   singleRunBossTriadClear: {
     id: 'singleRunBossTriadClear',
@@ -512,6 +538,15 @@ function isBossTriadComplete(codexEnemies: ArenaEnemyValueMap<ArenaCodexEnemyEnt
   );
 }
 
+function isBossFullRotationComplete(codexEnemies: ArenaEnemyValueMap<ArenaCodexEnemyEntry>) {
+  return (
+    codexEnemies.prismBoss.bossClears > 0 &&
+    codexEnemies.hiveCarrierBoss.bossClears > 0 &&
+    codexEnemies.vectorLoomBoss.bossClears > 0 &&
+    codexEnemies.eclipseTalonBoss.bossClears > 0
+  );
+}
+
 function hasReachedTier(mastery: ArenaBuildValueMap<ArenaBuildMastery>, tier: number) {
   return ARENA_BUILD_ORDER.some((buildId) => mastery[buildId].bestTier >= tier);
 }
@@ -561,8 +596,12 @@ function isUnlockSatisfied(
       return codexEnemies.hiveCarrierBoss.bossClears > 0;
     case 'vectorLoomFirstClear':
       return codexEnemies.vectorLoomBoss.bossClears > 0;
+    case 'eclipseTalonFirstClear':
+      return codexEnemies.eclipseTalonBoss.bossClears > 0;
     case 'bossTriadComplete':
       return isBossTriadComplete(codexEnemies);
+    case 'bossFullRotationComplete':
+      return isBossFullRotationComplete(codexEnemies);
     case 'singleRunBossTriadClear':
       return isSingleRunBossTriadComplete(runSummary);
     case 'enemyCodexComplete':

@@ -12,9 +12,12 @@ export type ArenaEnemyKind =
   | 'artillery'
   | 'weaver'
   | 'conductor'
+  | 'raider'
+  | 'hunter'
   | 'prismBoss'
   | 'hiveCarrierBoss'
-  | 'vectorLoomBoss';
+  | 'vectorLoomBoss'
+  | 'eclipseTalonBoss';
 
 export type ArenaEnemyShape = 'circle' | 'square' | 'diamond';
 
@@ -141,6 +144,12 @@ export type ArenaEncounterScriptId =
   | 'suppressionRail'
   | 'pinnedScreen'
   | 'corridorCollapse'
+  | 'razorPincer'
+  | 'hunterMark'
+  | 'flankRelay'
+  | 'markedCrossfire'
+  | 'shieldedPursuit'
+  | 'eclipseNet'
   | 'interceptorSweep'
   | 'bombardWing'
   | 'wardenBastion'
@@ -149,9 +158,12 @@ export type ArenaEncounterScriptId =
   | 'artilleryBastion'
   | 'weaverLoom'
   | 'conductorArray'
+  | 'raiderTalon'
+  | 'hunterPack'
   | 'prismCore'
   | 'hiveCarrier'
-  | 'vectorLoom';
+  | 'vectorLoom'
+  | 'eclipseTalon';
 
 export type ArenaHazardKind = 'impact' | 'laneBand';
 
@@ -376,7 +388,9 @@ export type ArenaUnlockId =
   | 'prismCoreFirstClear'
   | 'hiveCarrierFirstClear'
   | 'vectorLoomFirstClear'
+  | 'eclipseTalonFirstClear'
   | 'bossTriadComplete'
+  | 'bossFullRotationComplete'
   | 'singleRunBossTriadClear'
   | 'tier24Clear'
   | 'tier30Clear'
@@ -419,12 +433,14 @@ export type ArenaCosmeticId =
   | 'bannerPrismShard'
   | 'bannerHiveTrace'
   | 'bannerLoomStatic'
+  | 'bannerEclipseCut'
   | 'bannerTriadBreaker'
   | 'bannerDeepCycle'
   | 'codexFrameDefault'
   | 'codexFrameFullSpectrum'
   | 'codexFrameEndlessApex'
   | 'codexFrameTriadGrid'
+  | 'codexFrameFullRotation'
   | 'codexFrameThreatCartographer'
   | 'codexFrameOuterLimit'
   | 'railFocusAccentDefault'

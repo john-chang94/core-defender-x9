@@ -135,16 +135,19 @@ type ArenaRunEndSummary = {
 
 const FEATURED_COLLECTION_REWARD_IDS: ArenaCosmeticId[] = [
   "bannerPrismShard",
+  "bannerEclipseCut",
   "codexFrameEndlessApex",
   "codexFrameThreatCartographer",
   "bannerDeepCycle",
   "codexFrameOuterLimit",
+  "codexFrameFullRotation",
   "bannerTriadBreaker",
 ];
 const BOSS_ENEMY_ORDER = [
   "prismBoss",
   "hiveCarrierBoss",
   "vectorLoomBoss",
+  "eclipseTalonBoss",
 ] as const;
 const ARENA_COACH_HINT_COPY: Record<
   ArenaCoachHintId,
@@ -321,7 +324,8 @@ function EnemyNode({ enemy }: { enemy: ArenaEnemy }) {
   const isBoss =
     enemy.kind === "prismBoss" ||
     enemy.kind === "hiveCarrierBoss" ||
-    enemy.kind === "vectorLoomBoss";
+    enemy.kind === "vectorLoomBoss" ||
+    enemy.kind === "eclipseTalonBoss";
 
   return (
     <View
@@ -3850,6 +3854,14 @@ export function ArenaPrototypeScreen({
                                 entry={arenaMeta.unlocks.vectorLoomFirstClear}
                                 metaState={arenaMeta}
                                 accentColor="#C7D4FF"
+                                frameDefinition={activeFrameDefinition}
+                              />
+                            ) : !isLocked &&
+                              entry.kind === "eclipseTalonBoss" ? (
+                              <UnlockChip
+                                entry={arenaMeta.unlocks.eclipseTalonFirstClear}
+                                metaState={arenaMeta}
+                                accentColor="#FFB36E"
                                 frameDefinition={activeFrameDefinition}
                               />
                             ) : null}
