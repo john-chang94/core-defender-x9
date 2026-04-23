@@ -3,10 +3,22 @@ import type {
   ArenaCampaignMissionId,
   ArenaCampaignShieldId,
   ArenaCampaignWeaponId,
+  ArenaCampaignWeaponUpgradeKey,
+  ArenaCampaignWeaponUpgradeTrack,
   ArenaGameState,
+  ArenaWeapon,
 } from './types';
 
 export const ARENA_CAMPAIGN_XP_THRESHOLDS = [0, 120, 280, 520, 860, 1300, 1840, 2480, 3220, 4060, 5000] as const;
+export const ARENA_CAMPAIGN_WEAPON_UPGRADE_MAX_LEVEL = 5;
+
+export type ArenaCampaignWeaponUpgradeDefinition = {
+  key: ArenaCampaignWeaponUpgradeKey;
+  label: string;
+  shortLabel: string;
+  statLine: string;
+  summary: string;
+};
 
 export type ArenaCampaignWeaponDefinition = {
   id: ArenaCampaignWeaponId;
@@ -40,6 +52,44 @@ export type ArenaCampaignMissionDefinition = {
   rewardXp: number;
   bossLabel: string;
 };
+
+export const ARENA_CAMPAIGN_WEAPON_UPGRADES: Record<
+  ArenaCampaignWeaponUpgradeKey,
+  ArenaCampaignWeaponUpgradeDefinition
+> = {
+  damage: {
+    key: 'damage',
+    label: 'Damage Matrix',
+    shortLabel: 'DMG',
+    statLine: '+2 damage / level',
+    summary: 'Raises direct weapon damage before build tuning is applied.',
+  },
+  cycle: {
+    key: 'cycle',
+    label: 'Cycle Accelerator',
+    shortLabel: 'ROF',
+    statLine: '+7% fire rate / level',
+    summary: 'Shortens the primary firing loop while respecting each build floor.',
+  },
+  velocity: {
+    key: 'velocity',
+    label: 'Velocity Rails',
+    shortLabel: 'SPD',
+    statLine: '+110 speed / level',
+    summary: 'Improves projectile speed and adds a small shot-size bump.',
+  },
+  stability: {
+    key: 'stability',
+    label: 'Stability Core',
+    shortLabel: 'CTRL',
+    statLine: '+focus / level',
+    summary: 'Tightens spread and improves pierce every other level.',
+  },
+};
+
+export const ARENA_CAMPAIGN_WEAPON_UPGRADE_ORDER = Object.keys(
+  ARENA_CAMPAIGN_WEAPON_UPGRADES,
+) as ArenaCampaignWeaponUpgradeKey[];
 
 export const ARENA_CAMPAIGN_WEAPONS: Record<ArenaCampaignWeaponId, ArenaCampaignWeaponDefinition> = {
   railCannon: {
@@ -142,6 +192,35 @@ export function getArenaCampaignLevelProgress(xp: number) {
 
 export function getArenaCampaignWeaponSlotCount(level: number) {
   return level >= 4 ? 2 : 1;
+}
+
+export function createArenaCampaignWeaponUpgradeTrack(): ArenaCampaignWeaponUpgradeTrack {
+  return {
+    damage: 0,
+    cycle: 0,
+    velocity: 0,
+    stability: 0,
+  };
+}
+
+export function applyArenaCampaignWeaponUpgrades(
+  weapon: ArenaWeapon,
+  upgrades: ArenaCampaignWeaponUpgradeTrack,
+) {
+  const damageLevel = Math.max(0, upgrades.damage);
+  const cycleLevel = Math.max(0, upgrades.cycle);
+  const velocityLevel = Math.max(0, upgrades.velocity);
+  const stabilityLevel = Math.max(0, upgrades.stability);
+
+  return {
+    ...weapon,
+    damage: weapon.damage + damageLevel * 2,
+    fireInterval: Math.max(0.06, weapon.fireInterval * Math.pow(0.93, cycleLevel)),
+    bulletSpeed: Math.min(1900, weapon.bulletSpeed + velocityLevel * 110),
+    bulletSize: Math.min(30, weapon.bulletSize + velocityLevel * 0.22),
+    spread: Math.max(7, Math.round(weapon.spread * Math.pow(0.94, stabilityLevel))),
+    pierce: weapon.pierce + Math.floor(stabilityLevel / 2),
+  };
 }
 
 export function getArenaCampaignRunXp(gameState: ArenaGameState) {

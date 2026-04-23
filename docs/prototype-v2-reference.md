@@ -1,7 +1,7 @@
 # Prototype V2 Reference
 
 Snapshot date: `2026-04-22`
-Board version: `v0.71`
+Board version: `v0.72`
 
 This document is the current reference for the arena-combat shooter in `/Users/johnchang/Desktop/defender/src/prototype-v2`. It replaces the earlier planning-heavy draft with a snapshot of what is actually implemented today, plus the next major gaps.
 
@@ -116,8 +116,10 @@ Other UI behavior:
 
 - Campaign currently reuses the Arena V2 combat runtime instead of introducing a separate engine.
 - Campaign mission state is tracked separately from endless run rules.
-- Campaign runs use equipped weapon / shield scaffolding from the Home Base.
+- Campaign runs use equipped weapons, persistent weapon stat upgrades, and shield ability scaffolding from the Home Base.
 - Current campaign weapon IDs map onto the existing four combat implementations: `railCannon`, `bloomEmitter`, `missileRack`, and `fractureDriver`.
+- Campaign weapon stat upgrades are permanent campaign-only installs. Each campaign level gained grants `1` weapon upgrade point, and the first mission clear is tuned to grant roughly two level-ups from a fresh save.
+- Current campaign weapon upgrade tracks are `Damage Matrix`, `Cycle Accelerator`, `Velocity Rails`, and `Stability Core`, each capped at level `5` per weapon.
 - Campaign shields provide active abilities. `Aegis Dampener` reduces incoming damage by `60%` for a short window. `Point Screen` is scaffolded as a later unlock that clears `50%` of active enemy projectiles and briefly reduces damage.
 - Campaign runs do not use salvage collection or in-run armory drafts.
 - Campaign XP is persisted locally and currently unlocks the second weapon slot at campaign level `4`.
@@ -326,7 +328,7 @@ Current persisted layers:
 - `Mastery`: build XP, rank title, run count, best tier, mini-boss clears, and boss clears
 - `Collection`: locked / claimable / owned cosmetic inventory plus equipped banner, codex frame, build accent, and build crest
 - `Coach hints`: one-time seen state for Arena V2 coaching chips
-- `Campaign`: player XP / level, campaign mission progress, equipped campaign weapon slots, and equipped shield ability
+- `Campaign`: player XP / level, weapon upgrade points, per-weapon stat upgrade levels, campaign mission progress, equipped campaign weapon slots, and equipped shield ability
 
 Current global reward cosmetics:
 
@@ -543,6 +545,9 @@ Primary implementation files:
 
 ### 2026-04-22
 
+- Advanced arena board label to `v0.72`.
+- Added campaign weapon stat upgrades in the Home Base `Weapon Equip` panel. Campaign level-ups now grant persistent weapon upgrade points, and upgrades are tracked per campaign weapon across `Damage Matrix`, `Cycle Accelerator`, `Velocity Rails`, and `Stability Core`.
+- Campaign weapon upgrades are applied when launching campaign missions only; Endless mode still uses salvage / armory drafts and is not affected by campaign weapon installs.
 - Advanced arena board label to `v0.71`.
 - Reworked `Home Base` to avoid scrolling on the root screen. The main deck now fits in the phone viewport and only exposes Mission Launch, Collection, Codex, Mastery, Weapon Equip, and Shield Equip as primary stations.
 - Added Home Base detail panels with a back button for mission info, Collection status / claim-ready rewards, Codex summary, Mastery summary, weapon slot equip, shield ability equip, and `Extras`; Endless Simulation and Switch Game moved into `Extras`.
@@ -707,7 +712,7 @@ These are the major areas that still remain after the current polish pass.
 ### Progression expansion
 
 - more campaign missions after the current `Prism Verge Recon` foundation map
-- a real campaign equipment upgrade economy on level-up, replacing the current weapon / shield scaffolding
+- broader campaign equipment upgrade depth beyond the current per-weapon stat tracks
 - campaign weapon slot switching in live combat; the second slot is currently persisted and gated but not yet a live toggle-fire system
 - more cosmetic content and slot coverage on top of the current local claim / equip layer
 - more premium-feeling armory picks beyond the current base set

@@ -49,7 +49,11 @@ import { ARENA_BUILD_META, ARENA_BUILD_ORDER } from "./builds";
 import {
   ARENA_CAMPAIGN_MISSIONS,
   ARENA_CAMPAIGN_SHIELDS,
+  ARENA_CAMPAIGN_WEAPON_UPGRADE_MAX_LEVEL,
+  ARENA_CAMPAIGN_WEAPON_UPGRADE_ORDER,
+  ARENA_CAMPAIGN_WEAPON_UPGRADES,
   ARENA_CAMPAIGN_WEAPONS,
+  applyArenaCampaignWeaponUpgrades,
   getArenaCampaignLevelProgress,
   getArenaCampaignRunXp,
   getArenaCampaignWeaponSlotCount,
@@ -106,6 +110,7 @@ import {
   saveArenaMetaState,
   setArenaCampaignShield,
   setArenaCampaignWeapon,
+  upgradeArenaCampaignWeapon,
 } from "./meta";
 import type {
   ArenaAudioCueKey,
@@ -115,6 +120,7 @@ import type {
   ArenaCampaignMissionId,
   ArenaCampaignShieldId,
   ArenaCampaignWeaponId,
+  ArenaCampaignWeaponUpgradeKey,
   ArenaCoachHintId,
   ArenaCosmeticDefinition,
   ArenaCosmeticDisplayState,
@@ -1311,6 +1317,8 @@ export function ArenaPrototypeScreen({
   const [vfxQuality, setVfxQuality] = useState<ArenaVfxQuality>("high");
   const [menuTab, setMenuTab] = useState<ArenaMenuTab>("run");
   const [hubPanel, setHubPanel] = useState<ArenaHubPanel>("root");
+  const [hubWeaponUpgradeTargetId, setHubWeaponUpgradeTargetId] =
+    useState<ArenaCampaignWeaponId>("railCannon");
   const [collectionBuildId, setCollectionBuildId] =
     useState<ArenaBuildId>("railFocus");
   const [arenaMeta, setArenaMeta] = useState<ArenaMetaState>(() =>
@@ -1765,6 +1773,27 @@ export function ArenaPrototypeScreen({
     arenaMeta.campaign.loadout.weaponSlots[0];
   const activeCampaignWeapon = ARENA_CAMPAIGN_WEAPONS[activeCampaignWeaponId];
   const activeCampaignShield = ARENA_CAMPAIGN_SHIELDS[arenaMeta.campaign.loadout.shieldId];
+  const hubWeaponUpgradeTargetLocked =
+    ARENA_CAMPAIGN_WEAPONS[hubWeaponUpgradeTargetId].unlockLevel >
+    arenaMeta.campaign.level;
+  const hubWeaponUpgradeTargetIdSafe = hubWeaponUpgradeTargetLocked
+    ? activeCampaignWeaponId
+    : hubWeaponUpgradeTargetId;
+  const hubWeaponUpgradeTarget =
+    ARENA_CAMPAIGN_WEAPONS[hubWeaponUpgradeTargetIdSafe];
+  const hubWeaponUpgradeTrack =
+    arenaMeta.campaign.weaponUpgrades[hubWeaponUpgradeTargetIdSafe];
+  const hubSpentWeaponUpgradeCount = Object.values(
+    arenaMeta.campaign.weaponUpgrades,
+  ).reduce(
+    (total, track) =>
+      total +
+      ARENA_CAMPAIGN_WEAPON_UPGRADE_ORDER.reduce(
+        (trackTotal, key) => trackTotal + track[key],
+        0,
+      ),
+    0,
+  );
   const activeMission = ARENA_CAMPAIGN_MISSIONS.prismVergeRecon;
   const activeBannerDefinition = getArenaCosmeticDefinition(
     getArenaEquippedGlobalCosmeticId(arenaMeta, "banner"),
@@ -2570,13 +2599,25 @@ export function ArenaPrototypeScreen({
       const weaponId =
         arenaMeta.campaign.loadout.weaponSlots[arenaMeta.campaign.loadout.activeWeaponSlot] ??
         arenaMeta.campaign.loadout.weaponSlots[0];
-      return createInitialArenaState(boardWidth, {
+      const baseCampaignState = createInitialArenaState(boardWidth, {
         runMode: "campaign",
         campaignMissionId: mission.id,
         campaignTargetTier: mission.targetTier,
         campaignShieldId: arenaMeta.campaign.loadout.shieldId,
         activeBuild: ARENA_CAMPAIGN_WEAPONS[weaponId].buildId,
       });
+      const upgradedWeapon = applyArenaCampaignWeaponUpgrades(
+        baseCampaignState.weapon,
+        arenaMeta.campaign.weaponUpgrades[weaponId],
+      );
+      return {
+        ...baseCampaignState,
+        weapon: upgradedWeapon,
+        weaponsByBuild: {
+          ...baseCampaignState.weaponsByBuild,
+          [ARENA_CAMPAIGN_WEAPONS[weaponId].buildId]: upgradedWeapon,
+        },
+      };
     }
 
     return createInitialArenaState(boardWidth, {
@@ -2771,6 +2812,22 @@ export function ArenaPrototypeScreen({
   const handleEquipCampaignShield = (shieldId: ArenaCampaignShieldId) => {
     setArenaMeta((previousMetaState) => {
       const nextMetaState = setArenaCampaignShield(previousMetaState, shieldId);
+      if (nextMetaState !== previousMetaState) {
+        void saveArenaMetaState(nextMetaState);
+      }
+      return nextMetaState;
+    });
+  };
+  const handleUpgradeCampaignWeapon = (
+    weaponId: ArenaCampaignWeaponId,
+    upgradeKey: ArenaCampaignWeaponUpgradeKey,
+  ) => {
+    setArenaMeta((previousMetaState) => {
+      const nextMetaState = upgradeArenaCampaignWeapon(
+        previousMetaState,
+        weaponId,
+        upgradeKey,
+      );
       if (nextMetaState !== previousMetaState) {
         void saveArenaMetaState(nextMetaState);
       }
@@ -3049,7 +3106,9 @@ export function ArenaPrototypeScreen({
                   <Text style={arenaStyles.hubStationIcon}>WPN</Text>
                   <Text style={arenaStyles.hubStationTitle}>Weapon</Text>
                   <Text style={arenaStyles.hubStationSubtitle}>
-                    {activeCampaignWeapon.shortLabel}
+                    {arenaMeta.campaign.weaponUpgradePoints > 0
+                      ? `${arenaMeta.campaign.weaponUpgradePoints} upgrade${arenaMeta.campaign.weaponUpgradePoints === 1 ? "" : "s"}`
+                      : activeCampaignWeapon.shortLabel}
                   </Text>
                 </Pressable>
                 <Pressable
@@ -3316,7 +3375,44 @@ export function ArenaPrototypeScreen({
 
               {hubPanel === "weapon" ? (
                 <View style={arenaStyles.hubDetailContent}>
-                  <View style={arenaStyles.hubDetailStatGrid}>
+                  <View style={arenaStyles.hubWeaponUpgradeHeader}>
+                    <View>
+                      <Text style={arenaStyles.hubMapKicker}>
+                        Upgrade Points
+                      </Text>
+                      <Text style={arenaStyles.hubDetailTitle}>
+                        {arenaMeta.campaign.weaponUpgradePoints} Available
+                      </Text>
+                    </View>
+                    <Text style={arenaStyles.hubConsoleStatus}>
+                      {hubSpentWeaponUpgradeCount} installed
+                    </Text>
+                  </View>
+
+                  <View style={arenaStyles.hubWeaponTargetRow}>
+                    {Object.values(ARENA_CAMPAIGN_WEAPONS).map((weapon) => {
+                      const locked = weapon.unlockLevel > arenaMeta.campaign.level;
+                      const selected = hubWeaponUpgradeTargetIdSafe === weapon.id;
+                      return (
+                        <Pressable
+                          key={`upgrade-target-${weapon.id}`}
+                          disabled={locked}
+                          onPress={() => setHubWeaponUpgradeTargetId(weapon.id)}
+                          style={[
+                            arenaStyles.hubChoicePill,
+                            selected && arenaStyles.hubChoicePillActive,
+                            locked && arenaStyles.hubChoicePillLocked,
+                          ]}
+                        >
+                          <Text style={arenaStyles.hubChoiceText}>
+                            {locked ? `Lv ${weapon.unlockLevel}` : weapon.shortLabel}
+                          </Text>
+                        </Pressable>
+                      );
+                    })}
+                  </View>
+
+                  <View style={arenaStyles.hubWeaponEquipGrid}>
                     {([0, 1] as const).map((slotIndex) => {
                       const isUnlocked = slotIndex < campaignWeaponSlotCount;
                       const equippedWeaponId =
@@ -3331,12 +3427,12 @@ export function ArenaPrototypeScreen({
                           </Text>
                           <Text style={arenaStyles.hubLoadoutTitle}>
                             {isUnlocked && equippedWeaponId
-                              ? ARENA_CAMPAIGN_WEAPONS[equippedWeaponId].label
+                              ? ARENA_CAMPAIGN_WEAPONS[equippedWeaponId].shortLabel
                               : "Locked"}
                           </Text>
                           <Text style={arenaStyles.hubLoadoutCopy}>
                             {isUnlocked
-                              ? "Choose any unlocked campaign weapon."
+                              ? "Tap a chip to equip."
                               : "Unlocks at campaign level 4."}
                           </Text>
                           {isUnlocked ? (
@@ -3351,12 +3447,13 @@ export function ArenaPrototypeScreen({
                                     <Pressable
                                       key={`${slotIndex}-${weapon.id}`}
                                       disabled={locked}
-                                      onPress={() =>
+                                      onPress={() => {
                                         handleEquipCampaignWeapon(
                                           slotIndex,
                                           weapon.id,
-                                        )
-                                      }
+                                        );
+                                        setHubWeaponUpgradeTargetId(weapon.id);
+                                      }}
                                       style={[
                                         arenaStyles.hubChoicePill,
                                         selected &&
@@ -3380,6 +3477,52 @@ export function ArenaPrototypeScreen({
                       );
                     })}
                   </View>
+
+                  <View style={arenaStyles.hubWeaponUpgradeGrid}>
+                    {ARENA_CAMPAIGN_WEAPON_UPGRADE_ORDER.map((upgradeKey) => {
+                      const definition =
+                        ARENA_CAMPAIGN_WEAPON_UPGRADES[upgradeKey];
+                      const currentLevel = hubWeaponUpgradeTrack[upgradeKey];
+                      const maxed =
+                        currentLevel >= ARENA_CAMPAIGN_WEAPON_UPGRADE_MAX_LEVEL;
+                      const disabled =
+                        arenaMeta.campaign.weaponUpgradePoints <= 0 || maxed;
+                      return (
+                        <Pressable
+                          key={`weapon-upgrade-${upgradeKey}`}
+                          disabled={disabled}
+                          onPress={() =>
+                            handleUpgradeCampaignWeapon(
+                              hubWeaponUpgradeTargetIdSafe,
+                              upgradeKey,
+                            )
+                          }
+                          style={[
+                            arenaStyles.hubWeaponUpgradeCard,
+                            disabled && arenaStyles.hubDetailActionDisabled,
+                          ]}
+                        >
+                          <View style={arenaStyles.hubUpgradeCardHeader}>
+                            <Text style={arenaStyles.hubPreviewTitle}>
+                              {definition.shortLabel}
+                            </Text>
+                            <Text style={arenaStyles.hubPreviewMeta}>
+                              Lv {currentLevel}/
+                              {ARENA_CAMPAIGN_WEAPON_UPGRADE_MAX_LEVEL}
+                            </Text>
+                          </View>
+                          <Text style={arenaStyles.hubPreviewMeta}>
+                            {definition.statLine}
+                          </Text>
+                        </Pressable>
+                      );
+                    })}
+                  </View>
+
+                  <Text style={arenaStyles.hubWeaponUpgradeFootnote}>
+                    Target: {hubWeaponUpgradeTarget.label}. Upgrades are
+                    permanent campaign weapon stats and do not affect Endless.
+                  </Text>
                 </View>
               ) : null}
 
@@ -5798,6 +5941,55 @@ const arenaStyles = StyleSheet.create({
     backgroundColor: "rgba(5, 15, 26, 0.9)",
     padding: 12,
     gap: 8,
+  },
+  hubWeaponUpgradeHeader: {
+    borderRadius: 18,
+    borderWidth: 1,
+    borderColor: "rgba(123, 211, 255, 0.28)",
+    backgroundColor: "rgba(7, 21, 35, 0.9)",
+    padding: 12,
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "space-between",
+    gap: 12,
+  },
+  hubWeaponTargetRow: {
+    flexDirection: "row",
+    flexWrap: "wrap",
+    gap: 7,
+  },
+  hubWeaponEquipGrid: {
+    flexDirection: "row",
+    gap: 8,
+  },
+  hubWeaponUpgradeGrid: {
+    flexDirection: "row",
+    flexWrap: "wrap",
+    gap: 8,
+  },
+  hubWeaponUpgradeCard: {
+    flexGrow: 1,
+    flexBasis: "48%",
+    borderRadius: 15,
+    borderWidth: 1,
+    borderColor: "rgba(255, 220, 130, 0.28)",
+    backgroundColor: "rgba(34, 25, 8, 0.86)",
+    paddingHorizontal: 11,
+    paddingVertical: 9,
+    gap: 5,
+  },
+  hubUpgradeCardHeader: {
+    flexDirection: "row",
+    justifyContent: "space-between",
+    alignItems: "center",
+    gap: 8,
+  },
+  hubWeaponUpgradeFootnote: {
+    color: "#8FA3BA",
+    fontSize: 10,
+    fontWeight: "800",
+    lineHeight: 14,
+    textAlign: "center",
   },
   hubShieldGrid: {
     gap: 10,

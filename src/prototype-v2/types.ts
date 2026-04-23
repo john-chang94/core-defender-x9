@@ -28,6 +28,7 @@ export type ArenaRunMode = 'endless' | 'campaign';
 export type ArenaCampaignMissionId = 'prismVergeRecon';
 export type ArenaCampaignWeaponId = 'railCannon' | 'bloomEmitter' | 'missileRack' | 'fractureDriver';
 export type ArenaCampaignShieldId = 'aegisDampener' | 'pointScreen';
+export type ArenaCampaignWeaponUpgradeKey = 'damage' | 'cycle' | 'velocity' | 'stability';
 export type ArenaVfxQuality = 'balanced' | 'high';
 export type ArenaEffectFlavor = ArenaBuildId | 'enemy' | 'neutral';
 export type ArenaBiomeId = 'prismVerge' | 'hiveForge' | 'vectorSpindle';
@@ -541,9 +542,14 @@ export type ArenaCampaignLoadout = {
   shieldId: ArenaCampaignShieldId;
 };
 
+export type ArenaCampaignWeaponUpgradeTrack = Record<ArenaCampaignWeaponUpgradeKey, number>;
+export type ArenaCampaignWeaponUpgradeMap = Record<ArenaCampaignWeaponId, ArenaCampaignWeaponUpgradeTrack>;
+
 export type ArenaCampaignState = {
   xp: number;
   level: number;
+  weaponUpgradePoints: number;
+  weaponUpgrades: ArenaCampaignWeaponUpgradeMap;
   loadout: ArenaCampaignLoadout;
   missionProgress: Record<ArenaCampaignMissionId, ArenaCampaignMissionProgress>;
 };
