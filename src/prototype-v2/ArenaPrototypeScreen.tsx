@@ -47,6 +47,15 @@ import {
 } from "./biomes";
 import { ARENA_BUILD_META, ARENA_BUILD_ORDER } from "./builds";
 import {
+  ARENA_CAMPAIGN_MISSION_ORDER,
+  ARENA_CAMPAIGN_MISSIONS,
+  ARENA_CAMPAIGN_SHIELDS,
+  ARENA_CAMPAIGN_WEAPONS,
+  getArenaCampaignLevelProgress,
+  getArenaCampaignRunXp,
+  getArenaCampaignWeaponSlotCount,
+} from "./campaign";
+import {
   ARENA_ENEMY_ORDER,
   ARENA_FIXED_STEP_SECONDS,
   ARENA_MAX_CATCH_UP_STEPS,
@@ -61,6 +70,7 @@ import {
 import { getArenaCosmeticDefinition } from "./cosmetics";
 import { createEncounterForTier } from "./encounters";
 import {
+  activateArenaShieldAbility,
   activateArenaUltimate,
   applyArenaArmoryUpgrade,
   createInitialArenaState,
@@ -72,6 +82,7 @@ import {
 } from "./engine";
 import {
   ARENA_ENEMY_LABELS,
+  applyArenaCampaignRunResult,
   applyArenaDiscoveryProgress,
   applyArenaRunSummary,
   claimArenaCosmetic,
@@ -94,12 +105,17 @@ import {
   markArenaCoachHintSeen,
   resetArenaCoachHints,
   saveArenaMetaState,
+  setArenaCampaignShield,
+  setArenaCampaignWeapon,
 } from "./meta";
 import type {
   ArenaAudioCueKey,
   ArenaAudioSettings,
   ArenaBiomeId,
   ArenaBuildId,
+  ArenaCampaignMissionId,
+  ArenaCampaignShieldId,
+  ArenaCampaignWeaponId,
   ArenaCoachHintId,
   ArenaCosmeticDefinition,
   ArenaCosmeticDisplayState,
@@ -109,6 +125,7 @@ import type {
   ArenaGameState,
   ArenaMetaState,
   ArenaRunMetaSummary,
+  ArenaRunMode,
   ArenaUnlockEntry,
   ArenaVfxQuality,
 } from "./types";
@@ -129,6 +146,9 @@ type ArenaRunEndSummary = {
   tierReached: number;
   bossLabels: string[];
   masteryXp: number;
+  campaignXp: number;
+  campaignMissionLabel: string | null;
+  campaignCompleted: boolean;
   newlyClaimableIds: ArenaCosmeticId[];
   dominantBuild: ArenaBuildId;
 };
@@ -259,6 +279,10 @@ function createArenaRunEndSummary(
 
   const runSummary = createArenaRunMetaSummary(gameState);
   const nextMetaState = applyArenaRunSummary(metaState, runSummary);
+  const campaignMission =
+    gameState.runMode === "campaign" && gameState.campaignMissionId
+      ? ARENA_CAMPAIGN_MISSIONS[gameState.campaignMissionId]
+      : null;
   const claimableSet = new Set(getArenaClaimableCosmeticIds(metaState));
   const newlyClaimableIds = getArenaClaimableCosmeticIds(nextMetaState).filter(
     (cosmeticId) => !claimableSet.has(cosmeticId),
@@ -270,6 +294,9 @@ function createArenaRunEndSummary(
       (kind) => gameState.runBossClearsByEnemy[kind] > 0,
     ).map((kind) => ARENA_ENEMY_LABELS[kind]),
     masteryXp: getArenaRunEarnedXp(runSummary),
+    campaignXp: getArenaCampaignRunXp(gameState),
+    campaignMissionLabel: campaignMission?.label ?? null,
+    campaignCompleted: gameState.status === "won",
     newlyClaimableIds,
     dominantBuild: runSummary.dominantBuild,
   };
@@ -389,6 +416,42 @@ function ArmoryControlIcon() {
         <View style={arenaStyles.armorySwordGrip} />
         <View style={arenaStyles.armorySwordPommel} />
       </View>
+    </View>
+  );
+}
+
+function ShieldAbilityControlIcon({
+  ready,
+  active,
+  progress,
+}: {
+  ready: boolean;
+  active: boolean;
+  progress: number;
+}) {
+  return (
+    <View pointerEvents="none" style={arenaStyles.shieldAbilityIconWrap}>
+      <View
+        style={[
+          arenaStyles.shieldAbilityArc,
+          active && arenaStyles.shieldAbilityArcActive,
+          ready && arenaStyles.shieldAbilityArcReady,
+        ]}
+      />
+      <View style={arenaStyles.shieldAbilityCore}>
+        <View
+          style={[
+            arenaStyles.shieldAbilityCoreFill,
+            { opacity: 0.18 + progress * 0.62 },
+          ]}
+        />
+      </View>
+      <View
+        style={[
+          arenaStyles.shieldAbilitySpark,
+          ready && arenaStyles.shieldAbilitySparkReady,
+        ]}
+      />
     </View>
   );
 }
@@ -1231,6 +1294,7 @@ export function ArenaPrototypeScreen({
   const [gameState, setGameState] = useState(() =>
     createInitialArenaState(900),
   );
+  const [shellMode, setShellMode] = useState<"hub" | "arena">("hub");
   const [hasStarted, setHasStarted] = useState(false);
   const [isPaused, setIsPaused] = useState(true);
   const [isMenuOpen, setIsMenuOpen] = useState(false);
@@ -1431,11 +1495,21 @@ export function ArenaPrototypeScreen({
     if (!hasInitializedBoardRef.current) {
       hasInitializedBoardRef.current = true;
       playerVisualX.value = boardSize.width / 2;
-      const initialState = createInitialArenaState(boardSize.width);
-      previousGameStateRef.current = initialState;
-      setGameState(initialState);
-      setHasStarted(false);
-      setIsPaused(true);
+      if (hasStarted) {
+        setGameState((previousState) => {
+          const adjustedState = {
+            ...previousState,
+            playerX: boardSize.width / 2,
+          };
+          previousGameStateRef.current = adjustedState;
+          return adjustedState;
+        });
+      } else {
+        const initialState = createInitialArenaState(boardSize.width);
+        previousGameStateRef.current = initialState;
+        setGameState(initialState);
+        setIsPaused(true);
+      }
       runMetaCommittedRef.current = false;
       return;
     }
@@ -1461,7 +1535,7 @@ export function ArenaPrototypeScreen({
         ),
       })),
     }));
-  }, [boardSize.height, boardSize.width, playerVisualX]);
+  }, [boardSize.height, boardSize.width, hasStarted, playerVisualX]);
 
   useEffect(() => {
     if (boardSize.width <= 0 || boardSize.height <= 0) {
@@ -1561,6 +1635,12 @@ export function ArenaPrototypeScreen({
   useLayoutEffect(() => {
     if (gameState.status === "lost") {
       setLossTransitionTimer(ARENA_LOSS_TRANSITION_SECONDS);
+      setIsPaused(true);
+      setIsArmoryOpen(false);
+      setIsMoveHintPressed(false);
+      setPendingRestartSummary(null);
+      armoryResumeOnCloseRef.current = false;
+    } else if (gameState.status === "won") {
       setIsPaused(true);
       setIsArmoryOpen(false);
       setIsMoveHintPressed(false);
@@ -1669,6 +1749,14 @@ export function ArenaPrototypeScreen({
   const activeEnemyCap = getArenaActiveEnemyCap(displayTier);
   const activeWeapon = getArenaActiveWeapon(gameState);
   const activeBuildMeta = ARENA_BUILD_META[gameState.activeBuild];
+  const campaignLevelProgress = getArenaCampaignLevelProgress(arenaMeta.campaign.xp);
+  const campaignWeaponSlotCount = getArenaCampaignWeaponSlotCount(arenaMeta.campaign.level);
+  const activeCampaignWeaponId =
+    arenaMeta.campaign.loadout.weaponSlots[arenaMeta.campaign.loadout.activeWeaponSlot] ??
+    arenaMeta.campaign.loadout.weaponSlots[0];
+  const activeCampaignWeapon = ARENA_CAMPAIGN_WEAPONS[activeCampaignWeaponId];
+  const activeCampaignShield = ARENA_CAMPAIGN_SHIELDS[arenaMeta.campaign.loadout.shieldId];
+  const activeMission = ARENA_CAMPAIGN_MISSIONS.prismVergeRecon;
   const activeBannerDefinition = getArenaCosmeticDefinition(
     getArenaEquippedGlobalCosmeticId(arenaMeta, "banner"),
   );
@@ -1739,6 +1827,7 @@ export function ArenaPrototypeScreen({
       ) ??
       null)
     : null;
+  const isCampaignRun = gameState.runMode === "campaign";
   const hasArmoryChoices = gameState.availableArmoryChoices > 0;
   const armoryAvailabilityLabel =
     !hasArmoryChoices
@@ -1782,7 +1871,7 @@ export function ArenaPrototypeScreen({
     if (isUnseen("collectionClaim") && claimableCosmeticIds.length > 0) {
       return "collectionClaim";
     }
-    if (isUnseen("salvageArmory") && hasArmoryChoices) {
+    if (!isCampaignRun && isUnseen("salvageArmory") && hasArmoryChoices) {
       return "salvageArmory";
     }
     if (isUnseen("ultimateCharge") && (ultimateReady || gameState.ultimateCharge >= 70)) {
@@ -1820,6 +1909,26 @@ export function ArenaPrototypeScreen({
     0,
     1,
   );
+  const shieldAbilityDefinition = gameState.campaignShieldId
+    ? ARENA_CAMPAIGN_SHIELDS[gameState.campaignShieldId]
+    : null;
+  const shieldAbilityReady =
+    isCampaignRun &&
+    shieldAbilityDefinition !== null &&
+    gameState.shieldAbilityCooldown <= 0 &&
+    gameState.shieldAbilityTimer <= 0;
+  const shieldAbilityProgress =
+    shieldAbilityDefinition === null
+      ? 0
+      : gameState.shieldAbilityTimer > 0
+        ? 1
+        : 1 -
+          clamp(
+            gameState.shieldAbilityCooldown /
+              Math.max(1, shieldAbilityDefinition.cooldownSeconds),
+            0,
+            1,
+          );
   const shakeEnabled =
     hasStarted &&
     !isPaused &&
@@ -1879,25 +1988,35 @@ export function ArenaPrototypeScreen({
     if (isLossTransitionActive) {
       return "Ship critical. Closing telemetry...";
     }
+    if (gameState.status === "won") {
+      return "Mission complete. Return to Home Base or deploy again.";
+    }
     if (gameState.status === "lost") {
       return "Health depleted. Restart to run again.";
     }
     if (isPaused) {
       return "Arena Prototype paused.";
     }
-    return (
-      gameState.pickupMessage ??
-      (activeEncounterAnchor && gameState.activeEncounter
-        ? `${gameState.activeEncounter.label} ${formatArenaValue(activeEncounterAnchor.health)}`
-        : gameState.activeEncounter
-          ? `${gameState.activeEncounter.label} active`
-          : gameState.overclockTimer > 0
-            ? `${activeBuildMeta.shortLabel} Overdrive ${gameState.overclockTimer.toFixed(1)}s. Threat ${gameState.enemies.length}/${activeEnemyCap}`
-            : `${activeBuildMeta.shortLabel} Build online. Threat ${gameState.enemies.length}/${activeEnemyCap}`)
-    );
+    if (gameState.pickupMessage) {
+      return gameState.pickupMessage;
+    }
+    if (activeEncounterAnchor && gameState.activeEncounter) {
+      return `${gameState.activeEncounter.label} ${formatArenaValue(activeEncounterAnchor.health)}`;
+    }
+    if (gameState.activeEncounter) {
+      return `${gameState.activeEncounter.label} active`;
+    }
+    if (gameState.overclockTimer > 0) {
+      return `${activeBuildMeta.shortLabel} Overdrive ${gameState.overclockTimer.toFixed(1)}s. Threat ${gameState.enemies.length}/${activeEnemyCap}`;
+    }
+    if (isCampaignRun) {
+      return `${activeCampaignWeapon.shortLabel} sortie. Objective T${gameState.campaignTargetTier ?? activeMission.targetTier}. Threat ${gameState.enemies.length}/${activeEnemyCap}`;
+    }
+    return `${activeBuildMeta.shortLabel} Build online. Threat ${gameState.enemies.length}/${activeEnemyCap}`;
   })();
   const shouldShowRunEndOverlay =
-    (gameState.status === "lost" && !isLossTransitionActive) ||
+    ((gameState.status === "lost" && !isLossTransitionActive) ||
+      gameState.status === "won") ||
     pendingRestartSummary !== null;
   const armorySubtitle = `${armoryAvailabilityLabel}. Next standard unlock ${gameState.nextArmoryCost} salvage.`;
   const armoryUpgrades = ARENA_ARMORY_UPGRADE_ORDER.map((key) => {
@@ -2379,7 +2498,8 @@ export function ArenaPrototypeScreen({
     setRunEndSummary(nextRunEndSummary);
     const runSummary = createArenaRunMetaSummary(gameState);
     setArenaMeta((previousMetaState) => {
-      const nextMetaState = applyArenaRunSummary(previousMetaState, runSummary);
+      const runProgressState = applyArenaRunSummary(previousMetaState, runSummary);
+      const nextMetaState = applyArenaCampaignRunResult(runProgressState, gameState);
       if (nextMetaState !== previousMetaState) {
         void saveArenaMetaState(nextMetaState);
       }
@@ -2390,7 +2510,7 @@ export function ArenaPrototypeScreen({
 
   useEffect(() => {
     if (
-      gameState.status !== "lost" ||
+      (gameState.status !== "lost" && gameState.status !== "won") ||
       !isMetaReady ||
       !hasStarted ||
       runMetaCommittedRef.current
@@ -2428,14 +2548,85 @@ export function ArenaPrototypeScreen({
     setArmoryTab("upgrade");
   };
 
-  const resetArenaRun = () => {
-    if (boardSize.width <= 0) {
-      return;
+  const getDeploymentBoardWidth = () =>
+    Math.max(320, boardSize.width > 0 ? boardSize.width : Math.round(windowWidth - 28));
+
+  const createRunState = (
+    runMode: ArenaRunMode,
+    missionId: ArenaCampaignMissionId | null = null,
+  ) => {
+    const boardWidth = getDeploymentBoardWidth();
+    if (runMode === "campaign" && missionId) {
+      const mission = ARENA_CAMPAIGN_MISSIONS[missionId];
+      const weaponId =
+        arenaMeta.campaign.loadout.weaponSlots[arenaMeta.campaign.loadout.activeWeaponSlot] ??
+        arenaMeta.campaign.loadout.weaponSlots[0];
+      return createInitialArenaState(boardWidth, {
+        runMode: "campaign",
+        campaignMissionId: mission.id,
+        campaignTargetTier: mission.targetTier,
+        campaignShieldId: arenaMeta.campaign.loadout.shieldId,
+        activeBuild: ARENA_CAMPAIGN_WEAPONS[weaponId].buildId,
+      });
     }
-    const nextState = createInitialArenaState(boardSize.width);
-    const resetState = setArenaBuild(nextState, gameState.activeBuild);
-    playerVisualX.value = boardSize.width / 2;
-    setGameState(resetState);
+
+    return createInitialArenaState(boardWidth, {
+      runMode: "endless",
+      activeBuild: gameState.activeBuild,
+    });
+  };
+
+  const deployRun = (
+    runMode: ArenaRunMode,
+    missionId: ArenaCampaignMissionId | null = null,
+  ) => {
+    const nextState = createRunState(runMode, missionId);
+    playerVisualX.value = getDeploymentBoardWidth() / 2;
+    previousGameStateRef.current = nextState;
+    setGameState(nextState);
+    setShellMode("arena");
+    setHasStarted(true);
+    setIsPaused(false);
+    setIsMenuOpen(false);
+    setIsArmoryOpen(false);
+    setMenuTab("run");
+    setIsMoveHintPressed(false);
+    setActiveCoachHintId(null);
+    setRunEndSummary(null);
+    setPendingRestartSummary(null);
+    setSectorBannerTier(null);
+    setLossTransitionTimer(0);
+    armoryResumeOnCloseRef.current = false;
+    runMetaCommittedRef.current = false;
+    lastBiomeBannerKeyRef.current = "";
+    activeMusicBiomeRef.current = null;
+  };
+
+  const handleOpenHubPanel = (tab: ArenaMenuTab) => {
+    setShellMode("arena");
+    setHasStarted(false);
+    setIsPaused(true);
+    setIsArmoryOpen(false);
+    setIsMenuOpen(true);
+    setMenuTab(tab);
+  };
+
+  const handleReturnHomeBase = () => {
+    finalizeRunMetaProgress();
+    setShellMode("hub");
+    setHasStarted(false);
+    setIsPaused(true);
+    setIsMenuOpen(false);
+    setIsArmoryOpen(false);
+    setRunEndSummary(null);
+    setPendingRestartSummary(null);
+    setLossTransitionTimer(0);
+  };
+
+  const resetArenaRun = () => {
+    const nextState = createRunState(gameState.runMode, gameState.campaignMissionId);
+    playerVisualX.value = getDeploymentBoardWidth() / 2;
+    setGameState(nextState);
     setHasStarted(false);
     setIsPaused(true);
     setIsMenuOpen(false);
@@ -2451,7 +2642,7 @@ export function ArenaPrototypeScreen({
     runMetaCommittedRef.current = false;
     lastBiomeBannerKeyRef.current = "";
     activeMusicBiomeRef.current = null;
-    previousGameStateRef.current = resetState;
+    previousGameStateRef.current = nextState;
   };
 
   const handleRestart = () => {
@@ -2533,6 +2724,31 @@ export function ArenaPrototypeScreen({
       return nextMetaState;
     });
   };
+  const handleEquipCampaignWeapon = (
+    slotIndex: 0 | 1,
+    weaponId: ArenaCampaignWeaponId,
+  ) => {
+    setArenaMeta((previousMetaState) => {
+      const nextMetaState = setArenaCampaignWeapon(
+        previousMetaState,
+        slotIndex,
+        weaponId,
+      );
+      if (nextMetaState !== previousMetaState) {
+        void saveArenaMetaState(nextMetaState);
+      }
+      return nextMetaState;
+    });
+  };
+  const handleEquipCampaignShield = (shieldId: ArenaCampaignShieldId) => {
+    setArenaMeta((previousMetaState) => {
+      const nextMetaState = setArenaCampaignShield(previousMetaState, shieldId);
+      if (nextMetaState !== previousMetaState) {
+        void saveArenaMetaState(nextMetaState);
+      }
+      return nextMetaState;
+    });
+  };
   const handleResetCoachHints = () => {
     setActiveCoachHintId(null);
     setArenaMeta((previousMetaState) => {
@@ -2562,12 +2778,35 @@ export function ArenaPrototypeScreen({
   };
   const hullRatio = gameState.hull / gameState.maxHull;
   const armoryButtonDisabled =
+    isCampaignRun ||
     !hasStarted ||
     gameState.status !== "running" ||
     isMenuOpen ||
     isArmoryOpen;
+  const shieldAbilityButtonDisabled =
+    !isCampaignRun ||
+    !hasStarted ||
+    isPaused ||
+    isMenuOpen ||
+    gameState.status !== "running" ||
+    !shieldAbilityReady;
   const ultimateButtonDisabled =
     isPaused || isArmoryOpen || isMenuOpen || gameState.status !== "running";
+  const handleActivateShieldAbility = () => {
+    if (
+      boardSize.height <= 0 ||
+      !isCampaignRun ||
+      !hasStarted ||
+      isPaused ||
+      isMenuOpen ||
+      gameState.status !== "running"
+    ) {
+      return;
+    }
+    setGameState((previousState) =>
+      activateArenaShieldAbility(previousState, boardSize.height),
+    );
+  };
   const handleActivateUltimate = () => {
     if (
       boardSize.width <= 0 ||
@@ -2585,6 +2824,236 @@ export function ArenaPrototypeScreen({
       activateArenaUltimate(previousState, boardSize.width, boardSize.height),
     );
   };
+
+  if (shellMode === "hub") {
+    return (
+      <SafeAreaView
+        style={[
+          arenaStyles.container,
+          isPortraitViewport && arenaStyles.containerPortrait,
+        ]}
+      >
+        <ScrollView
+          style={arenaStyles.hubScroll}
+          contentContainerStyle={arenaStyles.hubContent}
+        >
+          <View style={arenaStyles.hubHero}>
+            <Text style={arenaStyles.hubEyebrow}>Arena V2 Home Base</Text>
+            <Text style={arenaStyles.hubTitle}>Orbital Command</Text>
+            <Text style={arenaStyles.hubCopy}>
+              Campaign uses equipped weapons and shield abilities. Endless keeps
+              the current build, salvage, armory, and Collection loop.
+            </Text>
+            <View style={arenaStyles.hubMetaRow}>
+              <View style={arenaStyles.hubMetaPill}>
+                <Text style={arenaStyles.hubMetaLabel}>Campaign Level</Text>
+                <Text style={arenaStyles.hubMetaValue}>
+                  Lv {campaignLevelProgress.level}
+                </Text>
+              </View>
+              <View style={arenaStyles.hubMetaPill}>
+                <Text style={arenaStyles.hubMetaLabel}>XP</Text>
+                <Text style={arenaStyles.hubMetaValue}>
+                  {campaignLevelProgress.currentXp}/
+                  {campaignLevelProgress.neededXp}
+                </Text>
+              </View>
+              <View style={arenaStyles.hubMetaPill}>
+                <Text style={arenaStyles.hubMetaLabel}>Weapon Slots</Text>
+                <Text style={arenaStyles.hubMetaValue}>
+                  {campaignWeaponSlotCount}/2
+                </Text>
+              </View>
+            </View>
+            <View style={arenaStyles.hubProgressTrack}>
+              <View
+                style={[
+                  arenaStyles.hubProgressFill,
+                  { width: `${campaignLevelProgress.progress * 100}%` },
+                ]}
+              />
+            </View>
+          </View>
+
+          <View style={arenaStyles.hubSection}>
+            <Text style={arenaStyles.hubSectionTitle}>Campaign Maps</Text>
+            {ARENA_CAMPAIGN_MISSION_ORDER.map((missionId) => {
+              const mission = ARENA_CAMPAIGN_MISSIONS[missionId];
+              const progress = arenaMeta.campaign.missionProgress[missionId];
+              return (
+                <View key={mission.id} style={arenaStyles.hubMissionCard}>
+                  <View style={arenaStyles.hubMissionHeader}>
+                    <View>
+                      <Text style={arenaStyles.hubMissionKicker}>
+                        {mission.zoneLabel} • T1-T{mission.targetTier}
+                      </Text>
+                      <Text style={arenaStyles.hubMissionTitle}>
+                        {mission.label}
+                      </Text>
+                    </View>
+                    <Text style={arenaStyles.hubMissionStatus}>
+                      {progress?.completed ? "Cleared" : "Open"}
+                    </Text>
+                  </View>
+                  <Text style={arenaStyles.hubMissionCopy}>
+                    {mission.summary} Final boss: {mission.bossLabel}.
+                  </Text>
+                  <View style={arenaStyles.hubMissionFooter}>
+                    <Text style={arenaStyles.hubMissionMeta}>
+                      Best T{progress?.bestTier ?? 1} • Reward {mission.rewardXp} XP
+                    </Text>
+                    <Pressable
+                      onPress={() => deployRun("campaign", mission.id)}
+                      style={arenaStyles.hubPrimaryAction}
+                    >
+                      <Text style={arenaStyles.hubPrimaryActionText}>
+                        Deploy
+                      </Text>
+                    </Pressable>
+                  </View>
+                </View>
+              );
+            })}
+          </View>
+
+          <View style={arenaStyles.hubSection}>
+            <Text style={arenaStyles.hubSectionTitle}>Campaign Loadout</Text>
+            <View style={arenaStyles.hubLoadoutGrid}>
+              {([0, 1] as const).map((slotIndex) => {
+                const isUnlocked = slotIndex < campaignWeaponSlotCount;
+                const equippedWeaponId =
+                  arenaMeta.campaign.loadout.weaponSlots[slotIndex];
+                return (
+                  <View key={`weapon-slot-${slotIndex}`} style={arenaStyles.hubLoadoutCard}>
+                    <Text style={arenaStyles.hubLoadoutKicker}>
+                      Weapon Slot {slotIndex + 1}
+                    </Text>
+                    <Text style={arenaStyles.hubLoadoutTitle}>
+                      {isUnlocked && equippedWeaponId
+                        ? ARENA_CAMPAIGN_WEAPONS[equippedWeaponId].label
+                        : "Locked"}
+                    </Text>
+                    <Text style={arenaStyles.hubLoadoutCopy}>
+                      {isUnlocked && equippedWeaponId
+                        ? ARENA_CAMPAIGN_WEAPONS[equippedWeaponId].summary
+                        : "Unlocks at campaign level 4."}
+                    </Text>
+                    {isUnlocked ? (
+                      <View style={arenaStyles.hubChoiceRow}>
+                        {Object.values(ARENA_CAMPAIGN_WEAPONS).map((weapon) => {
+                          const locked = weapon.unlockLevel > arenaMeta.campaign.level;
+                          const selected = equippedWeaponId === weapon.id;
+                          return (
+                            <Pressable
+                              key={`${slotIndex}-${weapon.id}`}
+                              disabled={locked}
+                              onPress={() => handleEquipCampaignWeapon(slotIndex, weapon.id)}
+                              style={[
+                                arenaStyles.hubChoicePill,
+                                selected && arenaStyles.hubChoicePillActive,
+                                locked && arenaStyles.hubChoicePillLocked,
+                              ]}
+                            >
+                              <Text style={arenaStyles.hubChoiceText}>
+                                {locked ? `Lv ${weapon.unlockLevel}` : weapon.shortLabel}
+                              </Text>
+                            </Pressable>
+                          );
+                        })}
+                      </View>
+                    ) : null}
+                  </View>
+                );
+              })}
+            </View>
+
+            <View style={arenaStyles.hubLoadoutCard}>
+              <Text style={arenaStyles.hubLoadoutKicker}>Shield Ability</Text>
+              <Text style={arenaStyles.hubLoadoutTitle}>
+                {activeCampaignShield.label}
+              </Text>
+              <Text style={arenaStyles.hubLoadoutCopy}>
+                {activeCampaignShield.summary}
+              </Text>
+              <View style={arenaStyles.hubChoiceRow}>
+                {Object.values(ARENA_CAMPAIGN_SHIELDS).map((shield) => {
+                  const locked = shield.unlockLevel > arenaMeta.campaign.level;
+                  const selected = arenaMeta.campaign.loadout.shieldId === shield.id;
+                  return (
+                    <Pressable
+                      key={shield.id}
+                      disabled={locked}
+                      onPress={() => handleEquipCampaignShield(shield.id)}
+                      style={[
+                        arenaStyles.hubChoicePill,
+                        selected && arenaStyles.hubChoicePillActive,
+                        locked && arenaStyles.hubChoicePillLocked,
+                      ]}
+                    >
+                      <Text style={arenaStyles.hubChoiceText}>
+                        {locked ? `Lv ${shield.unlockLevel}` : shield.shortLabel}
+                      </Text>
+                    </Pressable>
+                  );
+                })}
+              </View>
+            </View>
+          </View>
+
+          <View style={arenaStyles.hubSection}>
+            <Text style={arenaStyles.hubSectionTitle}>Modes & Management</Text>
+            <View style={arenaStyles.hubActionGrid}>
+              <Pressable
+                onPress={() => deployRun("endless")}
+                style={arenaStyles.hubActionCard}
+              >
+                <Text style={arenaStyles.hubActionTitle}>Endless Simulation</Text>
+                <Text style={arenaStyles.hubActionCopy}>
+                  Current Arena V2 loop with builds, salvage, armory drafts, and endless scaling.
+                </Text>
+              </Pressable>
+              <Pressable
+                onPress={() => handleOpenHubPanel("collection")}
+                style={arenaStyles.hubActionCard}
+              >
+                <Text style={arenaStyles.hubActionTitle}>Collection</Text>
+                <Text style={arenaStyles.hubActionCopy}>
+                  Claim and equip banners, frames, build accents, and crests.
+                </Text>
+              </Pressable>
+              <Pressable
+                onPress={() => handleOpenHubPanel("codex")}
+                style={arenaStyles.hubActionCard}
+              >
+                <Text style={arenaStyles.hubActionTitle}>Codex</Text>
+                <Text style={arenaStyles.hubActionCopy}>
+                  Review discovered enemies, bosses, and reward chips.
+                </Text>
+              </Pressable>
+              <Pressable
+                onPress={() => handleOpenHubPanel("mastery")}
+                style={arenaStyles.hubActionCard}
+              >
+                <Text style={arenaStyles.hubActionTitle}>Mastery</Text>
+                <Text style={arenaStyles.hubActionCopy}>
+                  Inspect current build mastery and non-combat rewards.
+                </Text>
+              </Pressable>
+            </View>
+          </View>
+
+          <Pressable
+            onPress={() => handleSwitchGame("defender")}
+            style={arenaStyles.hubSecondaryAction}
+          >
+            <Text style={arenaStyles.hubSecondaryActionText}>
+              Switch Game
+            </Text>
+          </Pressable>
+        </ScrollView>
+      </SafeAreaView>
+    );
+  }
 
   return (
     <SafeAreaView
@@ -2608,6 +3077,10 @@ export function ArenaPrototypeScreen({
               handleRestart();
               return;
             }
+            if (gameState.status === "won") {
+              handleReturnHomeBase();
+              return;
+            }
             setIsPaused((previousValue) => !previousValue);
           }}
           style={[
@@ -2622,7 +3095,9 @@ export function ArenaPrototypeScreen({
           <Text style={arenaStyles.primaryButtonText}>
             {!hasStarted
               ? "Start"
-              : gameState.status === "lost"
+              : gameState.status === "won"
+                ? "Home"
+                : gameState.status === "lost"
                 ? "Restart"
                 : isPaused
                   ? "Resume"
@@ -2776,9 +3251,13 @@ export function ArenaPrototypeScreen({
         </View>
         <View style={arenaStyles.resourceItem}>
           <View style={arenaStyles.resourceHeader}>
-            <Text style={arenaStyles.resourceSymbol}>◈</Text>
+            <Text style={arenaStyles.resourceSymbol}>
+              {isCampaignRun ? "◆" : "◈"}
+            </Text>
             <Text style={arenaStyles.resourceValue}>
-              {gameState.salvage} / {gameState.nextArmoryCost}
+              {isCampaignRun
+                ? `T${displayTier} / T${gameState.campaignTargetTier ?? activeMission.targetTier}`
+                : `${gameState.salvage} / ${gameState.nextArmoryCost}`}
             </Text>
           </View>
           <View style={arenaStyles.hudMeter}>
@@ -2792,7 +3271,13 @@ export function ArenaPrototypeScreen({
                     0.4,
                   ),
                 },
-                { width: `${salvageProgress * 100}%` },
+                {
+                  width: `${
+                    (isCampaignRun
+                      ? clamp(displayTier / Math.max(1, gameState.campaignTargetTier ?? activeMission.targetTier), 0, 1)
+                      : salvageProgress) * 100
+                  }%`,
+                },
               ]}
             />
           </View>
@@ -3148,71 +3633,113 @@ export function ArenaPrototypeScreen({
             </View>
           ) : null}
 
-          <Pressable
-            onPress={handleOpenArmory}
-            disabled={armoryButtonDisabled}
-            style={[
-              arenaStyles.sideControlButton,
-              arenaStyles.sideControlButtonLeft,
-              hasArmoryChoices && arenaStyles.armoryButtonReady,
-              armoryButtonDisabled && arenaStyles.sideControlButtonDisabled,
-              {
-                top: sideControlTop,
-                borderColor: hasArmoryChoices
-                  ? hexToRgba("#E6F6FF", 0.54 + armoryReadyPulse * 0.28)
-                  : "#385673",
-                backgroundColor: hasArmoryChoices
-                  ? hexToRgba("#183F61", 0.86 + armoryReadyPulse * 0.12)
-                  : "rgba(10, 20, 30, 0.9)",
-                shadowOpacity: hasArmoryChoices
-                  ? 0.26 + armoryReadyPulse * 0.26
-                  : 0,
-                shadowRadius: hasArmoryChoices ? 12 + armoryReadyPulse * 9 : 0,
-              },
-            ]}
-          >
-            <View
-              pointerEvents="none"
+          {isCampaignRun ? (
+            <Pressable
+              onPress={handleActivateShieldAbility}
+              disabled={shieldAbilityButtonDisabled}
               style={[
-                arenaStyles.armoryButtonGlow,
+                arenaStyles.sideControlButton,
+                arenaStyles.sideControlButtonLeft,
+                shieldAbilityReady && arenaStyles.armoryButtonReady,
+                shieldAbilityButtonDisabled && arenaStyles.sideControlButtonDisabled,
                 {
-                  opacity: hasArmoryChoices ? 0.2 + armoryReadyPulse * 0.28 : 0,
+                  top: sideControlTop,
+                  borderColor: shieldAbilityReady
+                    ? hexToRgba("#D9F8FF", 0.72)
+                    : "#385673",
+                  backgroundColor:
+                    gameState.shieldAbilityTimer > 0
+                      ? "rgba(20, 71, 88, 0.94)"
+                      : "rgba(10, 20, 30, 0.9)",
+                  shadowOpacity: shieldAbilityReady ? 0.32 : 0,
+                  shadowRadius: shieldAbilityReady ? 16 : 0,
                 },
               ]}
-            />
-            <View
-              pointerEvents="none"
-              style={[
-                arenaStyles.armoryButtonCoreGlow,
-                {
-                  opacity: hasArmoryChoices
-                    ? 0.14 + armoryReadyPulse * 0.26
-                    : 0,
-                  transform: [{ scale: 0.9 + armoryReadyPulse * 0.18 }],
-                },
-              ]}
-            />
-            <View
-              pointerEvents="none"
-              style={[
-                arenaStyles.armoryButtonPulseRing,
-                {
-                  opacity: hasArmoryChoices
-                    ? 0.18 + armoryReadyPulse * 0.28
-                    : 0,
-                  transform: [{ scale: 0.92 + armoryReadyPulse * 0.08 }],
-                },
-              ]}
-            />
-            <ArmoryControlIcon />
-            {hasArmoryChoices ? (
-              <View style={arenaStyles.sideControlBadge}>
-                <Text style={arenaStyles.sideControlBadgeText}>
-                  {gameState.availableArmoryChoices}
-                </Text>
+            >
+              <ShieldAbilityControlIcon
+                ready={shieldAbilityReady}
+                active={gameState.shieldAbilityTimer > 0}
+                progress={shieldAbilityProgress}
+              />
+              <View style={arenaStyles.ultimateButtonMeter}>
+                <View
+                  style={[
+                    arenaStyles.ultimateButtonFill,
+                    {
+                      width: `${shieldAbilityProgress * 100}%`,
+                      backgroundColor: hexToRgba("#BFF8FF", 0.8),
+                    },
+                  ]}
+                />
               </View>
-            ) : null}
-          </Pressable>
+            </Pressable>
+          ) : (
+            <Pressable
+              onPress={handleOpenArmory}
+              disabled={armoryButtonDisabled}
+              style={[
+                arenaStyles.sideControlButton,
+                arenaStyles.sideControlButtonLeft,
+                hasArmoryChoices && arenaStyles.armoryButtonReady,
+                armoryButtonDisabled && arenaStyles.sideControlButtonDisabled,
+                {
+                  top: sideControlTop,
+                  borderColor: hasArmoryChoices
+                    ? hexToRgba("#E6F6FF", 0.54 + armoryReadyPulse * 0.28)
+                    : "#385673",
+                  backgroundColor: hasArmoryChoices
+                    ? hexToRgba("#183F61", 0.86 + armoryReadyPulse * 0.12)
+                    : "rgba(10, 20, 30, 0.9)",
+                  shadowOpacity: hasArmoryChoices
+                    ? 0.26 + armoryReadyPulse * 0.26
+                    : 0,
+                  shadowRadius: hasArmoryChoices ? 12 + armoryReadyPulse * 9 : 0,
+                },
+              ]}
+            >
+              <View
+                pointerEvents="none"
+                style={[
+                  arenaStyles.armoryButtonGlow,
+                  {
+                    opacity: hasArmoryChoices ? 0.2 + armoryReadyPulse * 0.28 : 0,
+                  },
+                ]}
+              />
+              <View
+                pointerEvents="none"
+                style={[
+                  arenaStyles.armoryButtonCoreGlow,
+                  {
+                    opacity: hasArmoryChoices
+                      ? 0.14 + armoryReadyPulse * 0.26
+                      : 0,
+                    transform: [{ scale: 0.9 + armoryReadyPulse * 0.18 }],
+                  },
+                ]}
+              />
+              <View
+                pointerEvents="none"
+                style={[
+                  arenaStyles.armoryButtonPulseRing,
+                  {
+                    opacity: hasArmoryChoices
+                      ? 0.18 + armoryReadyPulse * 0.28
+                      : 0,
+                    transform: [{ scale: 0.92 + armoryReadyPulse * 0.08 }],
+                  },
+                ]}
+              />
+              <ArmoryControlIcon />
+              {hasArmoryChoices ? (
+                <View style={arenaStyles.sideControlBadge}>
+                  <Text style={arenaStyles.sideControlBadgeText}>
+                    {gameState.availableArmoryChoices}
+                  </Text>
+                </View>
+              ) : null}
+            </Pressable>
+          )}
 
           <Pressable
             onPress={handleActivateUltimate}
@@ -3742,6 +4269,12 @@ export function ArenaPrototypeScreen({
 
                 <View style={arenaStyles.menuActions}>
                   <Pressable
+                    onPress={handleReturnHomeBase}
+                    style={arenaStyles.menuActionButton}
+                  >
+                    <Text style={arenaStyles.menuActionText}>Home Base</Text>
+                  </Pressable>
+                  <Pressable
                     onPress={handleRestart}
                     style={[
                       arenaStyles.menuActionButton,
@@ -4193,12 +4726,18 @@ export function ArenaPrototypeScreen({
         <View style={arenaStyles.overlay}>
           <View style={arenaStyles.gameOverModal}>
             <Text style={arenaStyles.gameOverTitle}>
-              {gameState.status === "lost" ? "Health Depleted" : "Restart Run"}
+              {gameState.status === "won"
+                ? "Mission Complete"
+                : gameState.status === "lost"
+                  ? "Health Depleted"
+                  : "Restart Run"}
             </Text>
             <Text style={arenaStyles.gameOverText}>
-              {gameState.status === "lost"
-                ? `Enemy fire broke through the shields. Score ${gameState.score}.`
-                : "Review the current run summary before wiping the board."}
+              {gameState.status === "won"
+                ? `${activeRunEndSummary?.campaignMissionLabel ?? "Campaign sortie"} cleared. Score ${gameState.score}.`
+                : gameState.status === "lost"
+                  ? `Enemy fire broke through the shields. Score ${gameState.score}.`
+                  : "Review the current run summary before wiping the board."}
             </Text>
             {activeRunEndSummary ? (
               <View
@@ -4239,6 +4778,11 @@ export function ArenaPrototypeScreen({
                   Mastery XP: +{activeRunEndSummary.masteryXp} to{" "}
                   {ARENA_BUILD_META[activeRunEndSummary.dominantBuild].label}
                 </Text>
+                {activeRunEndSummary.campaignXp > 0 ? (
+                  <Text style={arenaStyles.runSummaryText}>
+                    Campaign XP: +{activeRunEndSummary.campaignXp}
+                  </Text>
+                ) : null}
                 <Text style={arenaStyles.runSummaryText}>
                   Rewards ready:{" "}
                   {runEndRewardText ??
@@ -4281,23 +4825,33 @@ export function ArenaPrototypeScreen({
               ) : (
                 <>
                   <Pressable
-                    onPress={resetArenaRun}
+                    onPress={
+                      gameState.status === "won"
+                        ? handleReturnHomeBase
+                        : resetArenaRun
+                    }
                     style={[
                       arenaStyles.menuActionButton,
                       arenaStyles.menuActionPrimary,
                     ]}
                   >
-                    <Text style={arenaStyles.menuActionText}>Retry</Text>
+                    <Text style={arenaStyles.menuActionText}>
+                      {gameState.status === "won" ? "Home Base" : "Retry"}
+                    </Text>
                   </Pressable>
                   <Pressable
-                    onPress={() => handleSwitchGame("prototype")}
+                    onPress={
+                      gameState.status === "won"
+                        ? () => deployRun(gameState.runMode, gameState.campaignMissionId)
+                        : () => handleSwitchGame("prototype")
+                    }
                     style={[
                       arenaStyles.menuActionButton,
                       arenaStyles.menuActionSecondary,
                     ]}
                   >
                     <Text style={arenaStyles.menuActionText}>
-                      Back to Prototype
+                      {gameState.status === "won" ? "Replay" : "Back to Prototype"}
                     </Text>
                   </Pressable>
                 </>
@@ -4319,6 +4873,237 @@ const arenaStyles = StyleSheet.create({
   },
   containerPortrait: {
     paddingHorizontal: 10,
+  },
+  hubScroll: {
+    flex: 1,
+  },
+  hubContent: {
+    paddingTop: 12,
+    paddingBottom: 28,
+    gap: 14,
+  },
+  hubHero: {
+    borderRadius: 24,
+    borderWidth: 1,
+    borderColor: "rgba(152, 210, 255, 0.28)",
+    backgroundColor: "rgba(10, 25, 38, 0.96)",
+    padding: 18,
+    shadowColor: "#6FD8FF",
+    shadowOpacity: 0.18,
+    shadowRadius: 18,
+  },
+  hubEyebrow: {
+    color: "#8DDCFF",
+    fontSize: 11,
+    fontWeight: "900",
+    letterSpacing: 1.4,
+    textTransform: "uppercase",
+  },
+  hubTitle: {
+    color: "#F4FBFF",
+    fontSize: 28,
+    fontWeight: "900",
+    letterSpacing: 0.4,
+    marginTop: 4,
+  },
+  hubCopy: {
+    color: "#B7C7D9",
+    fontSize: 13,
+    fontWeight: "600",
+    lineHeight: 19,
+    marginTop: 8,
+  },
+  hubMetaRow: {
+    flexDirection: "row",
+    gap: 8,
+    marginTop: 14,
+  },
+  hubMetaPill: {
+    flex: 1,
+    borderRadius: 14,
+    borderWidth: 1,
+    borderColor: "rgba(135, 200, 255, 0.22)",
+    backgroundColor: "rgba(255, 255, 255, 0.055)",
+    padding: 10,
+  },
+  hubMetaLabel: {
+    color: "#83A5BE",
+    fontSize: 9,
+    fontWeight: "900",
+    textTransform: "uppercase",
+  },
+  hubMetaValue: {
+    color: "#F3FAFF",
+    fontSize: 13,
+    fontWeight: "900",
+    marginTop: 4,
+  },
+  hubProgressTrack: {
+    height: 7,
+    borderRadius: 999,
+    backgroundColor: "rgba(255, 255, 255, 0.08)",
+    overflow: "hidden",
+    marginTop: 12,
+  },
+  hubProgressFill: {
+    height: "100%",
+    borderRadius: 999,
+    backgroundColor: "#8EEBFF",
+  },
+  hubSection: {
+    gap: 10,
+  },
+  hubSectionTitle: {
+    color: "#E9F5FF",
+    fontSize: 14,
+    fontWeight: "900",
+    letterSpacing: 0.5,
+  },
+  hubMissionCard: {
+    borderRadius: 20,
+    borderWidth: 1,
+    borderColor: "rgba(255, 211, 151, 0.26)",
+    backgroundColor: "rgba(31, 31, 45, 0.94)",
+    padding: 14,
+    gap: 10,
+  },
+  hubMissionHeader: {
+    flexDirection: "row",
+    justifyContent: "space-between",
+    gap: 12,
+  },
+  hubMissionKicker: {
+    color: "#FFCF91",
+    fontSize: 10,
+    fontWeight: "900",
+    textTransform: "uppercase",
+  },
+  hubMissionTitle: {
+    color: "#FFF8EA",
+    fontSize: 18,
+    fontWeight: "900",
+    marginTop: 2,
+  },
+  hubMissionStatus: {
+    color: "#BFFFEA",
+    fontSize: 11,
+    fontWeight: "900",
+  },
+  hubMissionCopy: {
+    color: "#C8D2DD",
+    fontSize: 12,
+    fontWeight: "600",
+    lineHeight: 18,
+  },
+  hubMissionFooter: {
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "space-between",
+    gap: 10,
+  },
+  hubMissionMeta: {
+    flex: 1,
+    color: "#AABACB",
+    fontSize: 11,
+    fontWeight: "800",
+  },
+  hubPrimaryAction: {
+    borderRadius: 14,
+    backgroundColor: "#FFE0A0",
+    paddingHorizontal: 16,
+    paddingVertical: 9,
+  },
+  hubPrimaryActionText: {
+    color: "#22170C",
+    fontSize: 12,
+    fontWeight: "900",
+  },
+  hubLoadoutGrid: {
+    gap: 10,
+  },
+  hubLoadoutCard: {
+    borderRadius: 18,
+    borderWidth: 1,
+    borderColor: "rgba(151, 221, 255, 0.22)",
+    backgroundColor: "rgba(12, 29, 43, 0.92)",
+    padding: 13,
+    gap: 8,
+  },
+  hubLoadoutKicker: {
+    color: "#84BBDD",
+    fontSize: 10,
+    fontWeight: "900",
+    textTransform: "uppercase",
+  },
+  hubLoadoutTitle: {
+    color: "#F3FAFF",
+    fontSize: 15,
+    fontWeight: "900",
+  },
+  hubLoadoutCopy: {
+    color: "#AFC1D1",
+    fontSize: 12,
+    fontWeight: "600",
+    lineHeight: 17,
+  },
+  hubChoiceRow: {
+    flexDirection: "row",
+    flexWrap: "wrap",
+    gap: 7,
+  },
+  hubChoicePill: {
+    borderRadius: 999,
+    borderWidth: 1,
+    borderColor: "rgba(141, 220, 255, 0.28)",
+    backgroundColor: "rgba(255, 255, 255, 0.06)",
+    paddingHorizontal: 10,
+    paddingVertical: 6,
+  },
+  hubChoicePillActive: {
+    borderColor: "#9EEBFF",
+    backgroundColor: "rgba(94, 204, 255, 0.18)",
+  },
+  hubChoicePillLocked: {
+    opacity: 0.42,
+  },
+  hubChoiceText: {
+    color: "#EAF8FF",
+    fontSize: 10,
+    fontWeight: "900",
+  },
+  hubActionGrid: {
+    gap: 10,
+  },
+  hubActionCard: {
+    borderRadius: 18,
+    borderWidth: 1,
+    borderColor: "rgba(221, 231, 255, 0.18)",
+    backgroundColor: "rgba(15, 22, 35, 0.92)",
+    padding: 14,
+  },
+  hubActionTitle: {
+    color: "#F4F8FF",
+    fontSize: 14,
+    fontWeight: "900",
+  },
+  hubActionCopy: {
+    color: "#AAB8C8",
+    fontSize: 12,
+    fontWeight: "600",
+    lineHeight: 17,
+    marginTop: 5,
+  },
+  hubSecondaryAction: {
+    borderRadius: 16,
+    borderWidth: 1,
+    borderColor: "rgba(145, 174, 205, 0.3)",
+    paddingVertical: 11,
+    alignItems: "center",
+  },
+  hubSecondaryActionText: {
+    color: "#C7D8EA",
+    fontSize: 12,
+    fontWeight: "900",
   },
   topBar: {
     height: 34,
@@ -6169,6 +6954,51 @@ const arenaStyles = StyleSheet.create({
     height: 5,
     borderRadius: 999,
     backgroundColor: "#BFDFFF",
+  },
+  shieldAbilityIconWrap: {
+    width: 34,
+    height: 34,
+    alignItems: "center",
+    justifyContent: "center",
+  },
+  shieldAbilityArc: {
+    position: "absolute",
+    width: 29,
+    height: 29,
+    borderRadius: 15,
+    borderWidth: 2,
+    borderColor: "rgba(176, 230, 255, 0.56)",
+  },
+  shieldAbilityArcActive: {
+    borderColor: "#E8FBFF",
+    backgroundColor: "rgba(122, 224, 255, 0.16)",
+  },
+  shieldAbilityArcReady: {
+    borderColor: "#BFF8FF",
+  },
+  shieldAbilityCore: {
+    width: 17,
+    height: 21,
+    borderRadius: 9,
+    borderWidth: 1,
+    borderColor: "#ECFBFF",
+    overflow: "hidden",
+    backgroundColor: "rgba(9, 30, 42, 0.8)",
+  },
+  shieldAbilityCoreFill: {
+    flex: 1,
+    backgroundColor: "#BFF8FF",
+  },
+  shieldAbilitySpark: {
+    position: "absolute",
+    bottom: 3,
+    width: 5,
+    height: 5,
+    borderRadius: 999,
+    backgroundColor: "rgba(188, 242, 255, 0.42)",
+  },
+  shieldAbilitySparkReady: {
+    backgroundColor: "#F8FEFF",
   },
   ultimateButton: {
     justifyContent: "center",

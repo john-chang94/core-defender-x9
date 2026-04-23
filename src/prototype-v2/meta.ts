@@ -2,6 +2,15 @@ import AsyncStorage from '@react-native-async-storage/async-storage';
 
 import { ARENA_BUILD_META, ARENA_BUILD_ORDER } from './builds';
 import {
+  ARENA_CAMPAIGN_MISSION_ORDER,
+  ARENA_CAMPAIGN_MISSIONS,
+  ARENA_CAMPAIGN_SHIELDS,
+  ARENA_CAMPAIGN_WEAPONS,
+  getArenaCampaignLevelFromXp,
+  getArenaCampaignRunXp,
+  getArenaCampaignWeaponSlotCount,
+} from './campaign';
+import {
   ARENA_COSMETIC_ORDER,
   createArenaBuildValueMap,
   getArenaBuildCosmeticIds,
@@ -16,6 +25,12 @@ import type {
   ArenaBuildId,
   ArenaBuildMastery,
   ArenaBuildValueMap,
+  ArenaCampaignLoadout,
+  ArenaCampaignMissionId,
+  ArenaCampaignMissionProgress,
+  ArenaCampaignShieldId,
+  ArenaCampaignState,
+  ArenaCampaignWeaponId,
   ArenaCoachHintEntry,
   ArenaCoachHintId,
   ArenaCoachHintValueMap,
@@ -38,7 +53,7 @@ import type {
 } from './types';
 
 export const ARENA_META_STORAGE_KEY = 'arena-v2-meta-v1';
-export const ARENA_META_VERSION = 7;
+export const ARENA_META_VERSION = 8;
 export const ARENA_BUILD_MASTERY_THRESHOLDS = [0, 100, 220, 360, 520, 700, 900, 1120, 1360, 1620, 1900] as const;
 
 export const ARENA_COACH_HINT_ORDER: ArenaCoachHintId[] = [
@@ -463,6 +478,42 @@ function createCoachHintEntry(hintId: ArenaCoachHintId): ArenaCoachHintEntry {
   };
 }
 
+function createCampaignMissionProgress(missionId: ArenaCampaignMissionId): ArenaCampaignMissionProgress {
+  return {
+    missionId,
+    bestTier: 1,
+    completed: false,
+    completions: 0,
+  };
+}
+
+function createCampaignMissionProgressMap() {
+  return ARENA_CAMPAIGN_MISSION_ORDER.reduce(
+    (progress, missionId) => ({
+      ...progress,
+      [missionId]: createCampaignMissionProgress(missionId),
+    }),
+    {} as Record<ArenaCampaignMissionId, ArenaCampaignMissionProgress>
+  );
+}
+
+function createCampaignLoadout(): ArenaCampaignLoadout {
+  return {
+    weaponSlots: ['railCannon', null],
+    activeWeaponSlot: 0,
+    shieldId: 'aegisDampener',
+  };
+}
+
+function createCampaignState(): ArenaCampaignState {
+  return {
+    xp: 0,
+    level: 1,
+    loadout: createCampaignLoadout(),
+    missionProgress: createCampaignMissionProgressMap(),
+  };
+}
+
 function createEquippedCosmetics(): ArenaEquippedCosmetics {
   return {
     banner: getArenaDefaultGlobalCosmetic('banner'),
@@ -523,6 +574,58 @@ function normalizeEquippedCosmetics(
         ? nextId
         : defaultEquipped.buildCrest[buildId];
     }),
+  };
+}
+
+function isCampaignWeaponId(value: unknown): value is ArenaCampaignWeaponId {
+  return typeof value === 'string' && value in ARENA_CAMPAIGN_WEAPONS;
+}
+
+function isCampaignShieldId(value: unknown): value is ArenaCampaignShieldId {
+  return typeof value === 'string' && value in ARENA_CAMPAIGN_SHIELDS;
+}
+
+function normalizeCampaignState(candidate: Partial<ArenaCampaignState> | undefined): ArenaCampaignState {
+  const defaultState = createCampaignState();
+  const xp = Math.max(0, Math.floor(Number(candidate?.xp) || 0));
+  const level = getArenaCampaignLevelFromXp(xp);
+  const slotCount = getArenaCampaignWeaponSlotCount(level);
+  const firstWeapon = isCampaignWeaponId(candidate?.loadout?.weaponSlots?.[0])
+    ? candidate.loadout.weaponSlots[0]
+    : defaultState.loadout.weaponSlots[0];
+  const secondWeapon =
+    slotCount >= 2 && isCampaignWeaponId(candidate?.loadout?.weaponSlots?.[1])
+      ? candidate.loadout.weaponSlots[1]
+      : null;
+  const activeWeaponSlot = slotCount >= 2 && candidate?.loadout?.activeWeaponSlot === 1 ? 1 : 0;
+  const shieldId = isCampaignShieldId(candidate?.loadout?.shieldId)
+    ? candidate.loadout.shieldId
+    : defaultState.loadout.shieldId;
+  const missionProgress = ARENA_CAMPAIGN_MISSION_ORDER.reduce(
+    (progress, missionId) => {
+      const previousEntry = candidate?.missionProgress?.[missionId];
+      progress[missionId] = {
+        ...createCampaignMissionProgress(missionId),
+        ...(previousEntry ?? {}),
+        missionId,
+        bestTier: Math.max(1, Math.floor(Number(previousEntry?.bestTier) || 1)),
+        completed: previousEntry?.completed ?? false,
+        completions: Math.max(0, Math.floor(Number(previousEntry?.completions) || 0)),
+      };
+      return progress;
+    },
+    {} as Record<ArenaCampaignMissionId, ArenaCampaignMissionProgress>
+  );
+
+  return {
+    xp,
+    level,
+    loadout: {
+      weaponSlots: [firstWeapon, secondWeapon],
+      activeWeaponSlot,
+      shieldId,
+    },
+    missionProgress,
   };
 }
 
@@ -713,6 +816,7 @@ export function createArenaMetaState(): ArenaMetaState {
     cosmetics: createArenaCosmeticValueMap((cosmeticId) => createCosmeticOwnershipEntry(cosmeticId)),
     equippedCosmetics: createEquippedCosmetics(),
     coachHints: createArenaCoachHintValueMap((hintId) => createCoachHintEntry(hintId)),
+    campaign: createCampaignState(),
   };
 }
 
@@ -779,6 +883,7 @@ function normalizeArenaMetaState(raw: unknown): ArenaMetaState {
   );
   const cosmeticProgress = applyArenaCosmeticProgress(normalizedCosmetics, unlockProgress.nextUnlocks);
   const equippedCosmetics = normalizeEquippedCosmetics(candidate.equippedCosmetics, cosmeticProgress.nextCosmetics);
+  const normalizedCampaign = normalizeCampaignState(candidate.campaign);
 
   return {
     version: ARENA_META_VERSION,
@@ -790,6 +895,7 @@ function normalizeArenaMetaState(raw: unknown): ArenaMetaState {
     cosmetics: cosmeticProgress.nextCosmetics,
     equippedCosmetics,
     coachHints: normalizedCoachHints,
+    campaign: normalizedCampaign,
   };
 }
 
@@ -1069,6 +1175,103 @@ export function applyArenaRunSummary(
     unlocks: unlockProgress.nextUnlocks,
     cosmetics: cosmeticProgress.nextCosmetics,
     lastUpdatedAt: nowIso,
+  };
+}
+
+export function applyArenaCampaignRunResult(
+  previousMetaState: ArenaMetaState,
+  gameState: ArenaGameState
+) {
+  if (gameState.runMode !== 'campaign' || !gameState.campaignMissionId) {
+    return previousMetaState;
+  }
+
+  const mission = ARENA_CAMPAIGN_MISSIONS[gameState.campaignMissionId];
+  const earnedXp = getArenaCampaignRunXp(gameState);
+  const previousCampaign = previousMetaState.campaign;
+  const previousMissionProgress =
+    previousCampaign.missionProgress[mission.id] ?? createCampaignMissionProgress(mission.id);
+  const nextMissionProgress: ArenaCampaignMissionProgress = {
+    ...previousMissionProgress,
+    bestTier: Math.max(previousMissionProgress.bestTier, Math.min(gameState.bestTierReached, mission.targetTier)),
+    completed: previousMissionProgress.completed || gameState.status === 'won',
+    completions: previousMissionProgress.completions + (gameState.status === 'won' ? 1 : 0),
+  };
+  const nextXp = previousCampaign.xp + earnedXp;
+  const nextCampaign: ArenaCampaignState = {
+    ...previousCampaign,
+    xp: nextXp,
+    level: getArenaCampaignLevelFromXp(nextXp),
+    missionProgress: {
+      ...previousCampaign.missionProgress,
+      [mission.id]: nextMissionProgress,
+    },
+  };
+
+  if (
+    nextCampaign.xp === previousCampaign.xp &&
+    nextMissionProgress.bestTier === previousMissionProgress.bestTier &&
+    nextMissionProgress.completed === previousMissionProgress.completed &&
+    nextMissionProgress.completions === previousMissionProgress.completions
+  ) {
+    return previousMetaState;
+  }
+
+  return {
+    ...previousMetaState,
+    campaign: normalizeCampaignState(nextCampaign),
+    lastUpdatedAt: new Date().toISOString(),
+  };
+}
+
+export function setArenaCampaignWeapon(
+  previousMetaState: ArenaMetaState,
+  slotIndex: 0 | 1,
+  weaponId: ArenaCampaignWeaponId
+) {
+  const slotCount = getArenaCampaignWeaponSlotCount(previousMetaState.campaign.level);
+  if (slotIndex >= slotCount || ARENA_CAMPAIGN_WEAPONS[weaponId].unlockLevel > previousMetaState.campaign.level) {
+    return previousMetaState;
+  }
+
+  const weaponSlots: [ArenaCampaignWeaponId, ArenaCampaignWeaponId | null] = [
+    previousMetaState.campaign.loadout.weaponSlots[0],
+    previousMetaState.campaign.loadout.weaponSlots[1],
+  ];
+  weaponSlots[slotIndex] = weaponId;
+  const nextCampaign = normalizeCampaignState({
+    ...previousMetaState.campaign,
+    loadout: {
+      ...previousMetaState.campaign.loadout,
+      weaponSlots,
+      activeWeaponSlot: slotIndex,
+    },
+  });
+  return {
+    ...previousMetaState,
+    campaign: nextCampaign,
+    lastUpdatedAt: new Date().toISOString(),
+  };
+}
+
+export function setArenaCampaignShield(
+  previousMetaState: ArenaMetaState,
+  shieldId: ArenaCampaignShieldId
+) {
+  if (ARENA_CAMPAIGN_SHIELDS[shieldId].unlockLevel > previousMetaState.campaign.level) {
+    return previousMetaState;
+  }
+
+  return {
+    ...previousMetaState,
+    campaign: normalizeCampaignState({
+      ...previousMetaState.campaign,
+      loadout: {
+        ...previousMetaState.campaign.loadout,
+        shieldId,
+      },
+    }),
+    lastUpdatedAt: new Date().toISOString(),
   };
 }
 

@@ -15,6 +15,7 @@ import {
   BASE_ARENA_WEAPON,
 } from './config';
 import { ARENA_BUILD_META } from './builds';
+import { ARENA_CAMPAIGN_SHIELDS } from './campaign';
 import {
   ARENA_BOSS_TIER_INTERVAL,
   ARENA_MINI_BOSS_TIER_INTERVAL,
@@ -27,6 +28,8 @@ import type {
   ArenaBuildId,
   ArenaArmoryUpgradeKey,
   ArenaBuildValueMap,
+  ArenaCampaignMissionId,
+  ArenaCampaignShieldId,
   ArenaDrop,
   ArenaDropType,
   ArenaEncounter,
@@ -2690,7 +2693,9 @@ function applyDamageToEnemy(
     state.runFirstKillTierByEnemy[enemy.kind] = displayTier;
   }
   state.score += enemy.reward;
-  state.salvage += Math.max(7, Math.round(enemy.reward / 9.5));
+  if (state.runMode !== 'campaign') {
+    state.salvage += Math.max(7, Math.round(enemy.reward / 9.5));
+  }
   queueEffect(state, 'burst', enemy.x, enemy.y, enemy.size * 1.24, enemy.color, {
     flavor: 'enemy',
     intensity: 1.2,
@@ -2713,7 +2718,7 @@ function applyDamageToEnemy(
     );
   }
 
-  if (options?.allowDrafts && !state.activeEncounter) {
+  if (state.runMode !== 'campaign' && options?.allowDrafts && !state.activeEncounter) {
     const grantedChoices = awardAffordableArmoryChoices(state);
     if (grantedChoices > 0) {
       state.pickupMessage = getArmoryReadyMessage(state.availableArmoryChoices);
@@ -2723,7 +2728,12 @@ function applyDamageToEnemy(
 }
 
 function applyPlayerDamage(state: ArenaGameState, damage: number, boardHeight: number) {
-  let remainingDamage = damage;
+  const shieldDefinition = state.campaignShieldId ? ARENA_CAMPAIGN_SHIELDS[state.campaignShieldId] : null;
+  const shieldAbilityMultiplier =
+    state.runMode === 'campaign' && state.shieldAbilityTimer > 0 && shieldDefinition
+      ? shieldDefinition.damageTakenMultiplier
+      : 1;
+  let remainingDamage = damage * shieldAbilityMultiplier;
   if (state.shield > 0) {
     const absorbed = Math.min(state.shield, remainingDamage);
     state.shield -= absorbed;
@@ -3014,15 +3024,35 @@ function getPlayerHitbox(state: ArenaGameState, boardHeight: number) {
   };
 }
 
-export function createInitialArenaState(boardWidth: number): ArenaGameState {
+export function createInitialArenaState(
+  boardWidth: number,
+  options?: {
+    runMode?: ArenaGameState['runMode'];
+    campaignMissionId?: ArenaCampaignMissionId | null;
+    campaignTargetTier?: number | null;
+    campaignShieldId?: ArenaCampaignShieldId | null;
+    activeBuild?: ArenaBuildId;
+  }
+): ArenaGameState {
+  const activeBuild = options?.activeBuild ?? ARENA_BUILD_DEFAULT;
+  const baseWeaponsByBuild = {
+    ...createBuildValueMap(() => ({ ...BASE_ARENA_WEAPON })),
+    missileCommand: { ...BASE_ARENA_WEAPON, shotCount: 2 },
+  };
   return {
     status: 'running',
+    runMode: options?.runMode ?? 'endless',
+    campaignMissionId: options?.campaignMissionId ?? null,
+    campaignTargetTier: options?.campaignTargetTier ?? null,
+    campaignShieldId: options?.campaignShieldId ?? null,
+    shieldAbilityCooldown: 0,
+    shieldAbilityTimer: 0,
     elapsed: 0,
     score: 0,
     salvage: 0,
     nextArmoryCost: 160,
     availableArmoryChoices: 0,
-    activeBuild: ARENA_BUILD_DEFAULT,
+    activeBuild,
     playerX: boardWidth / 2,
     hull: 100,
     maxHull: 100,
@@ -3036,11 +3066,8 @@ export function createInitialArenaState(boardWidth: number): ArenaGameState {
     ultimateTimer: 0,
     ultimateBuild: null,
     ultimateColumns: [],
-    weapon: BASE_ARENA_WEAPON,
-    weaponsByBuild: {
-      ...createBuildValueMap(() => ({ ...BASE_ARENA_WEAPON })),
-      missileCommand: { ...BASE_ARENA_WEAPON, shotCount: 2 },
-    },
+    weapon: baseWeaponsByBuild[activeBuild],
+    weaponsByBuild: baseWeaponsByBuild,
     enemies: [],
     drops: [],
     hazards: [],
@@ -3059,7 +3086,10 @@ export function createInitialArenaState(boardWidth: number): ArenaGameState {
     nextDropId: 1,
     nextHazardId: 1,
     nextEffectId: 1,
-    pickupMessage: 'Enemies are active now. Catch drops and spend salvage on armory drafts.',
+    pickupMessage:
+      options?.runMode === 'campaign'
+        ? 'Campaign sortie live. Clear the target tier and use your shield ability to survive pressure.'
+        : 'Enemies are active now. Catch drops and spend salvage on armory drafts.',
     pickupTimer: 3.4,
     activeEncounter: null,
     lastProcessedDisplayTier: 1,
@@ -3264,6 +3294,58 @@ export function activateArenaUltimate(
   return nextState;
 }
 
+export function activateArenaShieldAbility(
+  previousState: ArenaGameState,
+  boardHeight: number
+): ArenaGameState {
+  if (
+    previousState.status !== 'running' ||
+    previousState.runMode !== 'campaign' ||
+    !previousState.campaignShieldId ||
+    previousState.shieldAbilityCooldown > 0 ||
+    previousState.shieldAbilityTimer > 0
+  ) {
+    return previousState;
+  }
+
+  const definition = ARENA_CAMPAIGN_SHIELDS[previousState.campaignShieldId];
+  const projectileCullCount = Math.floor(previousState.enemyBullets.length * definition.projectileCullRatio);
+  const enemyBullets =
+    projectileCullCount > 0
+      ? previousState.enemyBullets.filter((_, index) => index % 2 === 0)
+      : previousState.enemyBullets;
+  const nextState: ArenaGameState = {
+    ...previousState,
+    shieldAbilityCooldown: definition.cooldownSeconds,
+    shieldAbilityTimer: definition.durationSeconds,
+    enemyBullets,
+    shield: Math.min(previousState.maxShield, previousState.shield + 10),
+    pickupMessage: `${definition.label} active`,
+    pickupTimer: 1.3,
+    effects: previousState.effects,
+    activeEncounter: previousState.activeEncounter ? { ...previousState.activeEncounter } : null,
+    runBuildActiveSeconds: { ...previousState.runBuildActiveSeconds },
+    runSeenTierByEnemy: { ...previousState.runSeenTierByEnemy },
+    runKillCountsByEnemy: { ...previousState.runKillCountsByEnemy },
+    runFirstKillTierByEnemy: { ...previousState.runFirstKillTierByEnemy },
+    runFirstClearTierByEnemy: { ...previousState.runFirstClearTierByEnemy },
+    runBossClearsByEnemy: { ...previousState.runBossClearsByEnemy },
+  };
+  queueEffect(
+    nextState,
+    'shield',
+    previousState.playerX,
+    getPlayerShipTop(boardHeight) + ARENA_PLAYER_HEIGHT * 0.35,
+    86,
+    previousState.campaignShieldId === 'pointScreen' ? '#D7F7FF' : '#9EEBFF',
+    {
+      flavor: 'neutral',
+      intensity: 1.28,
+    }
+  );
+  return nextState;
+}
+
 export function applyArenaArmoryUpgrade(
   previousState: ArenaGameState,
   key: ArenaArmoryUpgradeKey
@@ -3363,6 +3445,8 @@ export function tickArenaState(
     playerFlash: Math.max(0, previousState.playerFlash - deltaSeconds * 4.5),
     overclockTimer: nextOverclockTimer,
     overclockVisualBlend: nextOverclockVisualBlend,
+    shieldAbilityCooldown: Math.max(0, previousState.shieldAbilityCooldown - deltaSeconds),
+    shieldAbilityTimer: Math.max(0, previousState.shieldAbilityTimer - deltaSeconds),
     ultimateCharge: previousState.ultimateCharge,
     ultimateTimer: Math.max(0, previousState.ultimateTimer - deltaSeconds),
     ultimateBuild: previousState.ultimateTimer > deltaSeconds ? previousState.ultimateBuild : null,
@@ -4027,10 +4111,15 @@ export function tickArenaState(
         }
         nextState.pickupMessage = 'Overdrive engaged';
       } else {
-        nextState.salvage += 55;
-        const grantedChoices = !nextState.activeEncounter ? awardAffordableArmoryChoices(nextState) : 0;
-        nextState.pickupMessage =
-          grantedChoices > 0 ? getArmoryReadyMessage(nextState.availableArmoryChoices) : 'Salvage burst secured';
+        if (nextState.runMode === 'campaign') {
+          nextState.score += 55;
+          nextState.pickupMessage = 'Combat data secured';
+        } else {
+          nextState.salvage += 55;
+          const grantedChoices = !nextState.activeEncounter ? awardAffordableArmoryChoices(nextState) : 0;
+          nextState.pickupMessage =
+            grantedChoices > 0 ? getArmoryReadyMessage(nextState.availableArmoryChoices) : 'Salvage burst secured';
+        }
       }
       nextState.pickupTimer = 1.6;
       queueEffect(nextState, 'pickup', drop.x, drop.y, drop.size * 1.1, drop.color, {
@@ -4053,7 +4142,9 @@ export function tickArenaState(
     if (!anchorAlive) {
       const completedEncounter = nextState.activeEncounter;
       nextState.activeEncounter = null;
-      nextState.salvage += completedEncounter.rewardSalvage;
+      if (nextState.runMode !== 'campaign') {
+        nextState.salvage += completedEncounter.rewardSalvage;
+      }
       addUltimateCharge(
         nextState,
         completedEncounter.type === 'boss'
@@ -4069,19 +4160,22 @@ export function tickArenaState(
       } else {
         nextState.runMiniBossClears += 1;
       }
-      const salvageChoicesGranted = awardAffordableArmoryChoices(nextState);
+      const salvageChoicesGranted =
+        nextState.runMode === 'campaign' ? 0 : awardAffordableArmoryChoices(nextState);
       let bonusChoicesGranted = 0;
       clearEncounterHazards(nextState, completedEncounter.scriptId);
       if (completedEncounter.type === 'boss') {
         nextState.enemyBullets = [];
-        bonusChoicesGranted = awardBossArmoryChoice(nextState);
+        bonusChoicesGranted = nextState.runMode === 'campaign' ? 0 : awardBossArmoryChoice(nextState);
       }
       const armoryReadyMessage =
         salvageChoicesGranted + bonusChoicesGranted > 0
           ? getArmoryReadyMessage(nextState.availableArmoryChoices)
           : null;
       nextState.pickupMessage =
-        completedEncounter.type === 'boss'
+        nextState.runMode === 'campaign'
+          ? `${completedEncounter.label} cleared. Mission objective updated`
+          : completedEncounter.type === 'boss'
           ? armoryReadyMessage
             ? `${completedEncounter.label} cache secured. ${armoryReadyMessage}`
             : `${completedEncounter.label} cache secured`
@@ -4096,6 +4190,21 @@ export function tickArenaState(
       );
       nextState.enemySpawnCooldown = Math.max(nextState.enemySpawnCooldown, completedEncounter.type === 'boss' ? 2.4 : 1.4);
     }
+  }
+
+  if (
+    nextState.runMode === 'campaign' &&
+    nextState.status === 'running' &&
+    nextState.campaignTargetTier !== null &&
+    displayTier >= nextState.campaignTargetTier &&
+    !nextState.activeEncounter
+  ) {
+    nextState.status = 'won';
+    nextState.enemyBullets = [];
+    nextState.hazards = [];
+    nextState.pickupMessage = 'Mission complete';
+    nextState.pickupTimer = 2;
+    queueEncounterAnnouncement(nextState, 'Mission complete', '#BFFFEA');
   }
 
   return nextState;

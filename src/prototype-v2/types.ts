@@ -24,6 +24,10 @@ export type ArenaEnemyShape = 'circle' | 'square' | 'diamond';
 export type ArenaProjectileOwner = 'player' | 'enemy';
 export type ArenaProjectileKind = 'primary' | 'missile' | 'shard' | 'enemy';
 export type ArenaBuildId = 'railFocus' | 'novaBloom' | 'missileCommand' | 'fractureCore';
+export type ArenaRunMode = 'endless' | 'campaign';
+export type ArenaCampaignMissionId = 'prismVergeRecon';
+export type ArenaCampaignWeaponId = 'railCannon' | 'bloomEmitter' | 'missileRack' | 'fractureDriver';
+export type ArenaCampaignShieldId = 'aegisDampener' | 'pointScreen';
 export type ArenaVfxQuality = 'balanced' | 'high';
 export type ArenaEffectFlavor = ArenaBuildId | 'enemy' | 'neutral';
 export type ArenaBiomeId = 'prismVerge' | 'hiveForge' | 'vectorSpindle';
@@ -521,6 +525,27 @@ export type ArenaMetaState = {
   cosmetics: ArenaCosmeticValueMap<ArenaCosmeticOwnershipEntry>;
   equippedCosmetics: ArenaEquippedCosmetics;
   coachHints: ArenaCoachHintValueMap<ArenaCoachHintEntry>;
+  campaign: ArenaCampaignState;
+};
+
+export type ArenaCampaignMissionProgress = {
+  missionId: ArenaCampaignMissionId;
+  bestTier: number;
+  completed: boolean;
+  completions: number;
+};
+
+export type ArenaCampaignLoadout = {
+  weaponSlots: [ArenaCampaignWeaponId, ArenaCampaignWeaponId | null];
+  activeWeaponSlot: 0 | 1;
+  shieldId: ArenaCampaignShieldId;
+};
+
+export type ArenaCampaignState = {
+  xp: number;
+  level: number;
+  loadout: ArenaCampaignLoadout;
+  missionProgress: Record<ArenaCampaignMissionId, ArenaCampaignMissionProgress>;
 };
 
 export type ArenaRunMetaSummary = {
@@ -538,7 +563,13 @@ export type ArenaRunMetaSummary = {
 };
 
 export type ArenaGameState = {
-  status: 'running' | 'lost';
+  status: 'running' | 'lost' | 'won';
+  runMode: ArenaRunMode;
+  campaignMissionId: ArenaCampaignMissionId | null;
+  campaignTargetTier: number | null;
+  campaignShieldId: ArenaCampaignShieldId | null;
+  shieldAbilityCooldown: number;
+  shieldAbilityTimer: number;
   elapsed: number;
   score: number;
   salvage: number;

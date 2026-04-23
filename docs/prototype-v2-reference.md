@@ -1,7 +1,7 @@
 # Prototype V2 Reference
 
 Snapshot date: `2026-04-21`
-Board version: `v0.68`
+Board version: `v0.69`
 
 This document is the current reference for the arena-combat shooter in `/Users/johnchang/Desktop/defender/src/prototype-v2`. It replaces the earlier planning-heavy draft with a snapshot of what is actually implemented today, plus the next major gaps.
 
@@ -25,7 +25,7 @@ Core loop:
 
 This mode is no longer just a redesign concept. It is a production prototype with live combat, encounters, progression, and Skia rendering.
 
-The current build also includes persistent between-run `Codex + Mastery` data stored locally, a scripted encounter registry, a rotating four-boss cadence, named biome sectors, Arena-local audio settings plus music / SFX playback, impact + lane-band hazard telegraphs, one-time coaching chips, and a local cosmetic collection / equip layer on top of the meta flow.
+The current build also includes persistent between-run `Codex + Mastery` data stored locally, a scripted encounter registry, a rotating four-boss cadence, named biome sectors, Arena-local audio settings plus music / SFX playback, impact + lane-band hazard telegraphs, one-time coaching chips, a local cosmetic collection / equip layer, and an early Campaign Home Base foundation on top of the meta flow.
 
 ## Current Playable State
 
@@ -81,6 +81,9 @@ Other UI behavior:
 - run-end summary panels now show tier reached, bosses cleared, mastery XP granted, and newly claimable cosmetics
 - player death now plays a short closing telemetry transition before the run-end summary appears
 - codex, mastery, and cosmetic collection state persist across relaunches through a versioned AsyncStorage blob
+- the first `Home Base` shell is live as the Arena V2 entry surface, with campaign map launch, endless launch, Collection / Codex / Mastery access, and early campaign loadout controls
+- the first campaign mission is `Prism Verge Recon`, a short `T1-T6` sortie ending at `Prism Core`
+- campaign runs disable salvage / armory drafts and replace the left arena armory button with a shield ability button
 - the in-game menu still allows game switching and restart
 - the `Codex` tab shows a compact summary line, a `Rewards` unlock chip row, and the enemy log only (Build Log removed)
 - the `Mastery` tab shows mastery cards directly without the showcase header card
@@ -104,9 +107,20 @@ Other UI behavior:
 
 ### Progression model
 
-- The run is endless and tier-based.
+- Endless runs are tier-based and unbounded.
+- Campaign missions are tier-based but capped by the mission target tier.
 - Pressure scales through enemy composition, formations, enemy fire, elite encounters, and boss checkpoints.
 - Difficulty is not only HP inflation anymore, although HP scaling is still part of the balance model.
+
+### Campaign foundation
+
+- Campaign currently reuses the Arena V2 combat runtime instead of introducing a separate engine.
+- Campaign mission state is tracked separately from endless run rules.
+- Campaign runs use equipped weapon / shield scaffolding from the Home Base.
+- Current campaign weapon IDs map onto the existing four combat implementations: `railCannon`, `bloomEmitter`, `missileRack`, and `fractureDriver`.
+- Campaign shields provide active abilities. `Aegis Dampener` reduces incoming damage by `60%` for a short window. `Point Screen` is scaffolded as a later unlock that clears `50%` of active enemy projectiles and briefly reduces damage.
+- Campaign runs do not use salvage collection or in-run armory drafts.
+- Campaign XP is persisted locally and currently unlocks the second weapon slot at campaign level `4`.
 
 ## Build System
 
@@ -312,6 +326,7 @@ Current persisted layers:
 - `Mastery`: build XP, rank title, run count, best tier, mini-boss clears, and boss clears
 - `Collection`: locked / claimable / owned cosmetic inventory plus equipped banner, codex frame, build accent, and build crest
 - `Coach hints`: one-time seen state for Arena V2 coaching chips
+- `Campaign`: player XP / level, campaign mission progress, equipped campaign weapon slots, and equipped shield ability
 
 Current global reward cosmetics:
 
@@ -528,6 +543,12 @@ Primary implementation files:
 
 ### 2026-04-21
 
+- Advanced arena board label to `v0.69`.
+- Added the first Campaign Home Base shell with campaign mission launch, endless launch, Collection / Codex / Mastery access, campaign XP display, and loadout controls.
+- Added persistent campaign state for player XP / level, mission progress, equipped campaign weapon slots, and equipped shield ability.
+- Added `Prism Verge Recon` as the first short campaign mission (`T1-T6`) using the existing Arena V2 combat runtime and `Prism Core` as the endpoint boss.
+- Added campaign shield abilities and replaced the left in-arena armory button with a shield ability button during campaign runs. `Aegis Dampener` reduces incoming damage by `60%`; `Point Screen` is scaffolded as a later unlock that clears `50%` of active enemy projectiles.
+- Campaign runs now disable salvage / armory reward flow while preserving Endless mode’s current salvage, armory, build, and cosmetic systems.
 - Advanced arena board label to `v0.68`.
 - Added the flank / pursuit combat pack: `Raider` and `Hunter` enemy jobs, six new regular formation scripts, and two new mini-boss scripts (`Raider Talon`, `Hunter Pack`).
 - Added `Eclipse Talon` as the fourth rotating three-phase boss; boss cadence is still every `6` tiers and now rotates over `24` tiers (`T6`, `T12`, `T18`, `T24`, repeat).
@@ -676,6 +697,9 @@ These are the major areas that still remain after the current polish pass.
 
 ### Progression expansion
 
+- more campaign missions after the current `Prism Verge Recon` foundation map
+- a real campaign equipment upgrade economy on level-up, replacing the current weapon / shield scaffolding
+- campaign weapon slot switching in live combat; the second slot is currently persisted and gated but not yet a live toggle-fire system
 - more cosmetic content and slot coverage on top of the current local claim / equip layer
 - more premium-feeling armory picks beyond the current base set
 
@@ -703,11 +727,11 @@ These are the major areas that still remain after the current polish pass.
 
 ## Current Next Step Recommendation
 
-The immediate next step should probably be production follow-through rather than another foundational systems rewrite.
+The immediate next step should validate the new Campaign shell before expanding content volume.
 
 Recommended order:
 
-1. Smoke-test the new flank / pursuit content through at least `T24` / `T30`, with special attention to `Raider` dash reads, `Hunter` mark readability, and `Eclipse Talon` phase transitions.
-2. Re-test T45 / T60 stability across all four builds, especially `Missile Command` overdrive and ultimate overlaps with the expanded roster.
-3. Add more non-pay-to-win cosmetic destinations on top of the current Collection flow, likely starting with broader presentation surfaces rather than combat power.
+1. Smoke-test `Prism Verge Recon` from Home Base through completion, including campaign XP persistence and shield ability behavior.
+2. Decide whether live campaign weapon slot behavior should be toggle-only first or allow simultaneous dual-fire later.
+3. Re-test the new flank / pursuit endless content through at least `T24` / `T30`, with special attention to `Raider` dash reads, `Hunter` mark readability, and `Eclipse Talon` phase transitions.
 4. Keep audio expansion deferred until better source sounds are available.
