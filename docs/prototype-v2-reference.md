@@ -1,7 +1,7 @@
 # Prototype V2 Reference
 
 Snapshot date: `2026-04-22`
-Board version: `v0.70`
+Board version: `v0.71`
 
 This document is the current reference for the arena-combat shooter in `/Users/johnchang/Desktop/defender/src/prototype-v2`. It replaces the earlier planning-heavy draft with a snapshot of what is actually implemented today, plus the next major gaps.
 
@@ -81,7 +81,7 @@ Other UI behavior:
 - run-end summary panels now show tier reached, bosses cleared, mastery XP granted, and newly claimable cosmetics
 - player death now plays a short closing telemetry transition before the run-end summary appears
 - codex, mastery, and cosmetic collection state persist across relaunches through a versioned AsyncStorage blob
-- the first `Home Base` shell is live as the Arena V2 entry surface, now using a cockpit-style command deck with grouped Mission Control, Loadout, Collection, Archives, Endless, and Systems stations instead of a vertical card list
+- the first `Home Base` shell is live as the Arena V2 entry surface, now using a fixed, no-scroll cockpit command deck with Mission Launch, Collection, Codex, Mastery, Weapon Equip, and Shield Equip stations; station details open as separate Home Base panels with a back button, while Endless and game switching live under `Extras`
 - the first campaign mission is `Prism Verge Recon`, a short `T1-T6` sortie ending at `Prism Core`
 - campaign runs disable salvage / armory drafts and replace the left arena armory button with a shield ability button
 - the in-game menu still allows game switching and restart
@@ -543,6 +543,9 @@ Primary implementation files:
 
 ### 2026-04-22
 
+- Advanced arena board label to `v0.71`.
+- Reworked `Home Base` to avoid scrolling on the root screen. The main deck now fits in the phone viewport and only exposes Mission Launch, Collection, Codex, Mastery, Weapon Equip, and Shield Equip as primary stations.
+- Added Home Base detail panels with a back button for mission info, Collection status / claim-ready rewards, Codex summary, Mastery summary, weapon slot equip, shield ability equip, and `Extras`; Endless Simulation and Switch Game moved into `Extras`.
 - Advanced arena board label to `v0.70`.
 - Redesigned `Home Base` from a vertical card list into a cockpit-style command deck inspired by the provided reference: top status rail, central map console, ship bay, grouped side stations, compact loadout console, and docked navigation.
 - Grouped related Home Base actions to save screen space: `Loadout` covers weapons and shield ability, `Archives` covers Codex and Mastery, `Collection` covers cosmetics and rewards, `Mission Control` covers campaign launch, and `Endless` remains a separate simulation entry.

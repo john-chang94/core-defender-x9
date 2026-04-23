@@ -47,7 +47,6 @@ import {
 } from "./biomes";
 import { ARENA_BUILD_META, ARENA_BUILD_ORDER } from "./builds";
 import {
-  ARENA_CAMPAIGN_MISSION_ORDER,
   ARENA_CAMPAIGN_MISSIONS,
   ARENA_CAMPAIGN_SHIELDS,
   ARENA_CAMPAIGN_WEAPONS,
@@ -142,6 +141,15 @@ type ArenaPrototypeScreenProps = {
 };
 
 type ArenaMenuTab = "run" | "codex" | "mastery" | "collection";
+type ArenaHubPanel =
+  | "root"
+  | "mission"
+  | "collection"
+  | "codex"
+  | "mastery"
+  | "weapon"
+  | "shield"
+  | "extras";
 type ArenaRunEndSummary = {
   tierReached: number;
   bossLabels: string[];
@@ -1302,6 +1310,7 @@ export function ArenaPrototypeScreen({
   const [armoryTab, setArmoryTab] = useState<"upgrade" | "build">("upgrade");
   const [vfxQuality, setVfxQuality] = useState<ArenaVfxQuality>("high");
   const [menuTab, setMenuTab] = useState<ArenaMenuTab>("run");
+  const [hubPanel, setHubPanel] = useState<ArenaHubPanel>("root");
   const [collectionBuildId, setCollectionBuildId] =
     useState<ArenaBuildId>("railFocus");
   const [arenaMeta, setArenaMeta] = useState<ArenaMetaState>(() =>
@@ -2596,6 +2605,7 @@ export function ArenaPrototypeScreen({
     setPendingRestartSummary(null);
     setSectorBannerTier(null);
     setLossTransitionTimer(0);
+    setHubPanel("root");
     armoryResumeOnCloseRef.current = false;
     runMetaCommittedRef.current = false;
     lastBiomeBannerKeyRef.current = "";
@@ -2621,6 +2631,7 @@ export function ArenaPrototypeScreen({
     setRunEndSummary(null);
     setPendingRestartSummary(null);
     setLossTransitionTimer(0);
+    setHubPanel("root");
   };
 
   const resetArenaRun = () => {
@@ -2713,6 +2724,23 @@ export function ArenaPrototypeScreen({
     setPendingCollectionNoticeIds((previousIds) =>
       previousIds.filter((id) => id !== cosmeticId),
     );
+  };
+  const handleClaimReadyCosmetics = () => {
+    setArenaMeta((previousMetaState) => {
+      const readyCosmeticIds = getArenaClaimableCosmeticIds(previousMetaState);
+      if (readyCosmeticIds.length <= 0) {
+        return previousMetaState;
+      }
+      let nextMetaState = previousMetaState;
+      readyCosmeticIds.forEach((cosmeticId) => {
+        nextMetaState = claimArenaCosmetic(nextMetaState, cosmeticId);
+      });
+      if (nextMetaState !== previousMetaState) {
+        void saveArenaMetaState(nextMetaState);
+      }
+      return nextMetaState;
+    });
+    setPendingCollectionNoticeIds([]);
   };
 
   const handleEquipCosmetic = (cosmeticId: ArenaCosmeticId) => {
@@ -2833,6 +2861,43 @@ export function ArenaPrototypeScreen({
       : arenaMeta.campaign.level >= 4
         ? "Striker"
         : "Cadet";
+  const hubOwnedCosmeticCount = Object.values(arenaMeta.cosmetics).filter(
+    (entry) => entry.state === "owned",
+  ).length;
+  const hubDiscoveredEnemyCount = ARENA_ENEMY_ORDER.filter(
+    (kind) => arenaMeta.codexEnemies[kind].discovered,
+  ).length;
+  const hubBossKinds = [
+    "prismBoss",
+    "hiveCarrierBoss",
+    "vectorLoomBoss",
+    "eclipseTalonBoss",
+  ] as const;
+  const hubBossClearCount = hubBossKinds.filter(
+    (kind) => arenaMeta.codexEnemies[kind].bossClears > 0,
+  ).length;
+  const hubMasteryCards = ARENA_BUILD_ORDER.map((buildId) => ({
+    buildId,
+    meta: ARENA_BUILD_META[buildId],
+    mastery: arenaMeta.mastery[buildId],
+    progress: getArenaMasteryProgress(arenaMeta.mastery[buildId].xp),
+  }));
+  const hubPanelTitle =
+    hubPanel === "mission"
+      ? "Mission Launch"
+      : hubPanel === "collection"
+        ? "Collection"
+        : hubPanel === "codex"
+          ? "Codex"
+          : hubPanel === "mastery"
+            ? "Mastery"
+            : hubPanel === "weapon"
+              ? "Weapon Equip"
+              : hubPanel === "shield"
+                ? "Shield Equip"
+                : hubPanel === "extras"
+                  ? "Extras"
+                  : "Home Base";
 
   if (shellMode === "hub") {
     return (
@@ -2842,14 +2907,11 @@ export function ArenaPrototypeScreen({
           isPortraitViewport && arenaStyles.containerPortrait,
         ]}
       >
-        <ScrollView
-          style={arenaStyles.hubScroll}
-          contentContainerStyle={arenaStyles.hubContent}
-        >
-          <View style={arenaStyles.hubTopCommandBar}>
+        <View style={arenaStyles.hubFixedScreen}>
+          <View style={arenaStyles.hubFixedTopBar}>
             <View
               style={[
-                arenaStyles.hubLevelBadge,
+                arenaStyles.hubCompactLevelBadge,
                 {
                   borderColor: activeBannerDefinition.secondaryColor,
                   shadowColor: activeBannerDefinition.glowColor,
@@ -2857,38 +2919,34 @@ export function ArenaPrototypeScreen({
               ]}
             >
               <Text style={arenaStyles.hubLevelLabel}>LV</Text>
-              <Text style={arenaStyles.hubLevelValue}>
+              <Text style={arenaStyles.hubCompactLevelValue}>
                 {campaignLevelProgress.level}
               </Text>
             </View>
-            <View style={arenaStyles.hubCommanderBlock}>
-              <Text style={arenaStyles.hubEyebrow}>Arena V2 Home Base</Text>
-              <Text style={arenaStyles.hubTitle}>Orbital Command</Text>
+            <View style={arenaStyles.hubFixedTitleBlock}>
+              <Text style={arenaStyles.hubEyebrow}>Home Base</Text>
+              <Text style={arenaStyles.hubFixedTitle}>
+                {hubPanel === "root" ? "Orbital Command" : hubPanelTitle}
+              </Text>
               <Text style={arenaStyles.hubRankText}>
                 Rank: {hubCampaignRank}
               </Text>
             </View>
-            <View style={arenaStyles.hubResourceRail}>
-              <View style={arenaStyles.hubResourceChip}>
-                <Text style={arenaStyles.hubResourceSymbol}>XP</Text>
-                <Text style={arenaStyles.hubResourceValue}>
-                  {campaignLevelProgress.currentXp}/
-                  {campaignLevelProgress.neededXp}
-                </Text>
-              </View>
-              <View style={arenaStyles.hubResourceChip}>
-                <Text style={arenaStyles.hubResourceSymbol}>SL</Text>
-                <Text style={arenaStyles.hubResourceValue}>
-                  {campaignWeaponSlotCount}/2
-                </Text>
-              </View>
-              <View style={arenaStyles.hubResourceChip}>
-                <Text style={arenaStyles.hubResourceSymbol}>RW</Text>
-                <Text style={arenaStyles.hubResourceValue}>
-                  {claimableCosmeticIds.length}
-                </Text>
-              </View>
-            </View>
+            {hubPanel === "root" ? (
+              <Pressable
+                onPress={() => setHubPanel("extras")}
+                style={arenaStyles.hubTopUtilityButton}
+              >
+                <Text style={arenaStyles.hubTopUtilityText}>Extras</Text>
+              </Pressable>
+            ) : (
+              <Pressable
+                onPress={() => setHubPanel("root")}
+                style={arenaStyles.hubTopUtilityButton}
+              >
+                <Text style={arenaStyles.hubTopUtilityText}>Back</Text>
+              </Pressable>
+            )}
             <View style={arenaStyles.hubProgressTrack}>
               <View
                 style={[
@@ -2902,330 +2960,495 @@ export function ArenaPrototypeScreen({
             </View>
           </View>
 
-          <View style={arenaStyles.hubDeck}>
-            <View style={arenaStyles.hubDeckStrutLeft} />
-            <View style={arenaStyles.hubDeckStrutRight} />
-            <View style={arenaStyles.hubHorizonWindow}>
-              <View style={arenaStyles.hubStar} />
-              <View style={[arenaStyles.hubStar, arenaStyles.hubStarTwo]} />
-              <View style={[arenaStyles.hubStar, arenaStyles.hubStarThree]} />
-            </View>
-
-            <View style={arenaStyles.hubMissionConsole}>
-              <View
-                style={[
-                  arenaStyles.hubGlobe,
-                  {
-                    borderColor: activeFrameDefinition.secondaryColor,
-                    shadowColor: activeFrameDefinition.glowColor,
-                  },
-                ]}
+          {hubPanel === "root" ? (
+            <View style={arenaStyles.hubFixedDeck}>
+              <View style={arenaStyles.hubHorizonWindowCompact}>
+                <View style={arenaStyles.hubStar} />
+                <View style={[arenaStyles.hubStar, arenaStyles.hubStarTwo]} />
+                <View style={[arenaStyles.hubStar, arenaStyles.hubStarThree]} />
+              </View>
+              <Pressable
+                onPress={() => setHubPanel("mission")}
+                style={arenaStyles.hubRootMissionConsole}
               >
-                <View style={arenaStyles.hubGlobeCore} />
-                <View style={arenaStyles.hubGlobeMeridian} />
-                <View style={arenaStyles.hubGlobeLatitude} />
                 <View
                   style={[
-                    arenaStyles.hubGlobeLatitude,
-                    arenaStyles.hubGlobeLatitudeLow,
+                    arenaStyles.hubCompactGlobe,
+                    {
+                      borderColor: activeFrameDefinition.secondaryColor,
+                      shadowColor: activeFrameDefinition.glowColor,
+                    },
                   ]}
-                />
-              </View>
-              <Text style={arenaStyles.hubMapKicker}>
-                Map Select / Next Run
-              </Text>
-              <Text style={arenaStyles.hubMapTitle}>{activeMission.label}</Text>
-              <Text style={arenaStyles.hubMapCopy}>
-                {activeMission.zoneLabel} / T1-T{activeMission.targetTier} /
-                Boss: {activeMission.bossLabel}
-              </Text>
-              <View style={arenaStyles.hubMapStatsRow}>
-                <View style={arenaStyles.hubMapStat}>
-                  <Text style={arenaStyles.hubMapStatLabel}>Best</Text>
-                  <Text style={arenaStyles.hubMapStatValue}>
-                    T{hubMissionBestTier}
+                >
+                  <View style={arenaStyles.hubGlobeCore} />
+                  <View style={arenaStyles.hubGlobeMeridian} />
+                  <View style={arenaStyles.hubGlobeLatitude} />
+                  <View
+                    style={[
+                      arenaStyles.hubGlobeLatitude,
+                      arenaStyles.hubGlobeLatitudeLow,
+                    ]}
+                  />
+                </View>
+                <View style={arenaStyles.hubRootMissionText}>
+                  <Text style={arenaStyles.hubMapKicker}>Mission Launch</Text>
+                  <Text style={arenaStyles.hubMapTitle}>
+                    {activeMission.label}
+                  </Text>
+                  <Text style={arenaStyles.hubMapCopy}>
+                    T1-T{activeMission.targetTier} / Best T{hubMissionBestTier}
                   </Text>
                 </View>
-                <View style={arenaStyles.hubMapStat}>
-                  <Text style={arenaStyles.hubMapStatLabel}>Reward</Text>
-                  <Text style={arenaStyles.hubMapStatValue}>
-                    {activeMission.rewardXp} XP
-                  </Text>
-                </View>
-                <View style={arenaStyles.hubMapStat}>
-                  <Text style={arenaStyles.hubMapStatLabel}>State</Text>
-                  <Text style={arenaStyles.hubMapStatValue}>
-                    {activeMissionProgress?.completed ? "Cleared" : "Open"}
-                  </Text>
-                </View>
-              </View>
-            </View>
-
-            <View style={arenaStyles.hubStationGrid}>
-              <View
-                style={[
-                  arenaStyles.hubStationTile,
-                  arenaStyles.hubStationTileBlue,
-                ]}
-              >
-                <Text style={arenaStyles.hubStationIcon}>WPN</Text>
-                <Text style={arenaStyles.hubStationTitle}>Loadout</Text>
-                <Text style={arenaStyles.hubStationSubtitle}>
-                  Weapons + shield ability
-                </Text>
-              </View>
-              <Pressable
-                onPress={() => handleOpenHubPanel("collection")}
-                style={[
-                  arenaStyles.hubStationTile,
-                  arenaStyles.hubStationTileGold,
-                ]}
-              >
-                <Text style={arenaStyles.hubStationIcon}>BOX</Text>
-                <Text style={arenaStyles.hubStationTitle}>Collection</Text>
-                <Text style={arenaStyles.hubStationSubtitle}>
-                  {claimableCosmeticIds.length > 0
-                    ? `${claimableCosmeticIds.length} ready`
-                    : "Cosmetics + rewards"}
-                </Text>
               </Pressable>
-              <View
-                style={[
-                  arenaStyles.hubStationTile,
-                  arenaStyles.hubStationTileCyan,
-                ]}
-              >
-                <Text style={arenaStyles.hubStationIcon}>LOG</Text>
-                <Text style={arenaStyles.hubStationTitle}>Archives</Text>
-                <Text style={arenaStyles.hubStationSubtitle}>
-                  Codex + mastery records
-                </Text>
-                <View style={arenaStyles.hubMiniActionRow}>
-                  <Pressable
-                    onPress={() => handleOpenHubPanel("codex")}
-                    style={arenaStyles.hubMiniAction}
-                  >
-                    <Text style={arenaStyles.hubMiniActionText}>Codex</Text>
-                  </Pressable>
-                  <Pressable
-                    onPress={() => handleOpenHubPanel("mastery")}
-                    style={arenaStyles.hubMiniAction}
-                  >
-                    <Text style={arenaStyles.hubMiniActionText}>Mastery</Text>
-                  </Pressable>
-                </View>
-              </View>
-              <Pressable
-                onPress={() => deployRun("endless")}
-                style={[
-                  arenaStyles.hubStationTile,
-                  arenaStyles.hubStationTilePurple,
-                ]}
-              >
-                <Text style={arenaStyles.hubStationIcon}>SIM</Text>
-                <Text style={arenaStyles.hubStationTitle}>Endless</Text>
-                <Text style={arenaStyles.hubStationSubtitle}>
-                  Build, salvage, armory loop
-                </Text>
-              </Pressable>
-            </View>
 
-            <View style={arenaStyles.hubShipBay}>
-              <View style={arenaStyles.hubShipPadOuter}>
-                <View style={arenaStyles.hubShipPadInner}>
+              <View style={arenaStyles.hubRootShipBay}>
+                <View style={arenaStyles.hubCompactShipPad}>
                   <View style={arenaStyles.hubShipShadow} />
                   <View
                     style={[
-                      arenaStyles.hubShipWingLeft,
+                      arenaStyles.hubShipWingLeftCompact,
                       { borderBottomColor: activeAccentDefinition.primaryColor },
                     ]}
                   />
                   <View
                     style={[
-                      arenaStyles.hubShipWingRight,
+                      arenaStyles.hubShipWingRightCompact,
                       { borderBottomColor: activeAccentDefinition.primaryColor },
                     ]}
                   />
-                  <View style={arenaStyles.hubShipBody} />
+                  <View style={arenaStyles.hubShipBodyCompact} />
                   <View
                     style={[
-                      arenaStyles.hubShipCanopy,
+                      arenaStyles.hubShipCanopyCompact,
                       { backgroundColor: activeAccentDefinition.detailColor },
                     ]}
                   />
-                  <View style={arenaStyles.hubShipNose} />
-                  <View style={arenaStyles.hubShipEngineLeft} />
-                  <View style={arenaStyles.hubShipEngineRight} />
+                  <View style={arenaStyles.hubShipNoseCompact} />
+                  <View style={arenaStyles.hubShipEngineLeftCompact} />
+                  <View style={arenaStyles.hubShipEngineRightCompact} />
+                </View>
+                <View style={arenaStyles.hubRootRigReadout}>
+                  <Text style={arenaStyles.hubShipReadoutLabel}>
+                    Active Rig
+                  </Text>
+                  <Text style={arenaStyles.hubShipReadoutValue}>
+                    {activeCampaignWeapon.shortLabel} /{" "}
+                    {activeCampaignShield.shortLabel}
+                  </Text>
                 </View>
               </View>
-              <View style={arenaStyles.hubShipReadout}>
-                <Text style={arenaStyles.hubShipReadoutLabel}>
-                  Active Rig
-                </Text>
-                <Text style={arenaStyles.hubShipReadoutValue}>
-                  {activeCampaignWeapon.shortLabel} /{" "}
-                  {activeCampaignShield.shortLabel}
-                </Text>
-              </View>
-            </View>
 
-            <Pressable
-              onPress={() => deployRun("campaign", activeMission.id)}
-              style={[
-                arenaStyles.hubLaunchButton,
-                {
-                  borderColor: activeBannerDefinition.secondaryColor,
-                  shadowColor: activeBannerDefinition.glowColor,
-                },
-              ]}
-            >
-              <Text style={arenaStyles.hubLaunchTitle}>Launch</Text>
-              <Text style={arenaStyles.hubLaunchSubtitle}>Start Mission</Text>
-            </Pressable>
-          </View>
-
-          <View style={arenaStyles.hubLoadoutConsole}>
-            <View style={arenaStyles.hubConsoleHeader}>
-              <View>
-                <Text style={arenaStyles.hubConsoleKicker}>Configure Bay</Text>
-                <Text style={arenaStyles.hubConsoleTitle}>
-                  Weapons & Shield
-                </Text>
+              <View style={arenaStyles.hubRootStationGrid}>
+                <Pressable
+                  onPress={() => setHubPanel("weapon")}
+                  style={[
+                    arenaStyles.hubRootStationTile,
+                    arenaStyles.hubStationTileBlue,
+                  ]}
+                >
+                  <Text style={arenaStyles.hubStationIcon}>WPN</Text>
+                  <Text style={arenaStyles.hubStationTitle}>Weapon</Text>
+                  <Text style={arenaStyles.hubStationSubtitle}>
+                    {activeCampaignWeapon.shortLabel}
+                  </Text>
+                </Pressable>
+                <Pressable
+                  onPress={() => setHubPanel("shield")}
+                  style={[
+                    arenaStyles.hubRootStationTile,
+                    arenaStyles.hubStationTileGreen,
+                  ]}
+                >
+                  <Text style={arenaStyles.hubStationIcon}>SHD</Text>
+                  <Text style={arenaStyles.hubStationTitle}>Shield</Text>
+                  <Text style={arenaStyles.hubStationSubtitle}>
+                    {activeCampaignShield.shortLabel}
+                  </Text>
+                </Pressable>
+                <Pressable
+                  onPress={() => setHubPanel("collection")}
+                  style={[
+                    arenaStyles.hubRootStationTile,
+                    arenaStyles.hubStationTileGold,
+                  ]}
+                >
+                  <Text style={arenaStyles.hubStationIcon}>BOX</Text>
+                  <Text style={arenaStyles.hubStationTitle}>Collection</Text>
+                  <Text style={arenaStyles.hubStationSubtitle}>
+                    {claimableCosmeticIds.length} ready
+                  </Text>
+                </Pressable>
+                <Pressable
+                  onPress={() => setHubPanel("codex")}
+                  style={[
+                    arenaStyles.hubRootStationTile,
+                    arenaStyles.hubStationTileCyan,
+                  ]}
+                >
+                  <Text style={arenaStyles.hubStationIcon}>LOG</Text>
+                  <Text style={arenaStyles.hubStationTitle}>Codex</Text>
+                  <Text style={arenaStyles.hubStationSubtitle}>
+                    {hubDiscoveredEnemyCount}/{ARENA_ENEMY_ORDER.length}
+                  </Text>
+                </Pressable>
+                <Pressable
+                  onPress={() => setHubPanel("mastery")}
+                  style={[
+                    arenaStyles.hubRootStationTile,
+                    arenaStyles.hubStationTilePurple,
+                    arenaStyles.hubRootStationTileWide,
+                  ]}
+                >
+                  <Text style={arenaStyles.hubStationIcon}>RANK</Text>
+                  <Text style={arenaStyles.hubStationTitle}>Mastery</Text>
+                  <Text style={arenaStyles.hubStationSubtitle}>
+                    Build levels and rewards
+                  </Text>
+                </Pressable>
               </View>
-              <Text style={arenaStyles.hubConsoleStatus}>
-                {campaignWeaponSlotCount}/2 slots online
-              </Text>
+
+              <Pressable
+                onPress={() => deployRun("campaign", activeMission.id)}
+                style={[
+                  arenaStyles.hubCompactLaunchButton,
+                  {
+                    borderColor: activeBannerDefinition.secondaryColor,
+                    shadowColor: activeBannerDefinition.glowColor,
+                  },
+                ]}
+              >
+                <Text style={arenaStyles.hubLaunchTitle}>Launch</Text>
+                <Text style={arenaStyles.hubLaunchSubtitle}>Start Mission</Text>
+              </Pressable>
             </View>
-            <View style={arenaStyles.hubLoadoutGrid}>
-              {([0, 1] as const).map((slotIndex) => {
-                const isUnlocked = slotIndex < campaignWeaponSlotCount;
-                const equippedWeaponId =
-                  arenaMeta.campaign.loadout.weaponSlots[slotIndex];
-                return (
-                  <View
-                    key={`weapon-slot-${slotIndex}`}
-                    style={arenaStyles.hubLoadoutCard}
+          ) : (
+            <View style={arenaStyles.hubDetailDeck}>
+              {hubPanel === "mission" ? (
+                <View style={arenaStyles.hubDetailContent}>
+                  <View style={arenaStyles.hubDetailHero}>
+                    <Text style={arenaStyles.hubMapKicker}>
+                      {activeMission.zoneLabel}
+                    </Text>
+                    <Text style={arenaStyles.hubDetailTitle}>
+                      {activeMission.label}
+                    </Text>
+                    <Text style={arenaStyles.hubDetailCopy}>
+                      {activeMission.summary} Final boss:{" "}
+                      {activeMission.bossLabel}.
+                    </Text>
+                  </View>
+                  <View style={arenaStyles.hubDetailStatGrid}>
+                    <View style={arenaStyles.hubDetailStatCard}>
+                      <Text style={arenaStyles.hubMapStatLabel}>Target</Text>
+                      <Text style={arenaStyles.hubMapStatValue}>
+                        T{activeMission.targetTier}
+                      </Text>
+                    </View>
+                    <View style={arenaStyles.hubDetailStatCard}>
+                      <Text style={arenaStyles.hubMapStatLabel}>Best</Text>
+                      <Text style={arenaStyles.hubMapStatValue}>
+                        T{hubMissionBestTier}
+                      </Text>
+                    </View>
+                    <View style={arenaStyles.hubDetailStatCard}>
+                      <Text style={arenaStyles.hubMapStatLabel}>Reward</Text>
+                      <Text style={arenaStyles.hubMapStatValue}>
+                        {activeMission.rewardXp} XP
+                      </Text>
+                    </View>
+                  </View>
+                  <Pressable
+                    onPress={() => deployRun("campaign", activeMission.id)}
+                    style={arenaStyles.hubDetailPrimaryAction}
                   >
-                    <Text style={arenaStyles.hubLoadoutKicker}>
-                      Weapon Slot {slotIndex + 1}
+                    <Text style={arenaStyles.hubDetailPrimaryActionText}>
+                      Launch Mission
                     </Text>
-                    <Text style={arenaStyles.hubLoadoutTitle}>
-                      {isUnlocked && equippedWeaponId
-                        ? ARENA_CAMPAIGN_WEAPONS[equippedWeaponId].label
-                        : "Locked"}
+                  </Pressable>
+                </View>
+              ) : null}
+
+              {hubPanel === "collection" ? (
+                <View style={arenaStyles.hubDetailContent}>
+                  <View style={arenaStyles.hubDetailHero}>
+                    <Text style={arenaStyles.hubMapKicker}>
+                      Rewards / Cosmetics
                     </Text>
-                    <Text style={arenaStyles.hubLoadoutCopy}>
-                      {isUnlocked && equippedWeaponId
-                        ? ARENA_CAMPAIGN_WEAPONS[equippedWeaponId].summary
-                        : "Unlocks at campaign level 4."}
+                    <Text style={arenaStyles.hubDetailTitle}>
+                      {claimableCosmeticIds.length} Claimable
                     </Text>
-                    {isUnlocked ? (
-                      <View style={arenaStyles.hubChoiceRow}>
-                        {Object.values(ARENA_CAMPAIGN_WEAPONS).map((weapon) => {
-                          const locked = weapon.unlockLevel > arenaMeta.campaign.level;
-                          const selected = equippedWeaponId === weapon.id;
-                          return (
-                            <Pressable
-                              key={`${slotIndex}-${weapon.id}`}
-                              disabled={locked}
-                              onPress={() =>
-                                handleEquipCampaignWeapon(slotIndex, weapon.id)
-                              }
-                              style={[
-                                arenaStyles.hubChoicePill,
-                                selected && arenaStyles.hubChoicePillActive,
-                                locked && arenaStyles.hubChoicePillLocked,
-                              ]}
-                            >
-                              <Text style={arenaStyles.hubChoiceText}>
-                                {locked ? `Lv ${weapon.unlockLevel}` : weapon.shortLabel}
-                              </Text>
-                            </Pressable>
-                          );
-                        })}
+                    <Text style={arenaStyles.hubDetailCopy}>
+                      {hubOwnedCosmeticCount} owned. Equipped banner:{" "}
+                      {activeBannerDefinition.label}. Equipped frame:{" "}
+                      {activeFrameDefinition.label}.
+                    </Text>
+                  </View>
+                  <View style={arenaStyles.hubPreviewList}>
+                    {claimableCosmeticIds.slice(0, 3).map((cosmeticId) => (
+                      <View key={cosmeticId} style={arenaStyles.hubPreviewRow}>
+                        <Text style={arenaStyles.hubPreviewTitle}>
+                          {getArenaCosmeticDefinition(cosmeticId).label}
+                        </Text>
+                        <Text style={arenaStyles.hubPreviewMeta}>
+                          Ready to claim
+                        </Text>
+                      </View>
+                    ))}
+                    {claimableCosmeticIds.length <= 0 ? (
+                      <View style={arenaStyles.hubPreviewRow}>
+                        <Text style={arenaStyles.hubPreviewTitle}>
+                          No rewards waiting
+                        </Text>
+                        <Text style={arenaStyles.hubPreviewMeta}>
+                          Keep clearing missions and bosses
+                        </Text>
                       </View>
                     ) : null}
                   </View>
-                );
-              })}
-            </View>
-
-            <View style={arenaStyles.hubLoadoutCard}>
-              <Text style={arenaStyles.hubLoadoutKicker}>Shield Ability</Text>
-              <Text style={arenaStyles.hubLoadoutTitle}>
-                {activeCampaignShield.label}
-              </Text>
-              <Text style={arenaStyles.hubLoadoutCopy}>
-                {activeCampaignShield.summary}
-              </Text>
-              <View style={arenaStyles.hubChoiceRow}>
-                {Object.values(ARENA_CAMPAIGN_SHIELDS).map((shield) => {
-                  const locked = shield.unlockLevel > arenaMeta.campaign.level;
-                  const selected = arenaMeta.campaign.loadout.shieldId === shield.id;
-                  return (
+                  <View style={arenaStyles.hubDetailActionRow}>
                     <Pressable
-                      key={shield.id}
-                      disabled={locked}
-                      onPress={() => handleEquipCampaignShield(shield.id)}
+                      disabled={claimableCosmeticIds.length <= 0}
+                      onPress={handleClaimReadyCosmetics}
                       style={[
-                        arenaStyles.hubChoicePill,
-                        selected && arenaStyles.hubChoicePillActive,
-                        locked && arenaStyles.hubChoicePillLocked,
+                        arenaStyles.hubDetailPrimaryAction,
+                        claimableCosmeticIds.length <= 0 &&
+                          arenaStyles.hubDetailActionDisabled,
                       ]}
                     >
-                      <Text style={arenaStyles.hubChoiceText}>
-                        {locked ? `Lv ${shield.unlockLevel}` : shield.shortLabel}
+                      <Text style={arenaStyles.hubDetailPrimaryActionText}>
+                        Claim Ready
                       </Text>
                     </Pressable>
-                  );
-                })}
-              </View>
-            </View>
-          </View>
+                    <Pressable
+                      onPress={() => handleOpenHubPanel("collection")}
+                      style={arenaStyles.hubDetailSecondaryAction}
+                    >
+                      <Text style={arenaStyles.hubDetailSecondaryActionText}>
+                        Equip Window
+                      </Text>
+                    </Pressable>
+                  </View>
+                </View>
+              ) : null}
 
-          <View style={arenaStyles.hubBottomDock}>
-            <Pressable
-              onPress={() => handleSwitchGame("defender")}
-              style={arenaStyles.hubDockButton}
-            >
-              <Text style={arenaStyles.hubDockIcon}>SYS</Text>
-              <Text style={arenaStyles.hubDockText}>Switch Game</Text>
-            </Pressable>
-            <View style={arenaStyles.hubDockButtonActive}>
-              <Text style={arenaStyles.hubDockIconActive}>HOME</Text>
-              <Text style={arenaStyles.hubDockTextActive}>Home Base</Text>
-            </View>
-            <Pressable
-              onPress={() => handleOpenHubPanel("collection")}
-              style={arenaStyles.hubDockButton}
-            >
-              <Text style={arenaStyles.hubDockIcon}>COL</Text>
-              <Text style={arenaStyles.hubDockText}>Rewards</Text>
-            </Pressable>
-          </View>
+              {hubPanel === "codex" ? (
+                <View style={arenaStyles.hubDetailContent}>
+                  <View style={arenaStyles.hubDetailHero}>
+                    <Text style={arenaStyles.hubMapKicker}>
+                      Enemy Archives
+                    </Text>
+                    <Text style={arenaStyles.hubDetailTitle}>
+                      {hubDiscoveredEnemyCount}/{ARENA_ENEMY_ORDER.length}{" "}
+                      Discovered
+                    </Text>
+                    <Text style={arenaStyles.hubDetailCopy}>
+                      Boss files cleared: {hubBossClearCount}/
+                      {hubBossKinds.length}. Full enemy discovery feeds Codex
+                      frame rewards.
+                    </Text>
+                  </View>
+                  <View style={arenaStyles.hubBossRow}>
+                    {hubBossKinds.map((kind) => (
+                      <View key={kind} style={arenaStyles.hubBossChip}>
+                        <Text style={arenaStyles.hubPreviewTitle}>
+                          {ARENA_ENEMY_LABELS[kind]}
+                        </Text>
+                        <Text style={arenaStyles.hubPreviewMeta}>
+                          Clears {arenaMeta.codexEnemies[kind].bossClears}
+                        </Text>
+                      </View>
+                    ))}
+                  </View>
+                  <Pressable
+                    onPress={() => handleOpenHubPanel("codex")}
+                    style={arenaStyles.hubDetailPrimaryAction}
+                  >
+                    <Text style={arenaStyles.hubDetailPrimaryActionText}>
+                      Open Codex Window
+                    </Text>
+                  </Pressable>
+                </View>
+              ) : null}
 
-          <View style={arenaStyles.hubMapRail}>
-            {ARENA_CAMPAIGN_MISSION_ORDER.map((missionId) => {
-              const mission = ARENA_CAMPAIGN_MISSIONS[missionId];
-              const progress = arenaMeta.campaign.missionProgress[missionId];
-              return (
-                <Pressable
-                  key={mission.id}
-                  onPress={() => deployRun("campaign", mission.id)}
-                  style={arenaStyles.hubMapRailItem}
-                >
-                  <Text style={arenaStyles.hubMapRailTitle}>
-                    {mission.label}
-                  </Text>
-                  <Text style={arenaStyles.hubMapRailMeta}>
-                    T1-T{mission.targetTier} /{" "}
-                    {progress?.completed ? "Cleared" : "Open"}
-                  </Text>
-                </Pressable>
-              );
-            })}
-          </View>
-        </ScrollView>
+              {hubPanel === "mastery" ? (
+                <View style={arenaStyles.hubDetailContent}>
+                  <View style={arenaStyles.hubMasteryGrid}>
+                    {hubMasteryCards.map(({ buildId, meta, mastery, progress }) => (
+                      <View key={buildId} style={arenaStyles.hubMasteryCard}>
+                        <Text
+                          style={[
+                            arenaStyles.hubPreviewTitle,
+                            { color: meta.accent },
+                          ]}
+                        >
+                          {meta.shortLabel}
+                        </Text>
+                        <Text style={arenaStyles.hubPreviewMeta}>
+                          Lv {progress.level} / {progress.title}
+                        </Text>
+                        <View style={arenaStyles.hubSmallProgressTrack}>
+                          <View
+                            style={[
+                              arenaStyles.hubSmallProgressFill,
+                              {
+                                width: `${progress.progress * 100}%`,
+                                backgroundColor: meta.accent,
+                              },
+                            ]}
+                          />
+                        </View>
+                        <Text style={arenaStyles.hubPreviewMeta}>
+                          Best T{mastery.bestTier} / Boss {mastery.bossClears}
+                        </Text>
+                      </View>
+                    ))}
+                  </View>
+                  <Pressable
+                    onPress={() => handleOpenHubPanel("mastery")}
+                    style={arenaStyles.hubDetailPrimaryAction}
+                  >
+                    <Text style={arenaStyles.hubDetailPrimaryActionText}>
+                      Open Mastery Window
+                    </Text>
+                  </Pressable>
+                </View>
+              ) : null}
+
+              {hubPanel === "weapon" ? (
+                <View style={arenaStyles.hubDetailContent}>
+                  <View style={arenaStyles.hubDetailStatGrid}>
+                    {([0, 1] as const).map((slotIndex) => {
+                      const isUnlocked = slotIndex < campaignWeaponSlotCount;
+                      const equippedWeaponId =
+                        arenaMeta.campaign.loadout.weaponSlots[slotIndex];
+                      return (
+                        <View
+                          key={`weapon-detail-${slotIndex}`}
+                          style={arenaStyles.hubEquipSlotCard}
+                        >
+                          <Text style={arenaStyles.hubLoadoutKicker}>
+                            Slot {slotIndex + 1}
+                          </Text>
+                          <Text style={arenaStyles.hubLoadoutTitle}>
+                            {isUnlocked && equippedWeaponId
+                              ? ARENA_CAMPAIGN_WEAPONS[equippedWeaponId].label
+                              : "Locked"}
+                          </Text>
+                          <Text style={arenaStyles.hubLoadoutCopy}>
+                            {isUnlocked
+                              ? "Choose any unlocked campaign weapon."
+                              : "Unlocks at campaign level 4."}
+                          </Text>
+                          {isUnlocked ? (
+                            <View style={arenaStyles.hubChoiceRow}>
+                              {Object.values(ARENA_CAMPAIGN_WEAPONS).map(
+                                (weapon) => {
+                                  const locked =
+                                    weapon.unlockLevel >
+                                    arenaMeta.campaign.level;
+                                  const selected = equippedWeaponId === weapon.id;
+                                  return (
+                                    <Pressable
+                                      key={`${slotIndex}-${weapon.id}`}
+                                      disabled={locked}
+                                      onPress={() =>
+                                        handleEquipCampaignWeapon(
+                                          slotIndex,
+                                          weapon.id,
+                                        )
+                                      }
+                                      style={[
+                                        arenaStyles.hubChoicePill,
+                                        selected &&
+                                          arenaStyles.hubChoicePillActive,
+                                        locked &&
+                                          arenaStyles.hubChoicePillLocked,
+                                      ]}
+                                    >
+                                      <Text style={arenaStyles.hubChoiceText}>
+                                        {locked
+                                          ? `Lv ${weapon.unlockLevel}`
+                                          : weapon.shortLabel}
+                                      </Text>
+                                    </Pressable>
+                                  );
+                                },
+                              )}
+                            </View>
+                          ) : null}
+                        </View>
+                      );
+                    })}
+                  </View>
+                </View>
+              ) : null}
+
+              {hubPanel === "shield" ? (
+                <View style={arenaStyles.hubDetailContent}>
+                  <View style={arenaStyles.hubShieldGrid}>
+                    {Object.values(ARENA_CAMPAIGN_SHIELDS).map((shield) => {
+                      const locked = shield.unlockLevel > arenaMeta.campaign.level;
+                      const selected =
+                        arenaMeta.campaign.loadout.shieldId === shield.id;
+                      return (
+                        <Pressable
+                          key={shield.id}
+                          disabled={locked}
+                          onPress={() => handleEquipCampaignShield(shield.id)}
+                          style={[
+                            arenaStyles.hubShieldCard,
+                            selected && arenaStyles.hubChoicePillActive,
+                            locked && arenaStyles.hubChoicePillLocked,
+                          ]}
+                        >
+                          <Text style={arenaStyles.hubLoadoutKicker}>
+                            {locked ? `Unlock Lv ${shield.unlockLevel}` : "Ready"}
+                          </Text>
+                          <Text style={arenaStyles.hubLoadoutTitle}>
+                            {shield.label}
+                          </Text>
+                          <Text style={arenaStyles.hubLoadoutCopy}>
+                            {shield.summary}
+                          </Text>
+                        </Pressable>
+                      );
+                    })}
+                  </View>
+                </View>
+              ) : null}
+
+              {hubPanel === "extras" ? (
+                <View style={arenaStyles.hubDetailContent}>
+                  <View style={arenaStyles.hubDetailHero}>
+                    <Text style={arenaStyles.hubMapKicker}>Optional Access</Text>
+                    <Text style={arenaStyles.hubDetailTitle}>Extras</Text>
+                    <Text style={arenaStyles.hubDetailCopy}>
+                      Secondary actions live here so the Home Base floor stays
+                      focused on campaign launch, Collection, Codex, Mastery,
+                      weapons, and shields.
+                    </Text>
+                  </View>
+                  <Pressable
+                    onPress={() => deployRun("endless")}
+                    style={arenaStyles.hubDetailPrimaryAction}
+                  >
+                    <Text style={arenaStyles.hubDetailPrimaryActionText}>
+                      Endless Simulation
+                    </Text>
+                  </Pressable>
+                  <Pressable
+                    onPress={() => handleSwitchGame("defender")}
+                    style={arenaStyles.hubDetailSecondaryAction}
+                  >
+                    <Text style={arenaStyles.hubDetailSecondaryActionText}>
+                      Switch Game
+                    </Text>
+                  </Pressable>
+                </View>
+              ) : null}
+            </View>
+          )}
+        </View>
       </SafeAreaView>
     );
   }
@@ -5159,6 +5382,433 @@ const arenaStyles = StyleSheet.create({
   hubProgressFill: {
     height: "100%",
     borderRadius: 999,
+  },
+  hubFixedScreen: {
+    flex: 1,
+    paddingTop: 8,
+    paddingBottom: 6,
+    gap: 8,
+  },
+  hubFixedTopBar: {
+    minHeight: 76,
+    borderRadius: 20,
+    borderWidth: 1,
+    borderColor: "rgba(126, 190, 255, 0.28)",
+    backgroundColor: "rgba(7, 16, 28, 0.96)",
+    padding: 8,
+    flexDirection: "row",
+    flexWrap: "wrap",
+    alignItems: "center",
+    gap: 8,
+    shadowColor: "#6FD8FF",
+    shadowOpacity: 0.14,
+    shadowRadius: 14,
+  },
+  hubCompactLevelBadge: {
+    width: 48,
+    height: 48,
+    borderRadius: 16,
+    borderWidth: 2,
+    backgroundColor: "rgba(15, 26, 43, 0.98)",
+    alignItems: "center",
+    justifyContent: "center",
+    shadowOpacity: 0.22,
+    shadowRadius: 12,
+  },
+  hubCompactLevelValue: {
+    color: "#F8FCFF",
+    fontSize: 20,
+    fontWeight: "900",
+    marginTop: -2,
+  },
+  hubFixedTitleBlock: {
+    flex: 1,
+    minWidth: 150,
+  },
+  hubFixedTitle: {
+    color: "#F4FBFF",
+    fontSize: 20,
+    fontWeight: "900",
+    letterSpacing: 0.4,
+    marginTop: 2,
+  },
+  hubTopUtilityButton: {
+    borderRadius: 13,
+    borderWidth: 1,
+    borderColor: "rgba(145, 204, 255, 0.32)",
+    backgroundColor: "rgba(255, 255, 255, 0.055)",
+    paddingHorizontal: 12,
+    paddingVertical: 9,
+  },
+  hubTopUtilityText: {
+    color: "#D7EEFF",
+    fontSize: 11,
+    fontWeight: "900",
+    textTransform: "uppercase",
+  },
+  hubFixedDeck: {
+    flex: 1,
+    borderRadius: 28,
+    borderWidth: 1,
+    borderColor: "rgba(105, 171, 230, 0.25)",
+    backgroundColor: "rgba(5, 12, 23, 0.98)",
+    padding: 8,
+    gap: 6,
+    overflow: "hidden",
+    shadowColor: "#4BBEFF",
+    shadowOpacity: 0.14,
+    shadowRadius: 22,
+  },
+  hubHorizonWindowCompact: {
+    position: "absolute",
+    top: 10,
+    left: 10,
+    right: 10,
+    height: 92,
+    borderRadius: 22,
+    borderWidth: 1,
+    borderColor: "rgba(137, 189, 255, 0.14)",
+    backgroundColor: "rgba(12, 24, 44, 0.68)",
+  },
+  hubRootMissionConsole: {
+    zIndex: 1,
+    minHeight: 94,
+    borderRadius: 22,
+    borderWidth: 1,
+    borderColor: "rgba(164, 130, 255, 0.32)",
+    backgroundColor: "rgba(20, 18, 42, 0.8)",
+    padding: 9,
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 12,
+  },
+  hubCompactGlobe: {
+    width: 74,
+    height: 74,
+    borderRadius: 37,
+    borderWidth: 2,
+    backgroundColor: "rgba(114, 67, 220, 0.16)",
+    alignItems: "center",
+    justifyContent: "center",
+    overflow: "hidden",
+    shadowOpacity: 0.22,
+    shadowRadius: 14,
+  },
+  hubRootMissionText: {
+    flex: 1,
+    gap: 3,
+  },
+  hubRootShipBay: {
+    zIndex: 1,
+    alignItems: "center",
+    gap: 6,
+  },
+  hubCompactShipPad: {
+    width: 112,
+    height: 112,
+    borderRadius: 56,
+    borderWidth: 2,
+    borderColor: "rgba(143, 199, 255, 0.32)",
+    backgroundColor: "rgba(10, 27, 45, 0.74)",
+    alignItems: "center",
+    justifyContent: "center",
+  },
+  hubShipWingLeftCompact: {
+    position: "absolute",
+    top: 56,
+    left: 21,
+    width: 0,
+    height: 0,
+    borderLeftWidth: 6,
+    borderRightWidth: 35,
+    borderBottomWidth: 31,
+    borderLeftColor: "transparent",
+    borderRightColor: "transparent",
+    opacity: 0.9,
+    transform: [{ rotate: "17deg" }],
+  },
+  hubShipWingRightCompact: {
+    position: "absolute",
+    top: 56,
+    right: 21,
+    width: 0,
+    height: 0,
+    borderLeftWidth: 35,
+    borderRightWidth: 6,
+    borderBottomWidth: 31,
+    borderLeftColor: "transparent",
+    borderRightColor: "transparent",
+    opacity: 0.9,
+    transform: [{ rotate: "-17deg" }],
+  },
+  hubShipBodyCompact: {
+    position: "absolute",
+    top: 37,
+    width: 30,
+    height: 55,
+    borderRadius: 10,
+    borderWidth: 1,
+    borderColor: "rgba(255, 255, 255, 0.34)",
+    backgroundColor: "#BAC8D9",
+  },
+  hubShipCanopyCompact: {
+    position: "absolute",
+    top: 47,
+    width: 12,
+    height: 28,
+    borderRadius: 7,
+    opacity: 0.86,
+  },
+  hubShipNoseCompact: {
+    position: "absolute",
+    top: 15,
+    width: 0,
+    height: 0,
+    borderLeftWidth: 12,
+    borderRightWidth: 12,
+    borderBottomWidth: 28,
+    borderLeftColor: "transparent",
+    borderRightColor: "transparent",
+    borderBottomColor: "#E9F1F9",
+  },
+  hubShipEngineLeftCompact: {
+    position: "absolute",
+    bottom: 15,
+    left: 43,
+    width: 7,
+    height: 20,
+    borderRadius: 5,
+    backgroundColor: "#80CFFF",
+  },
+  hubShipEngineRightCompact: {
+    position: "absolute",
+    bottom: 15,
+    right: 43,
+    width: 7,
+    height: 20,
+    borderRadius: 5,
+    backgroundColor: "#80CFFF",
+  },
+  hubRootRigReadout: {
+    borderRadius: 12,
+    borderWidth: 1,
+    borderColor: "rgba(134, 203, 255, 0.22)",
+    backgroundColor: "rgba(4, 11, 20, 0.72)",
+    paddingHorizontal: 14,
+    paddingVertical: 6,
+    alignItems: "center",
+  },
+  hubRootStationGrid: {
+    zIndex: 1,
+    flexDirection: "row",
+    flexWrap: "wrap",
+    gap: 8,
+  },
+  hubRootStationTile: {
+    flexGrow: 1,
+    flexBasis: "48%",
+    minHeight: 62,
+    borderRadius: 18,
+    borderWidth: 1,
+    paddingHorizontal: 10,
+    paddingVertical: 8,
+    justifyContent: "space-between",
+    backgroundColor: "rgba(8, 18, 30, 0.92)",
+  },
+  hubRootStationTileWide: {
+    flexBasis: "100%",
+    minHeight: 56,
+  },
+  hubStationTileGreen: {
+    borderColor: "rgba(133, 255, 160, 0.42)",
+    shadowColor: "#85FFA0",
+    shadowOpacity: 0.12,
+    shadowRadius: 10,
+  },
+  hubCompactLaunchButton: {
+    zIndex: 1,
+    alignSelf: "center",
+    minWidth: 192,
+    borderRadius: 18,
+    borderWidth: 2,
+    backgroundColor: "rgba(58, 39, 7, 0.92)",
+    paddingHorizontal: 22,
+    paddingVertical: 8,
+    alignItems: "center",
+    shadowOpacity: 0.28,
+    shadowRadius: 15,
+  },
+  hubDetailDeck: {
+    flex: 1,
+    borderRadius: 28,
+    borderWidth: 1,
+    borderColor: "rgba(105, 171, 230, 0.25)",
+    backgroundColor: "rgba(5, 12, 23, 0.98)",
+    padding: 12,
+    overflow: "hidden",
+  },
+  hubDetailContent: {
+    flex: 1,
+    gap: 10,
+    justifyContent: "center",
+  },
+  hubDetailHero: {
+    borderRadius: 22,
+    borderWidth: 1,
+    borderColor: "rgba(164, 130, 255, 0.26)",
+    backgroundColor: "rgba(20, 18, 42, 0.78)",
+    padding: 14,
+    gap: 7,
+  },
+  hubDetailTitle: {
+    color: "#FAF7FF",
+    fontSize: 22,
+    fontWeight: "900",
+  },
+  hubDetailCopy: {
+    color: "#B9C8FF",
+    fontSize: 12,
+    fontWeight: "700",
+    lineHeight: 18,
+  },
+  hubDetailStatGrid: {
+    flexDirection: "row",
+    flexWrap: "wrap",
+    gap: 8,
+  },
+  hubDetailStatCard: {
+    flex: 1,
+    minWidth: 92,
+    borderRadius: 15,
+    borderWidth: 1,
+    borderColor: "rgba(207, 189, 255, 0.18)",
+    backgroundColor: "rgba(255, 255, 255, 0.055)",
+    paddingHorizontal: 10,
+    paddingVertical: 11,
+    alignItems: "center",
+  },
+  hubDetailPrimaryAction: {
+    borderRadius: 16,
+    borderWidth: 1,
+    borderColor: "rgba(255, 220, 130, 0.58)",
+    backgroundColor: "rgba(82, 56, 10, 0.9)",
+    paddingHorizontal: 16,
+    paddingVertical: 12,
+    alignItems: "center",
+  },
+  hubDetailPrimaryActionText: {
+    color: "#FFE49A",
+    fontSize: 12,
+    fontWeight: "900",
+    letterSpacing: 0.9,
+    textTransform: "uppercase",
+  },
+  hubPreviewList: {
+    gap: 8,
+  },
+  hubPreviewRow: {
+    borderRadius: 15,
+    borderWidth: 1,
+    borderColor: "rgba(151, 221, 255, 0.18)",
+    backgroundColor: "rgba(5, 15, 26, 0.82)",
+    paddingHorizontal: 12,
+    paddingVertical: 10,
+  },
+  hubPreviewTitle: {
+    color: "#F2FAFF",
+    fontSize: 12,
+    fontWeight: "900",
+  },
+  hubPreviewMeta: {
+    color: "#99AEC4",
+    fontSize: 10,
+    fontWeight: "800",
+    marginTop: 3,
+  },
+  hubDetailActionRow: {
+    flexDirection: "row",
+    gap: 8,
+  },
+  hubDetailActionDisabled: {
+    opacity: 0.44,
+  },
+  hubDetailSecondaryAction: {
+    borderRadius: 16,
+    borderWidth: 1,
+    borderColor: "rgba(145, 204, 255, 0.28)",
+    backgroundColor: "rgba(255, 255, 255, 0.055)",
+    paddingHorizontal: 16,
+    paddingVertical: 12,
+    alignItems: "center",
+  },
+  hubDetailSecondaryActionText: {
+    color: "#D7EEFF",
+    fontSize: 12,
+    fontWeight: "900",
+    letterSpacing: 0.8,
+    textTransform: "uppercase",
+  },
+  hubBossRow: {
+    flexDirection: "row",
+    flexWrap: "wrap",
+    gap: 8,
+  },
+  hubBossChip: {
+    flexGrow: 1,
+    flexBasis: "48%",
+    borderRadius: 15,
+    borderWidth: 1,
+    borderColor: "rgba(119, 239, 230, 0.24)",
+    backgroundColor: "rgba(5, 15, 26, 0.82)",
+    paddingHorizontal: 12,
+    paddingVertical: 10,
+  },
+  hubMasteryGrid: {
+    flexDirection: "row",
+    flexWrap: "wrap",
+    gap: 8,
+  },
+  hubMasteryCard: {
+    flexGrow: 1,
+    flexBasis: "48%",
+    borderRadius: 15,
+    borderWidth: 1,
+    borderColor: "rgba(205, 145, 255, 0.24)",
+    backgroundColor: "rgba(5, 15, 26, 0.82)",
+    paddingHorizontal: 12,
+    paddingVertical: 10,
+  },
+  hubSmallProgressTrack: {
+    height: 5,
+    borderRadius: 999,
+    backgroundColor: "rgba(255, 255, 255, 0.09)",
+    overflow: "hidden",
+    marginTop: 8,
+  },
+  hubSmallProgressFill: {
+    height: "100%",
+    borderRadius: 999,
+  },
+  hubEquipSlotCard: {
+    flexGrow: 1,
+    flexBasis: "48%",
+    borderRadius: 18,
+    borderWidth: 1,
+    borderColor: "rgba(151, 221, 255, 0.22)",
+    backgroundColor: "rgba(5, 15, 26, 0.9)",
+    padding: 12,
+    gap: 8,
+  },
+  hubShieldGrid: {
+    gap: 10,
+  },
+  hubShieldCard: {
+    borderRadius: 18,
+    borderWidth: 1,
+    borderColor: "rgba(133, 255, 160, 0.26)",
+    backgroundColor: "rgba(5, 15, 26, 0.9)",
+    padding: 14,
+    gap: 8,
   },
   hubDeck: {
     minHeight: 650,
