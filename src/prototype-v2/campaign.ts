@@ -2,18 +2,45 @@ import type {
   ArenaBuildId,
   ArenaCampaignMissionId,
   ArenaCampaignShieldId,
+  ArenaCampaignShipStatUpgradeKey,
+  ArenaCampaignShipStatUpgrades,
   ArenaCampaignWeaponId,
   ArenaCampaignWeaponUpgradeKey,
   ArenaCampaignWeaponUpgradeTrack,
   ArenaGameState,
   ArenaWeapon,
 } from './types';
+import { BASE_ARENA_WEAPON } from './config';
 
 export const ARENA_CAMPAIGN_XP_THRESHOLDS = [0, 120, 280, 520, 860, 1300, 1840, 2480, 3220, 4060, 5000] as const;
-export const ARENA_CAMPAIGN_WEAPON_UPGRADE_MAX_LEVEL = 5;
+export const ARENA_CAMPAIGN_WEAPON_UPGRADE_DEFAULT_MAX_LEVEL = 5;
+export const ARENA_CAMPAIGN_HEALTH_UPGRADE_BONUS = 16;
+export const ARENA_CAMPAIGN_SHIELD_UPGRADE_BONUS = 12;
+
+const CAMPAIGN_BUILD_MAX_SHOT_COUNT: Record<ArenaBuildId, number> = {
+  railFocus: 2,
+  novaBloom: 4,
+  missileCommand: 6,
+  fractureCore: 3,
+};
+
+const CAMPAIGN_BUILD_FIRE_INTERVAL_FLOOR: Record<ArenaBuildId, number> = {
+  railFocus: 0.065,
+  novaBloom: 0.085,
+  missileCommand: 0.065,
+  fractureCore: 0.32,
+};
 
 export type ArenaCampaignWeaponUpgradeDefinition = {
   key: ArenaCampaignWeaponUpgradeKey;
+  label: string;
+  shortLabel: string;
+  statLine: string;
+  summary: string;
+};
+
+export type ArenaCampaignShipStatUpgradeDefinition = {
+  key: ArenaCampaignShipStatUpgradeKey;
   label: string;
   shortLabel: string;
   statLine: string;
@@ -64,6 +91,13 @@ export const ARENA_CAMPAIGN_WEAPON_UPGRADES: Record<
     statLine: '+2 damage / level',
     summary: 'Raises direct weapon damage before build tuning is applied.',
   },
+  guns: {
+    key: 'guns',
+    label: 'Barrel Array',
+    shortLabel: 'GUN',
+    statLine: '+1 gun until build cap',
+    summary: 'Adds another primary barrel until the weapon reaches its build family cap.',
+  },
   cycle: {
     key: 'cycle',
     label: 'Cycle Accelerator',
@@ -90,6 +124,30 @@ export const ARENA_CAMPAIGN_WEAPON_UPGRADES: Record<
 export const ARENA_CAMPAIGN_WEAPON_UPGRADE_ORDER = Object.keys(
   ARENA_CAMPAIGN_WEAPON_UPGRADES,
 ) as ArenaCampaignWeaponUpgradeKey[];
+
+export const ARENA_CAMPAIGN_SHIP_STAT_UPGRADES: Record<
+  ArenaCampaignShipStatUpgradeKey,
+  ArenaCampaignShipStatUpgradeDefinition
+> = {
+  health: {
+    key: 'health',
+    label: 'Hull Weave',
+    shortLabel: 'HP',
+    statLine: `+${ARENA_CAMPAIGN_HEALTH_UPGRADE_BONUS} max health / level`,
+    summary: 'Raises campaign ship health. This track has no cap.',
+  },
+  shield: {
+    key: 'shield',
+    label: 'Shield Capacitor',
+    shortLabel: 'SHD',
+    statLine: `+${ARENA_CAMPAIGN_SHIELD_UPGRADE_BONUS} max shield / level`,
+    summary: 'Raises campaign shield capacity. This track has no cap.',
+  },
+};
+
+export const ARENA_CAMPAIGN_SHIP_STAT_UPGRADE_ORDER = Object.keys(
+  ARENA_CAMPAIGN_SHIP_STAT_UPGRADES,
+) as ArenaCampaignShipStatUpgradeKey[];
 
 export const ARENA_CAMPAIGN_WEAPONS: Record<ArenaCampaignWeaponId, ArenaCampaignWeaponDefinition> = {
   railCannon: {
@@ -197,29 +255,98 @@ export function getArenaCampaignWeaponSlotCount(level: number) {
 export function createArenaCampaignWeaponUpgradeTrack(): ArenaCampaignWeaponUpgradeTrack {
   return {
     damage: 0,
+    guns: 0,
     cycle: 0,
     velocity: 0,
     stability: 0,
   };
 }
 
+export function createArenaCampaignShipStatUpgrades(): ArenaCampaignShipStatUpgrades {
+  return {
+    health: 0,
+    shield: 0,
+  };
+}
+
+function getCampaignWeaponBaseShotCount(weaponId: ArenaCampaignWeaponId) {
+  return weaponId === 'missileRack' ? 2 : BASE_ARENA_WEAPON.shotCount;
+}
+
+export function getArenaCampaignWeaponUpgradeMaxLevel(
+  weaponId: ArenaCampaignWeaponId,
+  upgradeKey: ArenaCampaignWeaponUpgradeKey,
+) {
+  const weaponDefinition = ARENA_CAMPAIGN_WEAPONS[weaponId];
+  switch (upgradeKey) {
+    case 'damage':
+      return null;
+    case 'guns':
+      return Math.max(
+        0,
+        CAMPAIGN_BUILD_MAX_SHOT_COUNT[weaponDefinition.buildId] -
+          getCampaignWeaponBaseShotCount(weaponId),
+      );
+    case 'cycle': {
+      const floor = CAMPAIGN_BUILD_FIRE_INTERVAL_FLOOR[weaponDefinition.buildId];
+      if (BASE_ARENA_WEAPON.fireInterval <= floor) {
+        return 0;
+      }
+      let level = 0;
+      let nextInterval = BASE_ARENA_WEAPON.fireInterval;
+      while (level < 32 && nextInterval > floor + 0.0001) {
+        level += 1;
+        nextInterval *= 0.93;
+      }
+      return level;
+    }
+    case 'velocity':
+    case 'stability':
+      return ARENA_CAMPAIGN_WEAPON_UPGRADE_DEFAULT_MAX_LEVEL;
+  }
+}
+
 export function applyArenaCampaignWeaponUpgrades(
+  weaponId: ArenaCampaignWeaponId,
   weapon: ArenaWeapon,
   upgrades: ArenaCampaignWeaponUpgradeTrack,
 ) {
   const damageLevel = Math.max(0, upgrades.damage);
-  const cycleLevel = Math.max(0, upgrades.cycle);
-  const velocityLevel = Math.max(0, upgrades.velocity);
-  const stabilityLevel = Math.max(0, upgrades.stability);
+  const gunsMaxLevel = getArenaCampaignWeaponUpgradeMaxLevel(weaponId, 'guns') ?? 0;
+  const cycleMaxLevel = getArenaCampaignWeaponUpgradeMaxLevel(weaponId, 'cycle') ?? 0;
+  const velocityMaxLevel = getArenaCampaignWeaponUpgradeMaxLevel(weaponId, 'velocity') ?? ARENA_CAMPAIGN_WEAPON_UPGRADE_DEFAULT_MAX_LEVEL;
+  const stabilityMaxLevel = getArenaCampaignWeaponUpgradeMaxLevel(weaponId, 'stability') ?? ARENA_CAMPAIGN_WEAPON_UPGRADE_DEFAULT_MAX_LEVEL;
+  const gunsLevel = Math.max(0, Math.min(gunsMaxLevel, upgrades.guns));
+  const cycleLevel = Math.max(0, Math.min(cycleMaxLevel, upgrades.cycle));
+  const velocityLevel = Math.max(0, Math.min(velocityMaxLevel, upgrades.velocity));
+  const stabilityLevel = Math.max(0, Math.min(stabilityMaxLevel, upgrades.stability));
+  const weaponDefinition = ARENA_CAMPAIGN_WEAPONS[weaponId];
 
   return {
     ...weapon,
     damage: weapon.damage + damageLevel * 2,
-    fireInterval: Math.max(0.06, weapon.fireInterval * Math.pow(0.93, cycleLevel)),
+    fireInterval:
+      cycleLevel <= 0
+        ? weapon.fireInterval
+        : Math.max(
+            CAMPAIGN_BUILD_FIRE_INTERVAL_FLOOR[weaponDefinition.buildId],
+            weapon.fireInterval * Math.pow(0.93, cycleLevel),
+          ),
+    shotCount: Math.min(
+      CAMPAIGN_BUILD_MAX_SHOT_COUNT[weaponDefinition.buildId],
+      weapon.shotCount + gunsLevel,
+    ),
     bulletSpeed: Math.min(1900, weapon.bulletSpeed + velocityLevel * 110),
     bulletSize: Math.min(30, weapon.bulletSize + velocityLevel * 0.22),
     spread: Math.max(7, Math.round(weapon.spread * Math.pow(0.94, stabilityLevel))),
     pierce: weapon.pierce + Math.floor(stabilityLevel / 2),
+  };
+}
+
+export function getArenaCampaignShipStatBonuses(upgrades: ArenaCampaignShipStatUpgrades) {
+  return {
+    health: Math.max(0, upgrades.health) * ARENA_CAMPAIGN_HEALTH_UPGRADE_BONUS,
+    shield: Math.max(0, upgrades.shield) * ARENA_CAMPAIGN_SHIELD_UPGRADE_BONUS,
   };
 }
 

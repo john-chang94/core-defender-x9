@@ -5,10 +5,12 @@ import {
   ARENA_CAMPAIGN_MISSION_ORDER,
   ARENA_CAMPAIGN_MISSIONS,
   ARENA_CAMPAIGN_SHIELDS,
-  ARENA_CAMPAIGN_WEAPON_UPGRADE_MAX_LEVEL,
+  ARENA_CAMPAIGN_SHIP_STAT_UPGRADE_ORDER,
   ARENA_CAMPAIGN_WEAPON_UPGRADE_ORDER,
   ARENA_CAMPAIGN_WEAPONS,
+  createArenaCampaignShipStatUpgrades,
   createArenaCampaignWeaponUpgradeTrack,
+  getArenaCampaignWeaponUpgradeMaxLevel,
   getArenaCampaignLevelFromXp,
   getArenaCampaignRunXp,
   getArenaCampaignWeaponSlotCount,
@@ -32,6 +34,8 @@ import type {
   ArenaCampaignMissionId,
   ArenaCampaignMissionProgress,
   ArenaCampaignShieldId,
+  ArenaCampaignShipStatUpgradeKey,
+  ArenaCampaignShipStatUpgrades,
   ArenaCampaignState,
   ArenaCampaignWeaponId,
   ArenaCampaignWeaponUpgradeKey,
@@ -59,7 +63,7 @@ import type {
 } from './types';
 
 export const ARENA_META_STORAGE_KEY = 'arena-v2-meta-v1';
-export const ARENA_META_VERSION = 9;
+export const ARENA_META_VERSION = 10;
 export const ARENA_BUILD_MASTERY_THRESHOLDS = [0, 100, 220, 360, 520, 700, 900, 1120, 1360, 1620, 1900] as const;
 
 export const ARENA_COACH_HINT_ORDER: ArenaCoachHintId[] = [
@@ -526,6 +530,7 @@ function createCampaignState(): ArenaCampaignState {
     level: 1,
     weaponUpgradePoints: 0,
     weaponUpgrades: createCampaignWeaponUpgradeMap(),
+    shipStatUpgrades: createArenaCampaignShipStatUpgrades(),
     loadout: createCampaignLoadout(),
     missionProgress: createCampaignMissionProgressMap(),
   };
@@ -603,17 +608,14 @@ function isCampaignShieldId(value: unknown): value is ArenaCampaignShieldId {
 }
 
 function normalizeCampaignWeaponUpgradeTrack(
+  weaponId: ArenaCampaignWeaponId,
   candidate: Partial<ArenaCampaignWeaponUpgradeTrack> | undefined
 ): ArenaCampaignWeaponUpgradeTrack {
   const nextTrack = createArenaCampaignWeaponUpgradeTrack();
   ARENA_CAMPAIGN_WEAPON_UPGRADE_ORDER.forEach((key) => {
-    nextTrack[key] = Math.max(
-      0,
-      Math.min(
-        ARENA_CAMPAIGN_WEAPON_UPGRADE_MAX_LEVEL,
-        Math.floor(Number(candidate?.[key]) || 0),
-      ),
-    );
+    const level = Math.max(0, Math.floor(Number(candidate?.[key]) || 0));
+    const maxLevel = getArenaCampaignWeaponUpgradeMaxLevel(weaponId, key);
+    nextTrack[key] = maxLevel === null ? level : Math.min(maxLevel, level);
   });
   return nextTrack;
 }
@@ -622,15 +624,28 @@ function normalizeCampaignWeaponUpgradeMap(
   candidate: Partial<ArenaCampaignWeaponUpgradeMap> | undefined
 ): ArenaCampaignWeaponUpgradeMap {
   return {
-    railCannon: normalizeCampaignWeaponUpgradeTrack(candidate?.railCannon),
-    bloomEmitter: normalizeCampaignWeaponUpgradeTrack(candidate?.bloomEmitter),
-    missileRack: normalizeCampaignWeaponUpgradeTrack(candidate?.missileRack),
-    fractureDriver: normalizeCampaignWeaponUpgradeTrack(candidate?.fractureDriver),
+    railCannon: normalizeCampaignWeaponUpgradeTrack('railCannon', candidate?.railCannon),
+    bloomEmitter: normalizeCampaignWeaponUpgradeTrack('bloomEmitter', candidate?.bloomEmitter),
+    missileRack: normalizeCampaignWeaponUpgradeTrack('missileRack', candidate?.missileRack),
+    fractureDriver: normalizeCampaignWeaponUpgradeTrack('fractureDriver', candidate?.fractureDriver),
   };
 }
 
-function getSpentCampaignWeaponUpgradeCount(upgrades: ArenaCampaignWeaponUpgradeMap) {
-  return Object.values(upgrades).reduce(
+function normalizeCampaignShipStatUpgrades(
+  candidate: Partial<ArenaCampaignShipStatUpgrades> | undefined
+): ArenaCampaignShipStatUpgrades {
+  const nextUpgrades = createArenaCampaignShipStatUpgrades();
+  ARENA_CAMPAIGN_SHIP_STAT_UPGRADE_ORDER.forEach((key) => {
+    nextUpgrades[key] = Math.max(0, Math.floor(Number(candidate?.[key]) || 0));
+  });
+  return nextUpgrades;
+}
+
+function getSpentCampaignUpgradeCount(
+  weaponUpgrades: ArenaCampaignWeaponUpgradeMap,
+  shipStatUpgrades: ArenaCampaignShipStatUpgrades
+) {
+  const spentWeaponUpgrades = Object.values(weaponUpgrades).reduce(
     (total, track) =>
       total +
       ARENA_CAMPAIGN_WEAPON_UPGRADE_ORDER.reduce(
@@ -639,6 +654,11 @@ function getSpentCampaignWeaponUpgradeCount(upgrades: ArenaCampaignWeaponUpgrade
       ),
     0,
   );
+  const spentShipStatUpgrades = ARENA_CAMPAIGN_SHIP_STAT_UPGRADE_ORDER.reduce(
+    (total, key) => total + shipStatUpgrades[key],
+    0,
+  );
+  return spentWeaponUpgrades + spentShipStatUpgrades;
 }
 
 function normalizeCampaignState(candidate: Partial<ArenaCampaignState> | undefined): ArenaCampaignState {
@@ -658,7 +678,8 @@ function normalizeCampaignState(candidate: Partial<ArenaCampaignState> | undefin
     ? candidate.loadout.shieldId
     : defaultState.loadout.shieldId;
   const weaponUpgrades = normalizeCampaignWeaponUpgradeMap(candidate?.weaponUpgrades);
-  const spentUpgradeCount = getSpentCampaignWeaponUpgradeCount(weaponUpgrades);
+  const shipStatUpgrades = normalizeCampaignShipStatUpgrades(candidate?.shipStatUpgrades);
+  const spentUpgradeCount = getSpentCampaignUpgradeCount(weaponUpgrades, shipStatUpgrades);
   const retroactiveUpgradePoints = Math.max(0, level - 1 - spentUpgradeCount);
   const weaponUpgradePoints =
     typeof candidate?.weaponUpgradePoints === 'number'
@@ -685,6 +706,7 @@ function normalizeCampaignState(candidate: Partial<ArenaCampaignState> | undefin
     level,
     weaponUpgradePoints,
     weaponUpgrades,
+    shipStatUpgrades,
     loadout: {
       weaponSlots: [firstWeapon, secondWeapon],
       activeWeaponSlot,
@@ -1358,7 +1380,8 @@ export function upgradeArenaCampaignWeapon(
 
   const currentTrack = previousMetaState.campaign.weaponUpgrades[weaponId];
   const currentLevel = currentTrack[upgradeKey];
-  if (currentLevel >= ARENA_CAMPAIGN_WEAPON_UPGRADE_MAX_LEVEL) {
+  const maxLevel = getArenaCampaignWeaponUpgradeMaxLevel(weaponId, upgradeKey);
+  if (maxLevel !== null && currentLevel >= maxLevel) {
     return previousMetaState;
   }
 
@@ -1371,6 +1394,30 @@ export function upgradeArenaCampaignWeapon(
         ...currentTrack,
         [upgradeKey]: currentLevel + 1,
       },
+    },
+  });
+
+  return {
+    ...previousMetaState,
+    campaign: nextCampaign,
+    lastUpdatedAt: new Date().toISOString(),
+  };
+}
+
+export function upgradeArenaCampaignShipStat(
+  previousMetaState: ArenaMetaState,
+  upgradeKey: ArenaCampaignShipStatUpgradeKey
+) {
+  if (previousMetaState.campaign.weaponUpgradePoints <= 0) {
+    return previousMetaState;
+  }
+
+  const nextCampaign = normalizeCampaignState({
+    ...previousMetaState.campaign,
+    weaponUpgradePoints: previousMetaState.campaign.weaponUpgradePoints - 1,
+    shipStatUpgrades: {
+      ...previousMetaState.campaign.shipStatUpgrades,
+      [upgradeKey]: previousMetaState.campaign.shipStatUpgrades[upgradeKey] + 1,
     },
   });
 

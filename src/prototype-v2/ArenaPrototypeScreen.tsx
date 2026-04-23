@@ -49,11 +49,14 @@ import { ARENA_BUILD_META, ARENA_BUILD_ORDER } from "./builds";
 import {
   ARENA_CAMPAIGN_MISSIONS,
   ARENA_CAMPAIGN_SHIELDS,
-  ARENA_CAMPAIGN_WEAPON_UPGRADE_MAX_LEVEL,
+  ARENA_CAMPAIGN_SHIP_STAT_UPGRADE_ORDER,
+  ARENA_CAMPAIGN_SHIP_STAT_UPGRADES,
   ARENA_CAMPAIGN_WEAPON_UPGRADE_ORDER,
   ARENA_CAMPAIGN_WEAPON_UPGRADES,
   ARENA_CAMPAIGN_WEAPONS,
   applyArenaCampaignWeaponUpgrades,
+  getArenaCampaignShipStatBonuses,
+  getArenaCampaignWeaponUpgradeMaxLevel,
   getArenaCampaignLevelProgress,
   getArenaCampaignRunXp,
   getArenaCampaignWeaponSlotCount,
@@ -110,6 +113,7 @@ import {
   saveArenaMetaState,
   setArenaCampaignShield,
   setArenaCampaignWeapon,
+  upgradeArenaCampaignShipStat,
   upgradeArenaCampaignWeapon,
 } from "./meta";
 import type {
@@ -119,6 +123,7 @@ import type {
   ArenaBuildId,
   ArenaCampaignMissionId,
   ArenaCampaignShieldId,
+  ArenaCampaignShipStatUpgradeKey,
   ArenaCampaignWeaponId,
   ArenaCampaignWeaponUpgradeKey,
   ArenaCoachHintId,
@@ -1794,6 +1799,13 @@ export function ArenaPrototypeScreen({
       ),
     0,
   );
+  const hubSpentShipStatUpgradeCount = ARENA_CAMPAIGN_SHIP_STAT_UPGRADE_ORDER.reduce(
+    (total, key) => total + arenaMeta.campaign.shipStatUpgrades[key],
+    0,
+  );
+  const hubCampaignShipStatBonuses = getArenaCampaignShipStatBonuses(
+    arenaMeta.campaign.shipStatUpgrades,
+  );
   const activeMission = ARENA_CAMPAIGN_MISSIONS.prismVergeRecon;
   const activeBannerDefinition = getArenaCosmeticDefinition(
     getArenaEquippedGlobalCosmeticId(arenaMeta, "banner"),
@@ -2607,8 +2619,12 @@ export function ArenaPrototypeScreen({
         activeBuild: ARENA_CAMPAIGN_WEAPONS[weaponId].buildId,
       });
       const upgradedWeapon = applyArenaCampaignWeaponUpgrades(
+        weaponId,
         baseCampaignState.weapon,
         arenaMeta.campaign.weaponUpgrades[weaponId],
+      );
+      const shipStatBonuses = getArenaCampaignShipStatBonuses(
+        arenaMeta.campaign.shipStatUpgrades,
       );
       return {
         ...baseCampaignState,
@@ -2617,6 +2633,10 @@ export function ArenaPrototypeScreen({
           ...baseCampaignState.weaponsByBuild,
           [ARENA_CAMPAIGN_WEAPONS[weaponId].buildId]: upgradedWeapon,
         },
+        maxHull: baseCampaignState.maxHull + shipStatBonuses.health,
+        hull: baseCampaignState.hull + shipStatBonuses.health,
+        maxShield: baseCampaignState.maxShield + shipStatBonuses.shield,
+        shield: baseCampaignState.shield + shipStatBonuses.shield,
       };
     }
 
@@ -2826,6 +2846,20 @@ export function ArenaPrototypeScreen({
       const nextMetaState = upgradeArenaCampaignWeapon(
         previousMetaState,
         weaponId,
+        upgradeKey,
+      );
+      if (nextMetaState !== previousMetaState) {
+        void saveArenaMetaState(nextMetaState);
+      }
+      return nextMetaState;
+    });
+  };
+  const handleUpgradeCampaignShipStat = (
+    upgradeKey: ArenaCampaignShipStatUpgradeKey,
+  ) => {
+    setArenaMeta((previousMetaState) => {
+      const nextMetaState = upgradeArenaCampaignShipStat(
+        previousMetaState,
         upgradeKey,
       );
       if (nextMetaState !== previousMetaState) {
@@ -3385,7 +3419,7 @@ export function ArenaPrototypeScreen({
                       </Text>
                     </View>
                     <Text style={arenaStyles.hubConsoleStatus}>
-                      {hubSpentWeaponUpgradeCount} installed
+                      {hubSpentWeaponUpgradeCount + hubSpentShipStatUpgradeCount} installed
                     </Text>
                   </View>
 
@@ -3483,10 +3517,17 @@ export function ArenaPrototypeScreen({
                       const definition =
                         ARENA_CAMPAIGN_WEAPON_UPGRADES[upgradeKey];
                       const currentLevel = hubWeaponUpgradeTrack[upgradeKey];
-                      const maxed =
-                        currentLevel >= ARENA_CAMPAIGN_WEAPON_UPGRADE_MAX_LEVEL;
+                      const maxLevel = getArenaCampaignWeaponUpgradeMaxLevel(
+                        hubWeaponUpgradeTargetIdSafe,
+                        upgradeKey,
+                      );
+                      const maxed = maxLevel !== null && currentLevel >= maxLevel;
                       const disabled =
                         arenaMeta.campaign.weaponUpgradePoints <= 0 || maxed;
+                      const levelLabel =
+                        maxLevel === null
+                          ? `Lv ${currentLevel}`
+                          : `Lv ${currentLevel}/${maxLevel}`;
                       return (
                         <Pressable
                           key={`weapon-upgrade-${upgradeKey}`}
@@ -3507,8 +3548,7 @@ export function ArenaPrototypeScreen({
                               {definition.shortLabel}
                             </Text>
                             <Text style={arenaStyles.hubPreviewMeta}>
-                              Lv {currentLevel}/
-                              {ARENA_CAMPAIGN_WEAPON_UPGRADE_MAX_LEVEL}
+                              {levelLabel}
                             </Text>
                           </View>
                           <Text style={arenaStyles.hubPreviewMeta}>
@@ -3519,9 +3559,57 @@ export function ArenaPrototypeScreen({
                     })}
                   </View>
 
+                  <View style={arenaStyles.hubUpgradeSeparator}>
+                    <View style={arenaStyles.hubUpgradeSeparatorLine} />
+                    <Text style={arenaStyles.hubUpgradeSeparatorText}>
+                      Ship Stats
+                    </Text>
+                    <View style={arenaStyles.hubUpgradeSeparatorLine} />
+                  </View>
+
+                  <View style={arenaStyles.hubWeaponUpgradeGrid}>
+                    {ARENA_CAMPAIGN_SHIP_STAT_UPGRADE_ORDER.map((upgradeKey) => {
+                      const definition =
+                        ARENA_CAMPAIGN_SHIP_STAT_UPGRADES[upgradeKey];
+                      const currentLevel =
+                        arenaMeta.campaign.shipStatUpgrades[upgradeKey];
+                      const disabled =
+                        arenaMeta.campaign.weaponUpgradePoints <= 0;
+                      const bonus =
+                        upgradeKey === "health"
+                          ? hubCampaignShipStatBonuses.health
+                          : hubCampaignShipStatBonuses.shield;
+                      return (
+                        <Pressable
+                          key={`ship-stat-upgrade-${upgradeKey}`}
+                          disabled={disabled}
+                          onPress={() =>
+                            handleUpgradeCampaignShipStat(upgradeKey)
+                          }
+                          style={[
+                            arenaStyles.hubShipStatUpgradeCard,
+                            disabled && arenaStyles.hubDetailActionDisabled,
+                          ]}
+                        >
+                          <View style={arenaStyles.hubUpgradeCardHeader}>
+                            <Text style={arenaStyles.hubPreviewTitle}>
+                              {definition.shortLabel}
+                            </Text>
+                            <Text style={arenaStyles.hubPreviewMeta}>
+                              Lv {currentLevel}
+                            </Text>
+                          </View>
+                          <Text style={arenaStyles.hubPreviewMeta}>
+                            {definition.statLine} • +{bonus} active
+                          </Text>
+                        </Pressable>
+                      );
+                    })}
+                  </View>
+
                   <Text style={arenaStyles.hubWeaponUpgradeFootnote}>
-                    Target: {hubWeaponUpgradeTarget.label}. Upgrades are
-                    permanent campaign weapon stats and do not affect Endless.
+                    Target: {hubWeaponUpgradeTarget.label}. Weapon and ship stat
+                    installs are permanent campaign-only upgrades.
                   </Text>
                 </View>
               ) : null}
@@ -5978,11 +6066,39 @@ const arenaStyles = StyleSheet.create({
     paddingVertical: 9,
     gap: 5,
   },
+  hubShipStatUpgradeCard: {
+    flexGrow: 1,
+    flexBasis: "48%",
+    borderRadius: 15,
+    borderWidth: 1,
+    borderColor: "rgba(133, 255, 160, 0.28)",
+    backgroundColor: "rgba(8, 34, 20, 0.82)",
+    paddingHorizontal: 11,
+    paddingVertical: 9,
+    gap: 5,
+  },
   hubUpgradeCardHeader: {
     flexDirection: "row",
     justifyContent: "space-between",
     alignItems: "center",
     gap: 8,
+  },
+  hubUpgradeSeparator: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 8,
+  },
+  hubUpgradeSeparatorLine: {
+    flex: 1,
+    height: 1,
+    backgroundColor: "rgba(145, 204, 255, 0.18)",
+  },
+  hubUpgradeSeparatorText: {
+    color: "#8BFFAA",
+    fontSize: 9,
+    fontWeight: "900",
+    letterSpacing: 1,
+    textTransform: "uppercase",
   },
   hubWeaponUpgradeFootnote: {
     color: "#8FA3BA",
