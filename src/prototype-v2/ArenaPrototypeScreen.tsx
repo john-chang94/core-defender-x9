@@ -2824,6 +2824,15 @@ export function ArenaPrototypeScreen({
       activateArenaUltimate(previousState, boardSize.width, boardSize.height),
     );
   };
+  const activeMissionProgress =
+    arenaMeta.campaign.missionProgress[activeMission.id];
+  const hubMissionBestTier = activeMissionProgress?.bestTier ?? 1;
+  const hubCampaignRank =
+    arenaMeta.campaign.level >= 8
+      ? "Vanguard"
+      : arenaMeta.campaign.level >= 4
+        ? "Striker"
+        : "Cadet";
 
   if (shellMode === "hub") {
     return (
@@ -2837,31 +2846,46 @@ export function ArenaPrototypeScreen({
           style={arenaStyles.hubScroll}
           contentContainerStyle={arenaStyles.hubContent}
         >
-          <View style={arenaStyles.hubHero}>
-            <Text style={arenaStyles.hubEyebrow}>Arena V2 Home Base</Text>
-            <Text style={arenaStyles.hubTitle}>Orbital Command</Text>
-            <Text style={arenaStyles.hubCopy}>
-              Campaign uses equipped weapons and shield abilities. Endless keeps
-              the current build, salvage, armory, and Collection loop.
-            </Text>
-            <View style={arenaStyles.hubMetaRow}>
-              <View style={arenaStyles.hubMetaPill}>
-                <Text style={arenaStyles.hubMetaLabel}>Campaign Level</Text>
-                <Text style={arenaStyles.hubMetaValue}>
-                  Lv {campaignLevelProgress.level}
-                </Text>
-              </View>
-              <View style={arenaStyles.hubMetaPill}>
-                <Text style={arenaStyles.hubMetaLabel}>XP</Text>
-                <Text style={arenaStyles.hubMetaValue}>
+          <View style={arenaStyles.hubTopCommandBar}>
+            <View
+              style={[
+                arenaStyles.hubLevelBadge,
+                {
+                  borderColor: activeBannerDefinition.secondaryColor,
+                  shadowColor: activeBannerDefinition.glowColor,
+                },
+              ]}
+            >
+              <Text style={arenaStyles.hubLevelLabel}>LV</Text>
+              <Text style={arenaStyles.hubLevelValue}>
+                {campaignLevelProgress.level}
+              </Text>
+            </View>
+            <View style={arenaStyles.hubCommanderBlock}>
+              <Text style={arenaStyles.hubEyebrow}>Arena V2 Home Base</Text>
+              <Text style={arenaStyles.hubTitle}>Orbital Command</Text>
+              <Text style={arenaStyles.hubRankText}>
+                Rank: {hubCampaignRank}
+              </Text>
+            </View>
+            <View style={arenaStyles.hubResourceRail}>
+              <View style={arenaStyles.hubResourceChip}>
+                <Text style={arenaStyles.hubResourceSymbol}>XP</Text>
+                <Text style={arenaStyles.hubResourceValue}>
                   {campaignLevelProgress.currentXp}/
                   {campaignLevelProgress.neededXp}
                 </Text>
               </View>
-              <View style={arenaStyles.hubMetaPill}>
-                <Text style={arenaStyles.hubMetaLabel}>Weapon Slots</Text>
-                <Text style={arenaStyles.hubMetaValue}>
+              <View style={arenaStyles.hubResourceChip}>
+                <Text style={arenaStyles.hubResourceSymbol}>SL</Text>
+                <Text style={arenaStyles.hubResourceValue}>
                   {campaignWeaponSlotCount}/2
+                </Text>
+              </View>
+              <View style={arenaStyles.hubResourceChip}>
+                <Text style={arenaStyles.hubResourceSymbol}>RW</Text>
+                <Text style={arenaStyles.hubResourceValue}>
+                  {claimableCosmeticIds.length}
                 </Text>
               </View>
             </View>
@@ -2869,62 +2893,219 @@ export function ArenaPrototypeScreen({
               <View
                 style={[
                   arenaStyles.hubProgressFill,
-                  { width: `${campaignLevelProgress.progress * 100}%` },
+                  {
+                    width: `${campaignLevelProgress.progress * 100}%`,
+                    backgroundColor: activeBannerDefinition.detailColor,
+                  },
                 ]}
               />
             </View>
           </View>
 
-          <View style={arenaStyles.hubSection}>
-            <Text style={arenaStyles.hubSectionTitle}>Campaign Maps</Text>
-            {ARENA_CAMPAIGN_MISSION_ORDER.map((missionId) => {
-              const mission = ARENA_CAMPAIGN_MISSIONS[missionId];
-              const progress = arenaMeta.campaign.missionProgress[missionId];
-              return (
-                <View key={mission.id} style={arenaStyles.hubMissionCard}>
-                  <View style={arenaStyles.hubMissionHeader}>
-                    <View>
-                      <Text style={arenaStyles.hubMissionKicker}>
-                        {mission.zoneLabel} • T1-T{mission.targetTier}
-                      </Text>
-                      <Text style={arenaStyles.hubMissionTitle}>
-                        {mission.label}
-                      </Text>
-                    </View>
-                    <Text style={arenaStyles.hubMissionStatus}>
-                      {progress?.completed ? "Cleared" : "Open"}
-                    </Text>
-                  </View>
-                  <Text style={arenaStyles.hubMissionCopy}>
-                    {mission.summary} Final boss: {mission.bossLabel}.
+          <View style={arenaStyles.hubDeck}>
+            <View style={arenaStyles.hubDeckStrutLeft} />
+            <View style={arenaStyles.hubDeckStrutRight} />
+            <View style={arenaStyles.hubHorizonWindow}>
+              <View style={arenaStyles.hubStar} />
+              <View style={[arenaStyles.hubStar, arenaStyles.hubStarTwo]} />
+              <View style={[arenaStyles.hubStar, arenaStyles.hubStarThree]} />
+            </View>
+
+            <View style={arenaStyles.hubMissionConsole}>
+              <View
+                style={[
+                  arenaStyles.hubGlobe,
+                  {
+                    borderColor: activeFrameDefinition.secondaryColor,
+                    shadowColor: activeFrameDefinition.glowColor,
+                  },
+                ]}
+              >
+                <View style={arenaStyles.hubGlobeCore} />
+                <View style={arenaStyles.hubGlobeMeridian} />
+                <View style={arenaStyles.hubGlobeLatitude} />
+                <View
+                  style={[
+                    arenaStyles.hubGlobeLatitude,
+                    arenaStyles.hubGlobeLatitudeLow,
+                  ]}
+                />
+              </View>
+              <Text style={arenaStyles.hubMapKicker}>
+                Map Select / Next Run
+              </Text>
+              <Text style={arenaStyles.hubMapTitle}>{activeMission.label}</Text>
+              <Text style={arenaStyles.hubMapCopy}>
+                {activeMission.zoneLabel} / T1-T{activeMission.targetTier} /
+                Boss: {activeMission.bossLabel}
+              </Text>
+              <View style={arenaStyles.hubMapStatsRow}>
+                <View style={arenaStyles.hubMapStat}>
+                  <Text style={arenaStyles.hubMapStatLabel}>Best</Text>
+                  <Text style={arenaStyles.hubMapStatValue}>
+                    T{hubMissionBestTier}
                   </Text>
-                  <View style={arenaStyles.hubMissionFooter}>
-                    <Text style={arenaStyles.hubMissionMeta}>
-                      Best T{progress?.bestTier ?? 1} • Reward {mission.rewardXp} XP
-                    </Text>
-                    <Pressable
-                      onPress={() => deployRun("campaign", mission.id)}
-                      style={arenaStyles.hubPrimaryAction}
-                    >
-                      <Text style={arenaStyles.hubPrimaryActionText}>
-                        Deploy
-                      </Text>
-                    </Pressable>
-                  </View>
                 </View>
-              );
-            })}
+                <View style={arenaStyles.hubMapStat}>
+                  <Text style={arenaStyles.hubMapStatLabel}>Reward</Text>
+                  <Text style={arenaStyles.hubMapStatValue}>
+                    {activeMission.rewardXp} XP
+                  </Text>
+                </View>
+                <View style={arenaStyles.hubMapStat}>
+                  <Text style={arenaStyles.hubMapStatLabel}>State</Text>
+                  <Text style={arenaStyles.hubMapStatValue}>
+                    {activeMissionProgress?.completed ? "Cleared" : "Open"}
+                  </Text>
+                </View>
+              </View>
+            </View>
+
+            <View style={arenaStyles.hubStationGrid}>
+              <View
+                style={[
+                  arenaStyles.hubStationTile,
+                  arenaStyles.hubStationTileBlue,
+                ]}
+              >
+                <Text style={arenaStyles.hubStationIcon}>WPN</Text>
+                <Text style={arenaStyles.hubStationTitle}>Loadout</Text>
+                <Text style={arenaStyles.hubStationSubtitle}>
+                  Weapons + shield ability
+                </Text>
+              </View>
+              <Pressable
+                onPress={() => handleOpenHubPanel("collection")}
+                style={[
+                  arenaStyles.hubStationTile,
+                  arenaStyles.hubStationTileGold,
+                ]}
+              >
+                <Text style={arenaStyles.hubStationIcon}>BOX</Text>
+                <Text style={arenaStyles.hubStationTitle}>Collection</Text>
+                <Text style={arenaStyles.hubStationSubtitle}>
+                  {claimableCosmeticIds.length > 0
+                    ? `${claimableCosmeticIds.length} ready`
+                    : "Cosmetics + rewards"}
+                </Text>
+              </Pressable>
+              <View
+                style={[
+                  arenaStyles.hubStationTile,
+                  arenaStyles.hubStationTileCyan,
+                ]}
+              >
+                <Text style={arenaStyles.hubStationIcon}>LOG</Text>
+                <Text style={arenaStyles.hubStationTitle}>Archives</Text>
+                <Text style={arenaStyles.hubStationSubtitle}>
+                  Codex + mastery records
+                </Text>
+                <View style={arenaStyles.hubMiniActionRow}>
+                  <Pressable
+                    onPress={() => handleOpenHubPanel("codex")}
+                    style={arenaStyles.hubMiniAction}
+                  >
+                    <Text style={arenaStyles.hubMiniActionText}>Codex</Text>
+                  </Pressable>
+                  <Pressable
+                    onPress={() => handleOpenHubPanel("mastery")}
+                    style={arenaStyles.hubMiniAction}
+                  >
+                    <Text style={arenaStyles.hubMiniActionText}>Mastery</Text>
+                  </Pressable>
+                </View>
+              </View>
+              <Pressable
+                onPress={() => deployRun("endless")}
+                style={[
+                  arenaStyles.hubStationTile,
+                  arenaStyles.hubStationTilePurple,
+                ]}
+              >
+                <Text style={arenaStyles.hubStationIcon}>SIM</Text>
+                <Text style={arenaStyles.hubStationTitle}>Endless</Text>
+                <Text style={arenaStyles.hubStationSubtitle}>
+                  Build, salvage, armory loop
+                </Text>
+              </Pressable>
+            </View>
+
+            <View style={arenaStyles.hubShipBay}>
+              <View style={arenaStyles.hubShipPadOuter}>
+                <View style={arenaStyles.hubShipPadInner}>
+                  <View style={arenaStyles.hubShipShadow} />
+                  <View
+                    style={[
+                      arenaStyles.hubShipWingLeft,
+                      { borderBottomColor: activeAccentDefinition.primaryColor },
+                    ]}
+                  />
+                  <View
+                    style={[
+                      arenaStyles.hubShipWingRight,
+                      { borderBottomColor: activeAccentDefinition.primaryColor },
+                    ]}
+                  />
+                  <View style={arenaStyles.hubShipBody} />
+                  <View
+                    style={[
+                      arenaStyles.hubShipCanopy,
+                      { backgroundColor: activeAccentDefinition.detailColor },
+                    ]}
+                  />
+                  <View style={arenaStyles.hubShipNose} />
+                  <View style={arenaStyles.hubShipEngineLeft} />
+                  <View style={arenaStyles.hubShipEngineRight} />
+                </View>
+              </View>
+              <View style={arenaStyles.hubShipReadout}>
+                <Text style={arenaStyles.hubShipReadoutLabel}>
+                  Active Rig
+                </Text>
+                <Text style={arenaStyles.hubShipReadoutValue}>
+                  {activeCampaignWeapon.shortLabel} /{" "}
+                  {activeCampaignShield.shortLabel}
+                </Text>
+              </View>
+            </View>
+
+            <Pressable
+              onPress={() => deployRun("campaign", activeMission.id)}
+              style={[
+                arenaStyles.hubLaunchButton,
+                {
+                  borderColor: activeBannerDefinition.secondaryColor,
+                  shadowColor: activeBannerDefinition.glowColor,
+                },
+              ]}
+            >
+              <Text style={arenaStyles.hubLaunchTitle}>Launch</Text>
+              <Text style={arenaStyles.hubLaunchSubtitle}>Start Mission</Text>
+            </Pressable>
           </View>
 
-          <View style={arenaStyles.hubSection}>
-            <Text style={arenaStyles.hubSectionTitle}>Campaign Loadout</Text>
+          <View style={arenaStyles.hubLoadoutConsole}>
+            <View style={arenaStyles.hubConsoleHeader}>
+              <View>
+                <Text style={arenaStyles.hubConsoleKicker}>Configure Bay</Text>
+                <Text style={arenaStyles.hubConsoleTitle}>
+                  Weapons & Shield
+                </Text>
+              </View>
+              <Text style={arenaStyles.hubConsoleStatus}>
+                {campaignWeaponSlotCount}/2 slots online
+              </Text>
+            </View>
             <View style={arenaStyles.hubLoadoutGrid}>
               {([0, 1] as const).map((slotIndex) => {
                 const isUnlocked = slotIndex < campaignWeaponSlotCount;
                 const equippedWeaponId =
                   arenaMeta.campaign.loadout.weaponSlots[slotIndex];
                 return (
-                  <View key={`weapon-slot-${slotIndex}`} style={arenaStyles.hubLoadoutCard}>
+                  <View
+                    key={`weapon-slot-${slotIndex}`}
+                    style={arenaStyles.hubLoadoutCard}
+                  >
                     <Text style={arenaStyles.hubLoadoutKicker}>
                       Weapon Slot {slotIndex + 1}
                     </Text>
@@ -2947,7 +3128,9 @@ export function ArenaPrototypeScreen({
                             <Pressable
                               key={`${slotIndex}-${weapon.id}`}
                               disabled={locked}
-                              onPress={() => handleEquipCampaignWeapon(slotIndex, weapon.id)}
+                              onPress={() =>
+                                handleEquipCampaignWeapon(slotIndex, weapon.id)
+                              }
                               style={[
                                 arenaStyles.hubChoicePill,
                                 selected && arenaStyles.hubChoicePillActive,
@@ -3000,56 +3183,48 @@ export function ArenaPrototypeScreen({
             </View>
           </View>
 
-          <View style={arenaStyles.hubSection}>
-            <Text style={arenaStyles.hubSectionTitle}>Modes & Management</Text>
-            <View style={arenaStyles.hubActionGrid}>
-              <Pressable
-                onPress={() => deployRun("endless")}
-                style={arenaStyles.hubActionCard}
-              >
-                <Text style={arenaStyles.hubActionTitle}>Endless Simulation</Text>
-                <Text style={arenaStyles.hubActionCopy}>
-                  Current Arena V2 loop with builds, salvage, armory drafts, and endless scaling.
-                </Text>
-              </Pressable>
-              <Pressable
-                onPress={() => handleOpenHubPanel("collection")}
-                style={arenaStyles.hubActionCard}
-              >
-                <Text style={arenaStyles.hubActionTitle}>Collection</Text>
-                <Text style={arenaStyles.hubActionCopy}>
-                  Claim and equip banners, frames, build accents, and crests.
-                </Text>
-              </Pressable>
-              <Pressable
-                onPress={() => handleOpenHubPanel("codex")}
-                style={arenaStyles.hubActionCard}
-              >
-                <Text style={arenaStyles.hubActionTitle}>Codex</Text>
-                <Text style={arenaStyles.hubActionCopy}>
-                  Review discovered enemies, bosses, and reward chips.
-                </Text>
-              </Pressable>
-              <Pressable
-                onPress={() => handleOpenHubPanel("mastery")}
-                style={arenaStyles.hubActionCard}
-              >
-                <Text style={arenaStyles.hubActionTitle}>Mastery</Text>
-                <Text style={arenaStyles.hubActionCopy}>
-                  Inspect current build mastery and non-combat rewards.
-                </Text>
-              </Pressable>
+          <View style={arenaStyles.hubBottomDock}>
+            <Pressable
+              onPress={() => handleSwitchGame("defender")}
+              style={arenaStyles.hubDockButton}
+            >
+              <Text style={arenaStyles.hubDockIcon}>SYS</Text>
+              <Text style={arenaStyles.hubDockText}>Switch Game</Text>
+            </Pressable>
+            <View style={arenaStyles.hubDockButtonActive}>
+              <Text style={arenaStyles.hubDockIconActive}>HOME</Text>
+              <Text style={arenaStyles.hubDockTextActive}>Home Base</Text>
             </View>
+            <Pressable
+              onPress={() => handleOpenHubPanel("collection")}
+              style={arenaStyles.hubDockButton}
+            >
+              <Text style={arenaStyles.hubDockIcon}>COL</Text>
+              <Text style={arenaStyles.hubDockText}>Rewards</Text>
+            </Pressable>
           </View>
 
-          <Pressable
-            onPress={() => handleSwitchGame("defender")}
-            style={arenaStyles.hubSecondaryAction}
-          >
-            <Text style={arenaStyles.hubSecondaryActionText}>
-              Switch Game
-            </Text>
-          </Pressable>
+          <View style={arenaStyles.hubMapRail}>
+            {ARENA_CAMPAIGN_MISSION_ORDER.map((missionId) => {
+              const mission = ARENA_CAMPAIGN_MISSIONS[missionId];
+              const progress = arenaMeta.campaign.missionProgress[missionId];
+              return (
+                <Pressable
+                  key={mission.id}
+                  onPress={() => deployRun("campaign", mission.id)}
+                  style={arenaStyles.hubMapRailItem}
+                >
+                  <Text style={arenaStyles.hubMapRailTitle}>
+                    {mission.label}
+                  </Text>
+                  <Text style={arenaStyles.hubMapRailMeta}>
+                    T1-T{mission.targetTier} /{" "}
+                    {progress?.completed ? "Cleared" : "Open"}
+                  </Text>
+                </Pressable>
+              );
+            })}
+          </View>
         </ScrollView>
       </SafeAreaView>
     );
@@ -4878,19 +5053,50 @@ const arenaStyles = StyleSheet.create({
     flex: 1,
   },
   hubContent: {
-    paddingTop: 12,
-    paddingBottom: 28,
-    gap: 14,
+    paddingTop: 10,
+    paddingBottom: 24,
+    gap: 12,
   },
-  hubHero: {
-    borderRadius: 24,
+  hubTopCommandBar: {
+    borderRadius: 22,
     borderWidth: 1,
-    borderColor: "rgba(152, 210, 255, 0.28)",
-    backgroundColor: "rgba(10, 25, 38, 0.96)",
-    padding: 18,
+    borderColor: "rgba(126, 190, 255, 0.28)",
+    backgroundColor: "rgba(7, 16, 28, 0.96)",
+    padding: 12,
+    flexDirection: "row",
+    flexWrap: "wrap",
+    alignItems: "center",
+    gap: 10,
     shadowColor: "#6FD8FF",
-    shadowOpacity: 0.18,
+    shadowOpacity: 0.16,
     shadowRadius: 18,
+  },
+  hubLevelBadge: {
+    width: 62,
+    height: 62,
+    borderRadius: 18,
+    borderWidth: 2,
+    backgroundColor: "rgba(15, 26, 43, 0.98)",
+    alignItems: "center",
+    justifyContent: "center",
+    shadowOpacity: 0.24,
+    shadowRadius: 14,
+  },
+  hubLevelLabel: {
+    color: "#9EB8D7",
+    fontSize: 9,
+    fontWeight: "900",
+    letterSpacing: 1.2,
+  },
+  hubLevelValue: {
+    color: "#F8FCFF",
+    fontSize: 25,
+    fontWeight: "900",
+    marginTop: -2,
+  },
+  hubCommanderBlock: {
+    flex: 1,
+    minWidth: 142,
   },
   hubEyebrow: {
     color: "#8DDCFF",
@@ -4901,131 +5107,499 @@ const arenaStyles = StyleSheet.create({
   },
   hubTitle: {
     color: "#F4FBFF",
-    fontSize: 28,
+    fontSize: 24,
     fontWeight: "900",
     letterSpacing: 0.4,
     marginTop: 4,
   },
-  hubCopy: {
-    color: "#B7C7D9",
-    fontSize: 13,
-    fontWeight: "600",
-    lineHeight: 19,
-    marginTop: 8,
-  },
-  hubMetaRow: {
-    flexDirection: "row",
-    gap: 8,
-    marginTop: 14,
-  },
-  hubMetaPill: {
-    flex: 1,
-    borderRadius: 14,
-    borderWidth: 1,
-    borderColor: "rgba(135, 200, 255, 0.22)",
-    backgroundColor: "rgba(255, 255, 255, 0.055)",
-    padding: 10,
-  },
-  hubMetaLabel: {
-    color: "#83A5BE",
-    fontSize: 9,
+  hubRankText: {
+    color: "#9AB7E6",
+    fontSize: 12,
     fontWeight: "900",
+    letterSpacing: 0.8,
+    marginTop: 2,
     textTransform: "uppercase",
   },
-  hubMetaValue: {
-    color: "#F3FAFF",
-    fontSize: 13,
+  hubResourceRail: {
+    flexDirection: "row",
+    gap: 8,
+    flexGrow: 1,
+    minWidth: 180,
+  },
+  hubResourceChip: {
+    flex: 1,
+    minWidth: 58,
+    borderRadius: 12,
+    borderWidth: 1,
+    borderColor: "rgba(133, 199, 255, 0.28)",
+    backgroundColor: "rgba(3, 9, 18, 0.74)",
+    paddingHorizontal: 9,
+    paddingVertical: 8,
+  },
+  hubResourceSymbol: {
+    color: "#80CFFF",
+    fontSize: 9,
     fontWeight: "900",
-    marginTop: 4,
+    letterSpacing: 1,
+    textTransform: "uppercase",
+  },
+  hubResourceValue: {
+    color: "#F3FAFF",
+    fontSize: 12,
+    fontWeight: "900",
+    marginTop: 3,
   },
   hubProgressTrack: {
+    width: "100%",
     height: 7,
     borderRadius: 999,
     backgroundColor: "rgba(255, 255, 255, 0.08)",
     overflow: "hidden",
-    marginTop: 12,
   },
   hubProgressFill: {
     height: "100%",
     borderRadius: 999,
-    backgroundColor: "#8EEBFF",
   },
-  hubSection: {
-    gap: 10,
-  },
-  hubSectionTitle: {
-    color: "#E9F5FF",
-    fontSize: 14,
-    fontWeight: "900",
-    letterSpacing: 0.5,
-  },
-  hubMissionCard: {
-    borderRadius: 20,
+  hubDeck: {
+    minHeight: 650,
+    borderRadius: 30,
     borderWidth: 1,
-    borderColor: "rgba(255, 211, 151, 0.26)",
-    backgroundColor: "rgba(31, 31, 45, 0.94)",
+    borderColor: "rgba(105, 171, 230, 0.25)",
+    backgroundColor: "rgba(5, 12, 23, 0.98)",
     padding: 14,
-    gap: 10,
+    gap: 14,
+    overflow: "hidden",
+    shadowColor: "#4BBEFF",
+    shadowOpacity: 0.14,
+    shadowRadius: 24,
   },
-  hubMissionHeader: {
-    flexDirection: "row",
-    justifyContent: "space-between",
-    gap: 12,
+  hubDeckStrutLeft: {
+    position: "absolute",
+    top: 8,
+    bottom: 120,
+    left: 28,
+    width: 2,
+    backgroundColor: "rgba(108, 159, 216, 0.26)",
+    transform: [{ rotate: "10deg" }],
   },
-  hubMissionKicker: {
-    color: "#FFCF91",
+  hubDeckStrutRight: {
+    position: "absolute",
+    top: 8,
+    bottom: 120,
+    right: 28,
+    width: 2,
+    backgroundColor: "rgba(108, 159, 216, 0.26)",
+    transform: [{ rotate: "-10deg" }],
+  },
+  hubHorizonWindow: {
+    position: "absolute",
+    top: 14,
+    left: 14,
+    right: 14,
+    height: 116,
+    borderRadius: 24,
+    borderWidth: 1,
+    borderColor: "rgba(137, 189, 255, 0.16)",
+    backgroundColor: "rgba(12, 24, 44, 0.74)",
+  },
+  hubStar: {
+    position: "absolute",
+    top: 20,
+    left: "22%",
+    width: 3,
+    height: 3,
+    borderRadius: 2,
+    backgroundColor: "#D9F2FF",
+  },
+  hubStarTwo: {
+    top: 58,
+    left: "72%",
+    opacity: 0.78,
+  },
+  hubStarThree: {
+    top: 88,
+    left: "46%",
+    opacity: 0.56,
+  },
+  hubMissionConsole: {
+    zIndex: 1,
+    alignItems: "center",
+    borderRadius: 24,
+    borderWidth: 1,
+    borderColor: "rgba(164, 130, 255, 0.3)",
+    backgroundColor: "rgba(20, 18, 42, 0.78)",
+    padding: 15,
+    gap: 7,
+  },
+  hubGlobe: {
+    width: 112,
+    height: 112,
+    borderRadius: 56,
+    borderWidth: 2,
+    backgroundColor: "rgba(114, 67, 220, 0.16)",
+    alignItems: "center",
+    justifyContent: "center",
+    overflow: "hidden",
+    shadowOpacity: 0.24,
+    shadowRadius: 18,
+  },
+  hubGlobeCore: {
+    width: 76,
+    height: 76,
+    borderRadius: 38,
+    borderWidth: 1,
+    borderColor: "rgba(226, 204, 255, 0.44)",
+    backgroundColor: "rgba(153, 95, 255, 0.2)",
+  },
+  hubGlobeMeridian: {
+    position: "absolute",
+    top: 8,
+    bottom: 8,
+    left: 54,
+    width: 1,
+    backgroundColor: "rgba(231, 219, 255, 0.42)",
+  },
+  hubGlobeLatitude: {
+    position: "absolute",
+    left: 14,
+    right: 14,
+    top: 47,
+    height: 1,
+    backgroundColor: "rgba(231, 219, 255, 0.38)",
+  },
+  hubGlobeLatitudeLow: {
+    top: 66,
+    opacity: 0.74,
+  },
+  hubMapKicker: {
+    color: "#C6B5FF",
     fontSize: 10,
+    fontWeight: "900",
+    letterSpacing: 1,
+    textTransform: "uppercase",
+  },
+  hubMapTitle: {
+    color: "#FAF7FF",
+    fontSize: 20,
+    fontWeight: "900",
+    textAlign: "center",
+  },
+  hubMapCopy: {
+    color: "#B9C8FF",
+    fontSize: 11,
+    fontWeight: "800",
+    textAlign: "center",
+  },
+  hubMapStatsRow: {
+    flexDirection: "row",
+    gap: 8,
+    marginTop: 4,
+  },
+  hubMapStat: {
+    minWidth: 70,
+    borderRadius: 12,
+    borderWidth: 1,
+    borderColor: "rgba(207, 189, 255, 0.18)",
+    backgroundColor: "rgba(255, 255, 255, 0.055)",
+    paddingHorizontal: 9,
+    paddingVertical: 7,
+    alignItems: "center",
+  },
+  hubMapStatLabel: {
+    color: "#897DB2",
+    fontSize: 8,
     fontWeight: "900",
     textTransform: "uppercase",
   },
-  hubMissionTitle: {
-    color: "#FFF8EA",
+  hubMapStatValue: {
+    color: "#FBFAFF",
+    fontSize: 11,
+    fontWeight: "900",
+    marginTop: 2,
+  },
+  hubStationGrid: {
+    zIndex: 1,
+    flexDirection: "row",
+    flexWrap: "wrap",
+    justifyContent: "space-between",
+    gap: 10,
+  },
+  hubStationTile: {
+    width: "48%",
+    minHeight: 112,
+    borderRadius: 20,
+    borderWidth: 1,
+    padding: 12,
+    justifyContent: "space-between",
+    backgroundColor: "rgba(8, 18, 30, 0.92)",
+  },
+  hubStationTileBlue: {
+    borderColor: "rgba(123, 211, 255, 0.44)",
+    shadowColor: "#6FD8FF",
+    shadowOpacity: 0.12,
+    shadowRadius: 10,
+  },
+  hubStationTileGold: {
+    borderColor: "rgba(255, 216, 121, 0.48)",
+    shadowColor: "#FFD66B",
+    shadowOpacity: 0.14,
+    shadowRadius: 10,
+  },
+  hubStationTileCyan: {
+    borderColor: "rgba(119, 239, 230, 0.4)",
+    shadowColor: "#77EFE6",
+    shadowOpacity: 0.12,
+    shadowRadius: 10,
+  },
+  hubStationTilePurple: {
+    borderColor: "rgba(205, 145, 255, 0.42)",
+    shadowColor: "#C885FF",
+    shadowOpacity: 0.12,
+    shadowRadius: 10,
+  },
+  hubStationIcon: {
+    color: "#F4FBFF",
+    fontSize: 18,
+    fontWeight: "900",
+    letterSpacing: 1.3,
+  },
+  hubStationTitle: {
+    color: "#F8FCFF",
+    fontSize: 16,
+    fontWeight: "900",
+    letterSpacing: 0.6,
+    textTransform: "uppercase",
+  },
+  hubStationSubtitle: {
+    color: "#A9BED4",
+    fontSize: 10,
+    fontWeight: "800",
+    lineHeight: 14,
+    textTransform: "uppercase",
+  },
+  hubMiniActionRow: {
+    flexDirection: "row",
+    gap: 6,
+    marginTop: 8,
+  },
+  hubMiniAction: {
+    flex: 1,
+    borderRadius: 10,
+    borderWidth: 1,
+    borderColor: "rgba(183, 240, 255, 0.28)",
+    paddingVertical: 6,
+    alignItems: "center",
+  },
+  hubMiniActionText: {
+    color: "#D8FAFF",
+    fontSize: 9,
+    fontWeight: "900",
+  },
+  hubShipBay: {
+    zIndex: 1,
+    alignItems: "center",
+    gap: 10,
+  },
+  hubShipPadOuter: {
+    width: 214,
+    height: 214,
+    borderRadius: 107,
+    borderWidth: 2,
+    borderColor: "rgba(143, 199, 255, 0.32)",
+    backgroundColor: "rgba(10, 27, 45, 0.72)",
+    alignItems: "center",
+    justifyContent: "center",
+  },
+  hubShipPadInner: {
+    width: 168,
+    height: 168,
+    borderRadius: 84,
+    borderWidth: 1,
+    borderColor: "rgba(202, 229, 255, 0.28)",
+    backgroundColor: "rgba(7, 17, 30, 0.88)",
+    alignItems: "center",
+    justifyContent: "center",
+  },
+  hubShipShadow: {
+    position: "absolute",
+    bottom: 40,
+    width: 102,
+    height: 16,
+    borderRadius: 999,
+    backgroundColor: "rgba(0, 0, 0, 0.36)",
+  },
+  hubShipWingLeft: {
+    position: "absolute",
+    top: 80,
+    left: 30,
+    width: 0,
+    height: 0,
+    borderLeftWidth: 8,
+    borderRightWidth: 58,
+    borderBottomWidth: 50,
+    borderLeftColor: "transparent",
+    borderRightColor: "transparent",
+    opacity: 0.9,
+    transform: [{ rotate: "17deg" }],
+  },
+  hubShipWingRight: {
+    position: "absolute",
+    top: 80,
+    right: 30,
+    width: 0,
+    height: 0,
+    borderLeftWidth: 58,
+    borderRightWidth: 8,
+    borderBottomWidth: 50,
+    borderLeftColor: "transparent",
+    borderRightColor: "transparent",
+    opacity: 0.9,
+    transform: [{ rotate: "-17deg" }],
+  },
+  hubShipBody: {
+    position: "absolute",
+    top: 58,
+    width: 44,
+    height: 78,
+    borderRadius: 12,
+    borderWidth: 1,
+    borderColor: "rgba(255, 255, 255, 0.34)",
+    backgroundColor: "#BAC8D9",
+  },
+  hubShipCanopy: {
+    position: "absolute",
+    top: 70,
+    width: 18,
+    height: 42,
+    borderRadius: 9,
+    opacity: 0.86,
+  },
+  hubShipNose: {
+    position: "absolute",
+    top: 26,
+    width: 0,
+    height: 0,
+    borderLeftWidth: 18,
+    borderRightWidth: 18,
+    borderBottomWidth: 42,
+    borderLeftColor: "transparent",
+    borderRightColor: "transparent",
+    borderBottomColor: "#E9F1F9",
+  },
+  hubShipEngineLeft: {
+    position: "absolute",
+    bottom: 30,
+    left: 65,
+    width: 8,
+    height: 24,
+    borderRadius: 5,
+    backgroundColor: "#80CFFF",
+  },
+  hubShipEngineRight: {
+    position: "absolute",
+    bottom: 30,
+    right: 65,
+    width: 8,
+    height: 24,
+    borderRadius: 5,
+    backgroundColor: "#80CFFF",
+  },
+  hubShipReadout: {
+    borderRadius: 14,
+    borderWidth: 1,
+    borderColor: "rgba(134, 203, 255, 0.22)",
+    backgroundColor: "rgba(4, 11, 20, 0.72)",
+    paddingHorizontal: 18,
+    paddingVertical: 9,
+    alignItems: "center",
+  },
+  hubShipReadoutLabel: {
+    color: "#7F9BB8",
+    fontSize: 9,
+    fontWeight: "900",
+    letterSpacing: 1,
+    textTransform: "uppercase",
+  },
+  hubShipReadoutValue: {
+    color: "#F2FAFF",
+    fontSize: 13,
+    fontWeight: "900",
+    marginTop: 2,
+  },
+  hubLaunchButton: {
+    zIndex: 1,
+    alignSelf: "center",
+    minWidth: 210,
+    borderRadius: 20,
+    borderWidth: 2,
+    backgroundColor: "rgba(58, 39, 7, 0.92)",
+    paddingHorizontal: 28,
+    paddingVertical: 13,
+    alignItems: "center",
+    shadowOpacity: 0.3,
+    shadowRadius: 18,
+  },
+  hubLaunchTitle: {
+    color: "#FFE49A",
+    fontSize: 22,
+    fontWeight: "900",
+    letterSpacing: 1.4,
+    textTransform: "uppercase",
+  },
+  hubLaunchSubtitle: {
+    color: "#FFD15A",
+    fontSize: 11,
+    fontWeight: "900",
+    letterSpacing: 1.1,
+    marginTop: 2,
+    textTransform: "uppercase",
+  },
+  hubLoadoutConsole: {
+    borderRadius: 24,
+    borderWidth: 1,
+    borderColor: "rgba(130, 208, 255, 0.24)",
+    backgroundColor: "rgba(9, 22, 36, 0.96)",
+    padding: 13,
+    gap: 10,
+  },
+  hubConsoleHeader: {
+    flexDirection: "row",
+    justifyContent: "space-between",
+    alignItems: "center",
+    gap: 12,
+  },
+  hubConsoleKicker: {
+    color: "#83D7FF",
+    fontSize: 10,
+    fontWeight: "900",
+    letterSpacing: 1,
+    textTransform: "uppercase",
+  },
+  hubConsoleTitle: {
+    color: "#F4FBFF",
     fontSize: 18,
     fontWeight: "900",
     marginTop: 2,
   },
-  hubMissionStatus: {
-    color: "#BFFFEA",
-    fontSize: 11,
+  hubConsoleStatus: {
+    color: "#A7BAD0",
+    fontSize: 10,
     fontWeight: "900",
+    textTransform: "uppercase",
   },
-  hubMissionCopy: {
-    color: "#C8D2DD",
-    fontSize: 12,
-    fontWeight: "600",
-    lineHeight: 18,
-  },
-  hubMissionFooter: {
+  hubLoadoutGrid: {
     flexDirection: "row",
-    alignItems: "center",
+    flexWrap: "wrap",
     justifyContent: "space-between",
     gap: 10,
   },
-  hubMissionMeta: {
-    flex: 1,
-    color: "#AABACB",
-    fontSize: 11,
-    fontWeight: "800",
-  },
-  hubPrimaryAction: {
-    borderRadius: 14,
-    backgroundColor: "#FFE0A0",
-    paddingHorizontal: 16,
-    paddingVertical: 9,
-  },
-  hubPrimaryActionText: {
-    color: "#22170C",
-    fontSize: 12,
-    fontWeight: "900",
-  },
-  hubLoadoutGrid: {
-    gap: 10,
-  },
   hubLoadoutCard: {
+    flexGrow: 1,
+    flexBasis: "48%",
     borderRadius: 18,
     borderWidth: 1,
     borderColor: "rgba(151, 221, 255, 0.22)",
-    backgroundColor: "rgba(12, 29, 43, 0.92)",
+    backgroundColor: "rgba(5, 15, 26, 0.9)",
     padding: 13,
     gap: 8,
   },
@@ -5071,39 +5645,79 @@ const arenaStyles = StyleSheet.create({
     fontSize: 10,
     fontWeight: "900",
   },
-  hubActionGrid: {
-    gap: 10,
-  },
-  hubActionCard: {
-    borderRadius: 18,
+  hubBottomDock: {
+    borderRadius: 20,
     borderWidth: 1,
-    borderColor: "rgba(221, 231, 255, 0.18)",
-    backgroundColor: "rgba(15, 22, 35, 0.92)",
-    padding: 14,
+    borderColor: "rgba(116, 154, 198, 0.24)",
+    backgroundColor: "rgba(5, 12, 22, 0.95)",
+    padding: 8,
+    flexDirection: "row",
+    gap: 8,
   },
-  hubActionTitle: {
-    color: "#F4F8FF",
-    fontSize: 14,
-    fontWeight: "900",
-  },
-  hubActionCopy: {
-    color: "#AAB8C8",
-    fontSize: 12,
-    fontWeight: "600",
-    lineHeight: 17,
-    marginTop: 5,
-  },
-  hubSecondaryAction: {
-    borderRadius: 16,
+  hubDockButton: {
+    flex: 1,
+    borderRadius: 14,
     borderWidth: 1,
-    borderColor: "rgba(145, 174, 205, 0.3)",
-    paddingVertical: 11,
+    borderColor: "rgba(145, 174, 205, 0.22)",
+    backgroundColor: "rgba(255, 255, 255, 0.035)",
+    paddingVertical: 9,
     alignItems: "center",
   },
-  hubSecondaryActionText: {
+  hubDockButtonActive: {
+    flex: 1.15,
+    borderRadius: 16,
+    borderWidth: 1,
+    borderColor: "rgba(135, 198, 255, 0.42)",
+    backgroundColor: "rgba(38, 93, 153, 0.22)",
+    paddingVertical: 9,
+    alignItems: "center",
+  },
+  hubDockIcon: {
+    color: "#778BA4",
+    fontSize: 10,
+    fontWeight: "900",
+  },
+  hubDockIconActive: {
+    color: "#98D8FF",
+    fontSize: 10,
+    fontWeight: "900",
+  },
+  hubDockText: {
     color: "#C7D8EA",
+    fontSize: 11,
+    fontWeight: "900",
+    marginTop: 3,
+  },
+  hubDockTextActive: {
+    color: "#EAF7FF",
+    fontSize: 11,
+    fontWeight: "900",
+    marginTop: 3,
+  },
+  hubMapRail: {
+    flexDirection: "row",
+    flexWrap: "wrap",
+    gap: 8,
+  },
+  hubMapRailItem: {
+    flexGrow: 1,
+    flexBasis: "48%",
+    borderRadius: 15,
+    borderWidth: 1,
+    borderColor: "rgba(164, 190, 225, 0.2)",
+    backgroundColor: "rgba(10, 20, 34, 0.86)",
+    padding: 11,
+  },
+  hubMapRailTitle: {
+    color: "#EEF7FF",
     fontSize: 12,
     fontWeight: "900",
+  },
+  hubMapRailMeta: {
+    color: "#95A9BF",
+    fontSize: 10,
+    fontWeight: "800",
+    marginTop: 3,
   },
   topBar: {
     height: 34,

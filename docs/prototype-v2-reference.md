@@ -1,7 +1,7 @@
 # Prototype V2 Reference
 
-Snapshot date: `2026-04-21`
-Board version: `v0.69`
+Snapshot date: `2026-04-22`
+Board version: `v0.70`
 
 This document is the current reference for the arena-combat shooter in `/Users/johnchang/Desktop/defender/src/prototype-v2`. It replaces the earlier planning-heavy draft with a snapshot of what is actually implemented today, plus the next major gaps.
 
@@ -25,7 +25,7 @@ Core loop:
 
 This mode is no longer just a redesign concept. It is a production prototype with live combat, encounters, progression, and Skia rendering.
 
-The current build also includes persistent between-run `Codex + Mastery` data stored locally, a scripted encounter registry, a rotating four-boss cadence, named biome sectors, Arena-local audio settings plus music / SFX playback, impact + lane-band hazard telegraphs, one-time coaching chips, a local cosmetic collection / equip layer, and an early Campaign Home Base foundation on top of the meta flow.
+The current build also includes persistent between-run `Codex + Mastery` data stored locally, a scripted encounter registry, a rotating four-boss cadence, named biome sectors, Arena-local audio settings plus music / SFX playback, impact + lane-band hazard telegraphs, one-time coaching chips, a local cosmetic collection / equip layer, and an early cockpit-style Campaign Home Base foundation on top of the meta flow.
 
 ## Current Playable State
 
@@ -81,7 +81,7 @@ Other UI behavior:
 - run-end summary panels now show tier reached, bosses cleared, mastery XP granted, and newly claimable cosmetics
 - player death now plays a short closing telemetry transition before the run-end summary appears
 - codex, mastery, and cosmetic collection state persist across relaunches through a versioned AsyncStorage blob
-- the first `Home Base` shell is live as the Arena V2 entry surface, with campaign map launch, endless launch, Collection / Codex / Mastery access, and early campaign loadout controls
+- the first `Home Base` shell is live as the Arena V2 entry surface, now using a cockpit-style command deck with grouped Mission Control, Loadout, Collection, Archives, Endless, and Systems stations instead of a vertical card list
 - the first campaign mission is `Prism Verge Recon`, a short `T1-T6` sortie ending at `Prism Core`
 - campaign runs disable salvage / armory drafts and replace the left arena armory button with a shield ability button
 - the in-game menu still allows game switching and restart
@@ -540,6 +540,12 @@ Primary implementation files:
 - `/Users/johnchang/Desktop/defender/src/prototype-v2/ArenaPrototypeScreen.tsx`
 
 ## Changelog Snapshot
+
+### 2026-04-22
+
+- Advanced arena board label to `v0.70`.
+- Redesigned `Home Base` from a vertical card list into a cockpit-style command deck inspired by the provided reference: top status rail, central map console, ship bay, grouped side stations, compact loadout console, and docked navigation.
+- Grouped related Home Base actions to save screen space: `Loadout` covers weapons and shield ability, `Archives` covers Codex and Mastery, `Collection` covers cosmetics and rewards, `Mission Control` covers campaign launch, and `Endless` remains a separate simulation entry.
 
 ### 2026-04-21
 
