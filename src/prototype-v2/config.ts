@@ -15,7 +15,7 @@ export const ARENA_MIN_ENEMY_CRUISE_Y_RATIO = 0.15;
 export const ARENA_MAX_ENEMY_CRUISE_Y_RATIO = 0.41;
 export const ARENA_SHIELD_REGEN_DELAY_SECONDS = 2.2;
 export const ARENA_SHIELD_REGEN_PER_SECOND = 11;
-export const ARENA_VERSION_LABEL = 'v0.74';
+export const ARENA_VERSION_LABEL = 'v0.75';
 
 export const ARENA_ENEMY_ORDER: ArenaEnemyKind[] = [
   'hover',
@@ -50,25 +50,25 @@ export const BASE_ARENA_WEAPON: ArenaWeapon = {
 };
 
 export const ARENA_ENEMY_COLORS: Record<ArenaEnemyKind, string> = {
-  hover: '#6FEAFF',
-  burst: '#FF86BE',
-  tank: '#FFC874',
-  orbiter: '#7EFFF1',
-  sniper: '#FFB6D8',
-  bomber: '#FFB88A',
-  interceptor: '#B9A3FF',
-  warden: '#91EBFF',
-  lancer: '#FFC18A',
-  carrier: '#A3E9C4',
-  artillery: '#FFC99A',
-  weaver: '#B9C8FF',
-  conductor: '#FFE58C',
-  raider: '#FFB36E',
-  hunter: '#D8B9FF',
-  prismBoss: '#FF6EAE',
-  hiveCarrierBoss: '#8FF0D6',
-  vectorLoomBoss: '#B7C8FF',
-  eclipseTalonBoss: '#FFD19A',
+  hover: '#57E0FF',
+  burst: '#FF66D6',
+  tank: '#FFB06A',
+  orbiter: '#63FFF2',
+  sniper: '#FF98E8',
+  bomber: '#FF946A',
+  interceptor: '#9F8CFF',
+  warden: '#65F5FF',
+  lancer: '#FFC37C',
+  carrier: '#59F2D0',
+  artillery: '#FFBA86',
+  weaver: '#9BB0FF',
+  conductor: '#FFE072',
+  raider: '#FF8C5B',
+  hunter: '#D89FFF',
+  prismBoss: '#FF59C8',
+  hiveCarrierBoss: '#63F2D7',
+  vectorLoomBoss: '#AF9BFF',
+  eclipseTalonBoss: '#FFB977',
 };
 
 export const ARENA_ENEMY_SHAPES: Record<ArenaEnemyKind, ArenaEnemyShape> = {

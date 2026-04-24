@@ -2270,10 +2270,10 @@ function hitTestCircle(xA: number, yA: number, radiusA: number, xB: number, yB: 
 
 function createDrop(state: ArenaGameState, x: number, y: number, type: ArenaDropType) {
   const palette: Record<ArenaDropType, { label: string; color: string }> = {
-    hullPatch: { label: 'Health', color: '#FF8D7A' },
-    shieldCell: { label: 'Shield', color: '#7CEAFF' },
-    overdrive: { label: 'Overdrive', color: '#FFCB6F' },
-    salvageBurst: { label: 'Salvage', color: '#C1B2FF' },
+    hullPatch: { label: 'Health', color: '#FF6E8F' },
+    shieldCell: { label: 'Shield', color: '#55E9FF' },
+    overdrive: { label: 'Overdrive', color: '#FFB45E' },
+    salvageBurst: { label: 'Salvage', color: '#B27BFF' },
   };
   const definition = palette[type];
   const drop: ArenaDrop = {

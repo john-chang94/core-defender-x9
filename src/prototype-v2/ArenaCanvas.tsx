@@ -65,6 +65,53 @@ const ENERGY_SWEEPS = [
   { x: 0.8, width: 58, height: 260, speed: 47 },
 ] as const;
 
+const STARFIELD_POINTS = [
+  { x: 0.06, y: 0.05, radius: 1.1, alpha: 0.54 },
+  { x: 0.14, y: 0.12, radius: 0.8, alpha: 0.34 },
+  { x: 0.25, y: 0.08, radius: 1.2, alpha: 0.46 },
+  { x: 0.33, y: 0.18, radius: 0.9, alpha: 0.3 },
+  { x: 0.42, y: 0.09, radius: 0.8, alpha: 0.32 },
+  { x: 0.56, y: 0.06, radius: 1.0, alpha: 0.46 },
+  { x: 0.68, y: 0.14, radius: 0.9, alpha: 0.38 },
+  { x: 0.82, y: 0.07, radius: 1.3, alpha: 0.48 },
+  { x: 0.9, y: 0.16, radius: 0.8, alpha: 0.28 },
+  { x: 0.12, y: 0.34, radius: 0.9, alpha: 0.26 },
+  { x: 0.28, y: 0.42, radius: 1.2, alpha: 0.38 },
+  { x: 0.47, y: 0.3, radius: 0.8, alpha: 0.24 },
+  { x: 0.62, y: 0.38, radius: 1.0, alpha: 0.34 },
+  { x: 0.78, y: 0.31, radius: 0.9, alpha: 0.28 },
+  { x: 0.88, y: 0.44, radius: 1.1, alpha: 0.32 },
+  { x: 0.08, y: 0.66, radius: 0.9, alpha: 0.24 },
+  { x: 0.24, y: 0.78, radius: 1.1, alpha: 0.3 },
+  { x: 0.44, y: 0.7, radius: 0.8, alpha: 0.22 },
+  { x: 0.71, y: 0.82, radius: 1.2, alpha: 0.34 },
+  { x: 0.92, y: 0.74, radius: 0.9, alpha: 0.24 },
+] as const;
+
+const CYBER_PANEL_FRAMES = [
+  { x: 0.03, y: 0.1, width: 0.24, height: 0.18, radius: 18 },
+  { x: 0.71, y: 0.08, width: 0.22, height: 0.2, radius: 20 },
+  { x: 0.12, y: 0.38, width: 0.34, height: 0.18, radius: 22 },
+  { x: 0.56, y: 0.35, width: 0.29, height: 0.2, radius: 22 },
+  { x: 0.05, y: 0.7, width: 0.29, height: 0.2, radius: 24 },
+  { x: 0.56, y: 0.66, width: 0.28, height: 0.19, radius: 22 },
+] as const;
+
+const CYBER_TRACE_SEGMENTS = [
+  { x1: 0.08, y1: 0.14, x2: 0.18, y2: 0.14, accent: 'warm' },
+  { x1: 0.18, y1: 0.14, x2: 0.24, y2: 0.2, accent: 'warm' },
+  { x1: 0.24, y1: 0.2, x2: 0.24, y2: 0.3, accent: 'cool' },
+  { x1: 0.78, y1: 0.12, x2: 0.68, y2: 0.18, accent: 'cool' },
+  { x1: 0.68, y1: 0.18, x2: 0.68, y2: 0.3, accent: 'warm' },
+  { x1: 0.16, y1: 0.51, x2: 0.26, y2: 0.61, accent: 'warm' },
+  { x1: 0.26, y1: 0.61, x2: 0.22, y2: 0.73, accent: 'warm' },
+  { x1: 0.74, y1: 0.48, x2: 0.66, y2: 0.59, accent: 'cool' },
+  { x1: 0.66, y1: 0.59, x2: 0.66, y2: 0.76, accent: 'warm' },
+  { x1: 0.88, y1: 0.62, x2: 0.94, y2: 0.69, accent: 'warm' },
+  { x1: 0.12, y1: 0.82, x2: 0.24, y2: 0.82, accent: 'cool' },
+  { x1: 0.52, y1: 0.74, x2: 0.52, y2: 0.9, accent: 'warm' },
+] as const;
+
 type OverdriveCrackSegment = {
   x1: number;
   y1: number;
@@ -138,77 +185,77 @@ function clamp(value: number, min: number, max: number) {
 function getBuildProjectilePalette(buildFlavor: ArenaGameState['activeBuild'] | undefined) {
   if (buildFlavor === 'railFocus') {
     return {
-      body: '#CDE0FF',
-      rim: '#ECF4FF',
-      core: '#FFF6DC',
-      trailOuter: withAlpha('#9EC4FF', 0.38),
-      trailInner: withAlpha('#F4FAFF', 0.58),
-      halo: '#D6E7FF',
+      body: '#86DFFF',
+      rim: '#E7FCFF',
+      core: '#FFFFFF',
+      trailOuter: withAlpha('#4BCBFF', 0.42),
+      trailInner: withAlpha('#F2FEFF', 0.62),
+      halo: '#8BEEFF',
     };
   }
   if (buildFlavor === 'novaBloom') {
     return {
-      body: '#FFB7D9',
-      rim: '#FFE2F1',
-      core: '#FFF2DF',
-      trailOuter: withAlpha('#FF9DCE', 0.36),
-      trailInner: withAlpha('#FFEAF5', 0.56),
-      halo: '#FFC7E3',
+      body: '#FF88EA',
+      rim: '#FFE7FA',
+      core: '#FFF7FF',
+      trailOuter: withAlpha('#FF56DF', 0.42),
+      trailInner: withAlpha('#FFF0FC', 0.62),
+      halo: '#FF9BEE',
     };
   }
   if (buildFlavor === 'fractureCore') {
     return {
-      body: '#B4C4D7',
-      rim: '#E3EDFA',
-      core: '#F7FBFF',
-      trailOuter: withAlpha('#B8CCE0', 0.35),
-      trailInner: withAlpha('#F3F8FF', 0.52),
-      halo: '#CDDEEF',
+      body: '#A6B8FF',
+      rim: '#EEF2FF',
+      core: '#F9FBFF',
+      trailOuter: withAlpha('#7F9FFF', 0.4),
+      trailInner: withAlpha('#F1F4FF', 0.58),
+      halo: '#C5D1FF',
     };
   }
   return {
-    body: '#FFD7A9',
-    rim: '#FFEAD1',
-    core: '#FFF7E4',
-    trailOuter: withAlpha('#FFD8A9', 0.35),
-    trailInner: withAlpha('#FFF4E1', 0.52),
-    halo: '#FFE5BF',
+    body: '#FFBF72',
+    rim: '#FFF1D8',
+    core: '#FFF8EA',
+    trailOuter: withAlpha('#FF9952', 0.38),
+    trailInner: withAlpha('#FFF7EB', 0.58),
+    halo: '#FFD48F',
   };
 }
 
 function getUltimateScreenPalette(build: ArenaGameState['ultimateBuild']) {
   if (build === 'railFocus') {
     return {
-      flash: '#CFE3FF',
-      ring: '#EAF4FF',
-      line: '#D2E4FF',
+      flash: '#3CCBFF',
+      ring: '#BEEFFF',
+      line: '#7DDCFF',
     };
   }
   if (build === 'novaBloom') {
     return {
-      flash: '#FFD3E8',
-      ring: '#FFE6F2',
-      line: '#FFC2E0',
+      flash: '#FF79E7',
+      ring: '#FFD8F6',
+      line: '#FF9EF1',
     };
   }
   if (build === 'missileCommand') {
     return {
-      flash: '#FFD9B0',
-      ring: '#FFEED8',
-      line: '#FFC48D',
+      flash: '#FFB162',
+      ring: '#FFE1B5',
+      line: '#FFC07A',
     };
   }
   if (build === 'fractureCore') {
     return {
-      flash: '#D4E4FF',
-      ring: '#EDF4FF',
-      line: '#C4D7F6',
+      flash: '#A58FFF',
+      ring: '#D7D0FF',
+      line: '#AEC8FF',
     };
   }
   return {
-    flash: '#DCE8F8',
-    ring: '#F0F5FF',
-    line: '#D0DDF0',
+    flash: '#42C7FF',
+    ring: '#EEF5FF',
+    line: '#BBD3F6',
   };
 }
 
@@ -600,6 +647,22 @@ function createStaticBackgroundScene({
       <Rect x={0} y={0} width={boardWidth} height={boardHeight} color={theme.base} />
       <Circle cx={boardWidth * 0.18} cy={boardHeight * 0.1} r={boardWidth * 0.28} color={theme.auraA} />
       <Circle cx={boardWidth * 0.86} cy={boardHeight * 0.86} r={boardWidth * 0.32} color={theme.auraB} />
+      {STARFIELD_POINTS.map((star, index) => (
+        <Circle
+          key={`arena-star-${index}`}
+          cx={boardWidth * star.x}
+          cy={boardHeight * star.y}
+          r={star.radius}
+          color={withAlpha(
+            index % 3 === 0
+              ? theme.detailColor
+              : index % 2 === 0
+                ? theme.flow
+                : theme.glowColor,
+            star.alpha
+          )}
+        />
+      ))}
       <Rect x={0} y={0} width={boardWidth} height={enemyZoneHeight} color={theme.enemyZone} />
       <RoundedRect
         x={14}
@@ -609,6 +672,66 @@ function createStaticBackgroundScene({
         r={999}
         color={theme.boundary}
       />
+      {CYBER_PANEL_FRAMES.map((panel, index) => {
+        const panelX = boardWidth * panel.x;
+        const panelY = boardHeight * panel.y;
+        const panelWidth = boardWidth * panel.width;
+        const panelHeight = boardHeight * panel.height;
+        const strokeColor = index % 2 === 0 ? theme.boundary : theme.headerBorder;
+        return (
+          <Group key={`arena-panel-${index}`}>
+            <RoundedRect
+              x={panelX}
+              y={panelY}
+              width={panelWidth}
+              height={panelHeight}
+              r={panel.radius}
+              color={withAlpha(theme.overlay, 0.24)}
+            />
+            <RoundedRect
+              x={panelX}
+              y={panelY}
+              width={panelWidth}
+              height={panelHeight}
+              r={panel.radius}
+              style="stroke"
+              strokeWidth={1.1}
+              color={withAlpha(strokeColor, 0.26)}
+            />
+            <RoundedRect
+              x={panelX + 8}
+              y={panelY + 8}
+              width={Math.max(0, panelWidth - 16)}
+              height={Math.max(0, panelHeight - 16)}
+              r={Math.max(4, panel.radius - 6)}
+              style="stroke"
+              strokeWidth={0.9}
+              color={withAlpha(theme.grid, 0.32)}
+            />
+          </Group>
+        );
+      })}
+      {CYBER_TRACE_SEGMENTS.map((segment, index) => {
+        const accentColor = segment.accent === 'warm' ? theme.boundary : theme.flow;
+        return (
+          <Group key={`arena-trace-${index}`}>
+            <Line
+              p1={vec(boardWidth * segment.x1, boardHeight * segment.y1)}
+              p2={vec(boardWidth * segment.x2, boardHeight * segment.y2)}
+              color={withAlpha('#060A14', 0.52)}
+              strokeWidth={3.2}
+              strokeCap="round"
+            />
+            <Line
+              p1={vec(boardWidth * segment.x1, boardHeight * segment.y1)}
+              p2={vec(boardWidth * segment.x2, boardHeight * segment.y2)}
+              color={withAlpha(accentColor, 0.3)}
+              strokeWidth={1.15}
+              strokeCap="round"
+            />
+          </Group>
+        );
+      })}
       {verticalGridLines.map((x, index) => (
         <Line
           key={`arena-bg-v-${index}`}
@@ -650,26 +773,33 @@ function renderEnemyCore(enemy: ArenaEnemy) {
   const barrelGlowOpacity = enemy.windupTimer > 0 ? 0.72 : 0.38;
 
   const isProtected = enemy.protectedTimer > 0;
-  const strokeColor = enemy.windupTimer > 0 ? '#FFF0C7' : isBoss ? '#FFE8BE' : isElite ? '#E5DDFF' : '#0D1726';
+  const strokeColor =
+    enemy.windupTimer > 0
+      ? '#FFF6D8'
+      : isBoss
+        ? '#FFF0D8'
+        : isElite
+          ? '#F4DFFF'
+          : '#09111C';
   const auraColor =
     enemy.kind === 'hiveCarrierBoss'
-      ? '#93F0D5'
+      ? '#75FFE2'
       : enemy.kind === 'vectorLoomBoss'
-        ? '#C8D7FF'
+        ? '#C5B1FF'
         : enemy.kind === 'eclipseTalonBoss'
-          ? '#FFD19A'
+          ? '#FFBC7B'
       : isBoss
-        ? '#FF89C0'
+        ? '#FF6BE1'
         : enemy.kind === 'carrier'
-          ? '#B5F5D7'
+          ? '#77FFE0'
           : enemy.kind === 'artillery'
-            ? '#FFD5AD'
+            ? '#FFC48D'
             : enemy.kind === 'raider'
-              ? '#FFD0A0'
+              ? '#FF9D69'
               : enemy.kind === 'hunter'
-                ? '#E5D4FF'
+                ? '#E3A9FF'
             : isElite
-              ? '#CBBFFF'
+              ? '#C4AEFF'
               : enemy.color;
 
   return (
@@ -706,7 +836,7 @@ function renderEnemyCore(enemy: ArenaEnemy) {
           key={`enemy-barrel-${enemy.id}-${index}`}
           p1={vec(barrel.x1, barrel.y1)}
           p2={vec(barrel.x2, barrel.y2)}
-          color={withAlpha('#FEE8CB', barrelFillOpacity)}
+          color={withAlpha('#FFE1D4', barrelFillOpacity)}
           strokeWidth={barrel.strokeWidth}
           strokeCap="round"
         />
@@ -716,12 +846,12 @@ function renderEnemyCore(enemy: ArenaEnemy) {
           key={`enemy-barrel-glow-${enemy.id}-${index}`}
           p1={vec(barrel.x1, barrel.y1)}
           p2={vec(barrel.x2, barrel.y2)}
-          color={withAlpha('#FFF8EA', barrelGlowOpacity)}
+          color={withAlpha('#FFF7FE', barrelGlowOpacity)}
           strokeWidth={barrel.strokeWidth * 0.4}
           strokeCap="round"
         />
       ))}
-      <Circle cx={enemy.x} cy={enemy.y} r={enemy.size * 0.12} color={withAlpha('#FFFFFF', 0.32)} />
+      <Circle cx={enemy.x} cy={enemy.y} r={enemy.size * 0.12} color={withAlpha('#FFFFFF', 0.4)} />
     </Group>
   );
 }
@@ -854,7 +984,7 @@ export function ArenaCanvas({ boardWidth, boardHeight, biomeDefinition, state, v
         <Rect x={0} y={0} width={boardWidth} height={boardHeight} color={theme.base} />
       )}
 
-      <Rect x={0} y={0} width={boardWidth} height={boardHeight} color={withAlpha(theme.overlay, 0.06 + themePulse * 0.05)} />
+      <Rect x={0} y={0} width={boardWidth} height={boardHeight} color={withAlpha(theme.overlay, 0.04 + themePulse * 0.04)} />
       {overdriveBlend > 0 ? (
         <Group opacity={overdriveBlend}>
           <Rect
@@ -978,14 +1108,14 @@ export function ArenaCanvas({ boardWidth, boardHeight, biomeDefinition, state, v
         const y = ((plate.y + state.elapsed * plate.speed) % travel) - plate.height - 80;
         const x = boardWidth * plate.x;
         return (
-          <Group key={`plate-${index}`} opacity={0.86}>
+          <Group key={`plate-${index}`} opacity={0.9}>
             <RoundedRect
               x={x}
               y={y}
               width={plate.width}
               height={plate.height}
               r={plate.radius}
-              color={withAlpha(plateStyle.color, 0.75)}
+              color={withAlpha(plateStyle.color, 0.8)}
             />
             <RoundedRect
               x={x}
@@ -995,7 +1125,7 @@ export function ArenaCanvas({ boardWidth, boardHeight, biomeDefinition, state, v
               r={plate.radius}
               style="stroke"
               strokeWidth={1}
-              color={withAlpha(plateStyle.stroke, 0.68)}
+              color={withAlpha(plateStyle.stroke, 0.74)}
             />
           </Group>
         );
@@ -1010,7 +1140,7 @@ export function ArenaCanvas({ boardWidth, boardHeight, biomeDefinition, state, v
             key={`streak-${index}`}
             p1={vec(x, y)}
             p2={vec(x, y + streak.length)}
-            color={withAlpha(theme.flow, 0.16)}
+            color={withAlpha(theme.flow, 0.22)}
             strokeWidth={streak.width}
             strokeCap="round"
           />
@@ -1516,45 +1646,49 @@ export function ArenaCanvas({ boardWidth, boardHeight, biomeDefinition, state, v
           const adjustedSparkCount = Math.max(3, denseEffectMode ? Math.ceil(sparkCount * 0.58) : sparkCount);
           const ringColor =
             flavor === 'railFocus'
-              ? '#D6E7FF'
+              ? '#88E4FF'
               : flavor === 'novaBloom'
-                ? '#FFD5EA'
+                ? '#FF8EEB'
                 : flavor === 'missileCommand'
-                  ? '#FFDDB2'
+                  ? '#FFC27D'
                   : flavor === 'fractureCore'
-                    ? '#D8E7FA'
+                    ? '#B5C8FF'
                     : flavor === 'enemy'
-                      ? '#FF9E94'
+                      ? '#FF7E88'
                       : effect.color;
           const sparkPrimary =
             flavor === 'missileCommand'
-              ? '#FFE5C4'
+              ? '#FFF0D8'
               : flavor === 'novaBloom'
-                ? '#FFE7F4'
+                ? '#FFF1FE'
                 : flavor === 'fractureCore'
-                  ? '#F1F7FF'
-                  : '#FFF5DE';
+                  ? '#F4F7FF'
+                  : flavor === 'railFocus'
+                    ? '#F3FEFF'
+                    : '#FFF5DE';
           const sparkSecondary =
             flavor === 'enemy'
-              ? '#FF8C82'
+              ? '#FF616D'
               : flavor === 'missileCommand'
-                ? '#FFC48C'
+                ? '#FF9C61'
                 : flavor === 'novaBloom'
-                  ? '#FFB8DB'
+                  ? '#FF65DD'
                   : flavor === 'fractureCore'
-                    ? '#CFE0F5'
+                    ? '#8FA3FF'
+                    : flavor === 'railFocus'
+                      ? '#49CFFF'
                     : ringColor;
           return (
             <Group key={effect.id}>
               <Circle cx={effect.x} cy={effect.y} r={size * 0.56 * (0.9 + intensity * 0.2)} color={withAlpha(ringColor, 0.05 + opacity * 0.1)} />
               <Circle cx={effect.x} cy={effect.y} r={ringRadius} style="stroke" strokeWidth={(2.2 - progress * 0.8) * (0.92 + intensity * 0.16)} color={withAlpha(ringColor, 0.42 + opacity * 0.4)} />
-              {!denseEffectMode ? <Circle cx={effect.x} cy={effect.y} r={innerRadius} color={withAlpha('#FFF3DA', 0.48 + opacity * 0.34)} /> : null}
+              {!denseEffectMode ? <Circle cx={effect.x} cy={effect.y} r={innerRadius} color={withAlpha('#FFF8F2', 0.48 + opacity * 0.34)} /> : null}
               {flavor === 'missileCommand' && !denseEffectMode ? (
                 <Circle
                   cx={effect.x + Math.sin(progress * Math.PI * 2 + effect.x * 0.01) * 4}
                   cy={effect.y + Math.cos(progress * Math.PI * 2 + effect.y * 0.01) * 4}
                   r={size * (0.16 + progress * 0.08)}
-                  color={withAlpha('#FFB988', 0.2 + opacity * 0.24)}
+                  color={withAlpha('#FF9B63', 0.2 + opacity * 0.24)}
                 />
               ) : null}
               {Array.from({ length: adjustedSparkCount }, (_, index) => {
@@ -1592,7 +1726,7 @@ export function ArenaCanvas({ boardWidth, boardHeight, biomeDefinition, state, v
                         cx={petalX}
                         cy={petalY}
                         r={size * 0.06}
-                        color={withAlpha('#FFE1F0', 0.35 + opacity * 0.28)}
+                        color={withAlpha('#FFC6F6', 0.35 + opacity * 0.28)}
                       />
                     );
                   })
@@ -1650,12 +1784,12 @@ export function ArenaCanvas({ boardWidth, boardHeight, biomeDefinition, state, v
               <Line
                 p1={vec(tailX, tailY)}
                 p2={vec(bullet.x - basis.forwardX * bullet.size * 0.56, bullet.y - basis.forwardY * bullet.size * 0.56)}
-                color={withAlpha(bullet.color, 0.26)}
+                color={withAlpha(bullet.color, 0.34)}
                 strokeWidth={bullet.size * 0.5}
                 strokeCap="round"
               />
-              <Circle cx={bullet.x} cy={bullet.y} r={bullet.size * 0.5} color={withAlpha(bullet.color, 0.85)} />
-              <Circle cx={bullet.x} cy={bullet.y} r={bullet.size * 0.3} color={withAlpha('#F4FFF9', 0.8)} />
+              <Circle cx={bullet.x} cy={bullet.y} r={bullet.size * 0.5} color={withAlpha(bullet.color, 0.92)} />
+              <Circle cx={bullet.x} cy={bullet.y} r={bullet.size * 0.3} color={withAlpha('#FFF7FE', 0.86)} />
             </Group>
           );
         }
@@ -1676,12 +1810,12 @@ export function ArenaCanvas({ boardWidth, boardHeight, biomeDefinition, state, v
               <Line
                 p1={vec(tailX, tailY)}
                 p2={vec(bullet.x - basis.forwardX * bullet.size * 0.82, bullet.y - basis.forwardY * bullet.size * 0.82)}
-                color={withAlpha(bullet.color, 0.34)}
+                color={withAlpha(bullet.color, 0.42)}
                 strokeWidth={bullet.size * 0.36}
                 strokeCap="round"
               />
               <Path path={needlePath} color={withAlpha(bullet.color, 0.96)} />
-              <Path path={needlePath} style="stroke" strokeWidth={1} color={withAlpha('#FFF3FC', 0.86)} />
+              <Path path={needlePath} style="stroke" strokeWidth={1} color={withAlpha('#FFF7FF', 0.9)} />
             </Group>
           );
         }
@@ -1702,16 +1836,16 @@ export function ArenaCanvas({ boardWidth, boardHeight, biomeDefinition, state, v
               <Line
                 p1={vec(tailX, tailY)}
                 p2={vec(bullet.x - basis.forwardX * bullet.size * 0.44, bullet.y - basis.forwardY * bullet.size * 0.44)}
-                color={withAlpha(bullet.color, 0.24)}
+                color={withAlpha(bullet.color, 0.3)}
                 strokeWidth={bullet.size * 0.56}
                 strokeCap="round"
               />
               <Path path={bombPath} color={withAlpha(bullet.color, 0.9)} />
-              <Path path={bombPath} style="stroke" strokeWidth={1.12} color={withAlpha('#FFF1DD', 0.8)} />
+              <Path path={bombPath} style="stroke" strokeWidth={1.12} color={withAlpha('#FFF5EF', 0.84)} />
               <Line
                 p1={vec(bullet.x - basis.rightX * bullet.size * 0.22, bullet.y - basis.rightY * bullet.size * 0.22)}
                 p2={vec(bullet.x + basis.rightX * bullet.size * 0.22, bullet.y + basis.rightY * bullet.size * 0.22)}
-                color={withAlpha('#FFF4E6', 0.68)}
+                color={withAlpha('#FFF8F2', 0.72)}
                 strokeWidth={0.9}
                 strokeCap="round"
               />
@@ -1725,7 +1859,7 @@ export function ArenaCanvas({ boardWidth, boardHeight, biomeDefinition, state, v
               <Line
                 p1={vec(tailX, tailY)}
                 p2={vec(bullet.x - basis.forwardX * bullet.size * 0.66, bullet.y - basis.forwardY * bullet.size * 0.66)}
-                color={withAlpha(bullet.color, 0.28)}
+                color={withAlpha(bullet.color, 0.34)}
                 strokeWidth={bullet.size * 0.5}
                 strokeCap="round"
               />
@@ -1736,7 +1870,7 @@ export function ArenaCanvas({ boardWidth, boardHeight, biomeDefinition, state, v
                 r={bullet.size * 0.58}
                 style="stroke"
                 strokeWidth={1}
-                color={withAlpha('#EFFFF8', 0.5)}
+                color={withAlpha('#F5F8FF', 0.56)}
               />
             </Group>
           );
@@ -1747,20 +1881,20 @@ export function ArenaCanvas({ boardWidth, boardHeight, biomeDefinition, state, v
             <Line
               p1={vec(tailX, tailY)}
               p2={vec(bullet.x - basis.forwardX * bullet.size * 0.66, bullet.y - basis.forwardY * bullet.size * 0.66)}
-              color={withAlpha(bullet.color, 0.3)}
+              color={withAlpha(bullet.color, 0.34)}
               strokeWidth={bullet.size * 0.62}
               strokeCap="round"
             />
             <Line
               p1={vec(tailX, tailY)}
               p2={vec(bullet.x - basis.forwardX * bullet.size * 0.64, bullet.y - basis.forwardY * bullet.size * 0.64)}
-              color={withAlpha('#FFF3E2', 0.44)}
+              color={withAlpha('#FFF4FA', 0.54)}
               strokeWidth={bullet.size * 0.2}
               strokeCap="round"
             />
             <Path path={boltPath} color={bullet.color} />
-            <Path path={boltPath} style="stroke" strokeWidth={1.05} color={withAlpha('#FFF3E6', 0.8)} />
-            <Circle cx={bullet.x} cy={bullet.y} r={bullet.size * 0.18} color={withAlpha('#FFF5E7', 0.86)} />
+            <Path path={boltPath} style="stroke" strokeWidth={1.05} color={withAlpha('#FFF8FC', 0.88)} />
+            <Circle cx={bullet.x} cy={bullet.y} r={bullet.size * 0.18} color={withAlpha('#FFF9FF', 0.92)} />
           </Group>
         );
       })}
@@ -1841,30 +1975,30 @@ export function ArenaCanvas({ boardWidth, boardHeight, biomeDefinition, state, v
                   <Line
                     p1={vec(trailTailX, trailTailY)}
                     p2={vec(bullet.x - basis.forwardX * renderSize * 0.84, bullet.y - basis.forwardY * renderSize * 0.84)}
-                    color={withAlpha('#FFB261', 0.34)}
+                    color={withAlpha('#FF9A54', 0.38)}
                     strokeWidth={renderSize * 0.58}
                     strokeCap="round"
                   />
                   <Line
                     p1={vec(trailTailX, trailTailY)}
                     p2={vec(bullet.x - basis.forwardX * renderSize * 0.9, bullet.y - basis.forwardY * renderSize * 0.9)}
-                    color={withAlpha('#FFF7E9', 0.58)}
+                    color={withAlpha('#FFF8EF', 0.64)}
                     strokeWidth={renderSize * 0.24}
                     strokeCap="round"
                   />
-                  <Path path={missileBodyPath} color={withAlpha('#E69A62', 0.98)} />
-                  <Path path={missileBodyPath} style="stroke" strokeWidth={1.25} color={withAlpha('#FFEED5', 0.92)} />
-                  <Path path={missileBandPath} color={withAlpha('#8A4734', 0.64)} />
-                  <Path path={missileNosePath} color={withAlpha('#FFF4E1', 0.96)} />
-                  <Path path={missileNosePath} style="stroke" strokeWidth={1.1} color={withAlpha('#FFFDF6', 0.9)} />
-                  <Path path={missileFinLeftPath} color={withAlpha('#FFC58F', 0.94)} />
-                  <Path path={missileFinRightPath} color={withAlpha('#FFC58F', 0.94)} />
-                  <Path path={missileCorePath} color={withAlpha('#FFF0D2', 0.78)} />
+                  <Path path={missileBodyPath} color={withAlpha('#FFB06C', 0.98)} />
+                  <Path path={missileBodyPath} style="stroke" strokeWidth={1.25} color={withAlpha('#FFF0DD', 0.94)} />
+                  <Path path={missileBandPath} color={withAlpha('#8C3559', 0.52)} />
+                  <Path path={missileNosePath} color={withAlpha('#FFF6E8', 0.98)} />
+                  <Path path={missileNosePath} style="stroke" strokeWidth={1.1} color={withAlpha('#FFFCF7', 0.92)} />
+                  <Path path={missileFinLeftPath} color={withAlpha('#FFCC93', 0.96)} />
+                  <Path path={missileFinRightPath} color={withAlpha('#FFCC93', 0.96)} />
+                  <Path path={missileCorePath} color={withAlpha('#FFF4E3', 0.82)} />
                   <Circle
                     cx={bullet.x - basis.forwardX * renderSize * 1.04}
                     cy={bullet.y - basis.forwardY * renderSize * 1.04}
                     r={renderSize * 0.32}
-                    color={withAlpha('#FFE0AA', 0.82)}
+                    color={withAlpha('#FFE0AA', 0.9)}
                   />
                 </>
               );
@@ -1904,34 +2038,34 @@ export function ArenaCanvas({ boardWidth, boardHeight, biomeDefinition, state, v
                   <Line
                     p1={vec(trailTailX, trailTailY)}
                     p2={vec(bullet.x - basis.forwardX * renderSize * 0.74, bullet.y - basis.forwardY * renderSize * 0.74)}
-                    color={withAlpha('#DCEBFF', 0.28)}
+                    color={withAlpha('#B7C7FF', 0.34)}
                     strokeWidth={renderSize * 0.7}
                     strokeCap="round"
                   />
                   <Line
                     p1={vec(trailTailX, trailTailY)}
                     p2={vec(bullet.x - basis.forwardX * renderSize * 0.78, bullet.y - basis.forwardY * renderSize * 0.78)}
-                    color={withAlpha('#F7FCFF', 0.34)}
+                    color={withAlpha('#F6F9FF', 0.42)}
                     strokeWidth={renderSize * 0.22}
                     strokeCap="round"
                   />
-                  <Circle cx={bullet.x} cy={bullet.y} r={rockRadius} color={withAlpha('#9EB2C7', 0.95)} />
-                  <Circle cx={bullet.x} cy={bullet.y} r={rockRadius * 0.92} style="stroke" strokeWidth={1.35} color={withAlpha('#D6E4F2', 0.84)} />
+                  <Circle cx={bullet.x} cy={bullet.y} r={rockRadius} color={withAlpha('#90A8FF', 0.96)} />
+                  <Circle cx={bullet.x} cy={bullet.y} r={rockRadius * 0.92} style="stroke" strokeWidth={1.35} color={withAlpha('#E6ECFF', 0.88)} />
                   <Line
                     p1={vec(bullet.x - rockRadius * 0.45, bullet.y - rockRadius * 0.08)}
                     p2={vec(bullet.x + rockRadius * 0.3, bullet.y + rockRadius * 0.22)}
-                    color={withAlpha('#E8F2FF', 0.66)}
+                    color={withAlpha('#EEF4FF', 0.72)}
                     strokeWidth={1.15}
                     strokeCap="round"
                   />
                   <Line
                     p1={vec(bullet.x - rockRadius * 0.08, bullet.y - rockRadius * 0.38)}
                     p2={vec(bullet.x + rockRadius * 0.22, bullet.y + rockRadius * 0.02)}
-                    color={withAlpha('#E8F2FF', 0.62)}
+                    color={withAlpha('#F2F6FF', 0.68)}
                     strokeWidth={1}
                     strokeCap="round"
                   />
-                  <Circle cx={bullet.x + rockRadius * 0.1} cy={bullet.y - rockRadius * 0.16} r={rockRadius * (0.14 + rockPulse * 0.06)} color={withAlpha('#F3FAFF', 0.45)} />
+                  <Circle cx={bullet.x + rockRadius * 0.1} cy={bullet.y - rockRadius * 0.16} r={rockRadius * (0.14 + rockPulse * 0.06)} color={withAlpha('#FAFCFF', 0.52)} />
                 </>
               );
             }

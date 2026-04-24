@@ -1,7 +1,7 @@
 # Prototype V2 Reference
 
 Snapshot date: `2026-04-24`
-Board version: `v0.74`
+Board version: `v0.75`
 
 This document is the current reference for the arena-combat shooter in `/Users/johnchang/Desktop/defender/src/prototype-v2`. It replaces the earlier planning-heavy draft with a snapshot of what is actually implemented today, plus the next major gaps.
 
@@ -25,7 +25,7 @@ Core loop:
 
 This mode is no longer just a redesign concept. It is a production prototype with live combat, encounters, progression, and Skia rendering.
 
-The current build also includes persistent between-run `Codex + Mastery` data stored locally, a scripted encounter registry, a rotating four-boss cadence, named biome sectors, temporarily disabled Arena audio scaffolding, impact + lane-band hazard telegraphs, one-time coaching chips, a local cosmetic collection / equip layer, and an early cockpit-style Campaign Home Base foundation on top of the meta flow.
+The current build also includes persistent between-run `Codex + Mastery` data stored locally, a scripted encounter registry, a rotating four-boss cadence, named biome sectors, a darker cyberpunk-space palette pass across the arena renderer, temporarily disabled Arena audio scaffolding, impact + lane-band hazard telegraphs, one-time coaching chips, a local cosmetic collection / equip layer, and an early cockpit-style Campaign Home Base foundation on top of the meta flow.
 
 ## Current Playable State
 
@@ -72,6 +72,7 @@ Other UI behavior:
 - drop labels are rendered under field pickups
 - the player ship now sits higher in the lower arena to keep the live view clearer under the player’s finger
 - the default ship silhouette is now a sharper low-poly rail-shooter hull with a pointed nose, swept triangular wings, rear fins, and twin engine slits
+- the arena board, enemy hulls, projectile cores, hits, drops, and ship glow now use a darker neon cyberpunk-space palette pass with cached starfield / panel framing to improve contrast without adding heavy runtime effects
 - a semi-transparent move hint sits below the ship and hides while the player is pressing in that control zone
 - one-time coaching chips can appear during live play for movement, armory queueing, build switching, overdrive, ultimate charge, hazards, boss phases, Collection claims, and high-tier goals; `Reset tips` in the `Run` menu clears the seen state
 - the armory is accessible anytime during a run via the HUD button; if no upgrade choices are pending it opens in browse mode showing upgrade status and the next unlock threshold
@@ -546,6 +547,9 @@ Primary implementation files:
 
 ### 2026-04-24
 
+- Advanced arena board label to `v0.75`.
+- Applied a palette-first cyberpunk-space art pass to Arena V2: darker biome bases, brighter neon role colors, cached starfield / panel framing in the board background, and cleaner projectile / hit / drop color treatment.
+- Slightly boosted the player ship glow so the active build accent reads more clearly against the darker arena.
 - Advanced arena board label to `v0.74`.
 - Added an Endless `Restart at T40 Demo` action in the `Run` menu. It starts a non-persistent demo run at `T40`, seeds all four builds with maxed capped weapon upgrades plus extra damage, bumps hull / shield for late-tier testing, and keeps progression, rewards, and Codex discoveries from being saved.
 - Temporarily disabled Arena V2 audio initialization / playback and replaced the `Run`-tab audio controls with a stability note while first-launch crashes are investigated.

@@ -3635,6 +3635,10 @@ export function ArenaPrototypeScreen({
                     ARENA_PLAYER_FLOOR_OFFSET -
                     6,
                 ),
+                shadowColor: activeAccentDefinition.glowColor,
+                shadowOpacity: 0.28,
+                shadowRadius: 14,
+                shadowOffset: { width: 0, height: 6 },
               },
               playerShellAnimatedStyle,
               gameState.playerFlash > 0 && arenaStyles.playerShellHit,
@@ -3646,7 +3650,7 @@ export function ArenaPrototypeScreen({
                 {
                   backgroundColor: hexToRgba(
                     activeAccentDefinition.glowColor,
-                    0.22,
+                    0.3,
                   ),
                 },
               ]}
@@ -6921,9 +6925,9 @@ const arenaStyles = StyleSheet.create({
   },
   playerThrusterGlow: {
     position: "absolute",
-    bottom: 0,
-    width: 46,
-    height: 13,
+    bottom: -1,
+    width: 52,
+    height: 16,
     borderRadius: 999,
     backgroundColor: "rgba(110, 231, 255, 0.2)",
   },
