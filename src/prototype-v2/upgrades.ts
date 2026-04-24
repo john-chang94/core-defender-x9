@@ -122,7 +122,7 @@ const BUILD_FIRE_INTERVAL_FLOOR: Record<ArenaBuildId, number> = {
   railFocus:      0.065,
   novaBloom:      0.085,
   missileCommand: 0.065,
-  fractureCore:   0.32,
+  fractureCore:   0.30,
 };
 
 export function isArenaArmoryUpgradeMaxed(

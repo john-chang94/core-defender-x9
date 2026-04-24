@@ -1,5 +1,3 @@
-import type { AudioPlayer } from "expo-audio";
-import { createAudioPlayer, setAudioModeAsync } from "expo-audio";
 import {
   useCallback,
   useEffect,
@@ -10,7 +8,6 @@ import {
 } from "react";
 import type { LayoutChangeEvent } from "react-native";
 import {
-  AppState,
   Pressable,
   SafeAreaView,
   ScrollView,
@@ -28,19 +25,6 @@ import Animated, {
 
 import { ArenaCanvas } from "./ArenaCanvas";
 import {
-  ARENA_AUDIO_CUE_FILES,
-  ARENA_AUDIO_CUE_MIN_INTERVAL_MS,
-  ARENA_AUDIO_CUE_POOL_SIZE,
-  ARENA_AUDIO_CUE_VOLUMES,
-  ARENA_BIOME_MUSIC_FILES,
-  ARENA_BIOME_MUSIC_VOLUMES,
-  DEFAULT_ARENA_AUDIO_SETTINGS,
-  createArenaAudioSettings,
-  loadArenaAudioSettings,
-  saveArenaAudioSettings,
-} from "./audio";
-import {
-  ARENA_BIOME_ORDER,
   getArenaBiomeDefinitionForTier,
   getArenaBiomeTierRange,
   isArenaBiomeTransitionTier,
@@ -71,6 +55,7 @@ import {
   ARENA_PLAYER_HEIGHT,
   ARENA_PLAYER_MARGIN,
   ARENA_PLAYER_RENDER_HALF_WIDTH,
+  ARENA_TIER_DURATION_SECONDS,
   ARENA_VERSION_LABEL,
 } from "./config";
 import { getArenaCosmeticDefinition } from "./cosmetics";
@@ -117,9 +102,6 @@ import {
   upgradeArenaCampaignWeapon,
 } from "./meta";
 import type {
-  ArenaAudioCueKey,
-  ArenaAudioSettings,
-  ArenaBiomeId,
   ArenaBuildId,
   ArenaCampaignMissionId,
   ArenaCampaignShieldId,
@@ -170,6 +152,7 @@ type ArenaRunEndSummary = {
   campaignCompleted: boolean;
   newlyClaimableIds: ArenaCosmeticId[];
   dominantBuild: ArenaBuildId;
+  progressNote: string | null;
 };
 
 const FEATURED_COLLECTION_REWARD_IDS: ArenaCosmeticId[] = [
@@ -233,10 +216,22 @@ const ARENA_COACH_HINT_COPY: Record<
     body: "New cosmetic milestones now extend through T30, T45, and T60.",
   },
 };
-const ARENA_AUDIO_CUE_ORDER = Object.keys(
-  ARENA_AUDIO_CUE_FILES,
-) as ArenaAudioCueKey[];
 const ARENA_LOSS_TRANSITION_SECONDS = 1.35;
+const ENDLESS_T40_DEMO_TIER = 40;
+const ENDLESS_T40_DEMO_DAMAGE_UPGRADES = 8;
+const ENDLESS_T40_DEMO_HULL_UPGRADES = 6;
+const ENDLESS_T40_DEMO_SHIELD_UPGRADES = 6;
+const ENDLESS_T40_DEMO_NEXT_ARMORY_COST = 620;
+const ENDLESS_T40_DEMO_STATUS_TEXT =
+  "T40 demo live. Progression, rewards, and codex discoveries are disabled for this run.";
+const ENDLESS_T40_DEMO_CAPPED_UPGRADES = [
+  "rapidCycle",
+  "twinArray",
+  "phasePierce",
+  "accelerator",
+] as const;
+const ARENA_AUDIO_DISABLED_NOTE =
+  "Audio is temporarily disabled while first-launch stability is debugged.";
 
 function clamp(value: number, min: number, max: number) {
   return Math.max(min, Math.min(max, value));
@@ -297,59 +292,35 @@ function createArenaRunEndSummary(
   }
 
   const runSummary = createArenaRunMetaSummary(gameState);
-  const nextMetaState = applyArenaRunSummary(metaState, runSummary);
+  const nextMetaState = gameState.isDebugDemoRun
+    ? metaState
+    : applyArenaRunSummary(metaState, runSummary);
   const campaignMission =
     gameState.runMode === "campaign" && gameState.campaignMissionId
       ? ARENA_CAMPAIGN_MISSIONS[gameState.campaignMissionId]
       : null;
   const claimableSet = new Set(getArenaClaimableCosmeticIds(metaState));
-  const newlyClaimableIds = getArenaClaimableCosmeticIds(nextMetaState).filter(
-    (cosmeticId) => !claimableSet.has(cosmeticId),
-  );
+  const newlyClaimableIds = gameState.isDebugDemoRun
+    ? []
+    : getArenaClaimableCosmeticIds(nextMetaState).filter(
+        (cosmeticId) => !claimableSet.has(cosmeticId),
+      );
 
   return {
     tierReached: runSummary.tierReached,
     bossLabels: BOSS_ENEMY_ORDER.filter(
       (kind) => gameState.runBossClearsByEnemy[kind] > 0,
     ).map((kind) => ARENA_ENEMY_LABELS[kind]),
-    masteryXp: getArenaRunEarnedXp(runSummary),
-    campaignXp: getArenaCampaignRunXp(gameState),
+    masteryXp: gameState.isDebugDemoRun ? 0 : getArenaRunEarnedXp(runSummary),
+    campaignXp: gameState.isDebugDemoRun ? 0 : getArenaCampaignRunXp(gameState),
     campaignMissionLabel: campaignMission?.label ?? null,
     campaignCompleted: gameState.status === "won",
     newlyClaimableIds,
     dominantBuild: runSummary.dominantBuild,
+    progressNote: gameState.isDebugDemoRun
+      ? "Demo run only: progression, rewards, and codex discoveries are not saved."
+      : null,
   };
-}
-
-function getPlayerFireCueKey(buildId: ArenaBuildId): ArenaAudioCueKey {
-  if (buildId === "novaBloom") {
-    return "playerNova";
-  }
-  if (buildId === "missileCommand") {
-    return "playerMissile";
-  }
-  if (buildId === "fractureCore") {
-    return "playerFracture";
-  }
-  return "playerRail";
-}
-
-function getEnemyFireCueKey(
-  style: ArenaGameState["enemyBullets"][number]["enemyStyle"],
-): ArenaAudioCueKey | null {
-  switch (style) {
-    case "orb":
-      return "enemyOrb";
-    case "needle":
-      return "enemyNeedle";
-    case "bomb":
-      return "enemyBomb";
-    case "wave":
-      return "enemyWave";
-    case "bolt":
-    default:
-      return style ? "enemyBolt" : null;
-  }
 }
 
 function getCollectionStatePriority(state: ArenaCosmeticDisplayState) {
@@ -1330,11 +1301,6 @@ export function ArenaPrototypeScreen({
     createArenaMetaState(),
   );
   const [isMetaReady, setIsMetaReady] = useState(false);
-  const [arenaAudioSettings, setArenaAudioSettings] =
-    useState<ArenaAudioSettings>(() => createArenaAudioSettings());
-  const [isAudioSettingsReady, setIsAudioSettingsReady] = useState(false);
-  const [isArenaAudioReady, setIsArenaAudioReady] = useState(false);
-  const [isAppActive, setIsAppActive] = useState(true);
   const [isMoveHintPressed, setIsMoveHintPressed] = useState(false);
   const [pendingCollectionNoticeIds, setPendingCollectionNoticeIds] = useState<
     ArenaCosmeticId[]
@@ -1354,18 +1320,6 @@ export function ArenaPrototypeScreen({
   const runMetaCommittedRef = useRef(false);
   const hasHydratedClaimablesRef = useRef(false);
   const claimableSignatureRef = useRef("");
-  const soundPoolsRef = useRef<
-    Partial<Record<ArenaAudioCueKey, AudioPlayer[]>>
-  >({});
-  const soundCursorRef = useRef<Partial<Record<ArenaAudioCueKey, number>>>({});
-  const lastSoundAtRef = useRef<Partial<Record<ArenaAudioCueKey, number>>>({});
-  const musicPlayersRef = useRef<Record<ArenaBiomeId, AudioPlayer | null>>({
-    prismVerge: null,
-    hiveForge: null,
-    vectorSpindle: null,
-  });
-  const activeMusicBiomeRef = useRef<ArenaBiomeId | null>(null);
-  const previousGameStateRef = useRef(gameState);
   const lastBiomeBannerKeyRef = useRef("");
   const playerVisualX = useSharedValue(900 / 2);
   const playerShellAnimatedStyle = useAnimatedStyle(() => ({
@@ -1397,119 +1351,6 @@ export function ArenaPrototypeScreen({
   }, []);
 
   useEffect(() => {
-    let cancelled = false;
-
-    const hydrateArenaAudioSettings = async () => {
-      const loadedSettings = await loadArenaAudioSettings();
-      if (cancelled) {
-        return;
-      }
-      setArenaAudioSettings(loadedSettings);
-      setIsAudioSettingsReady(true);
-    };
-
-    void hydrateArenaAudioSettings();
-
-    return () => {
-      cancelled = true;
-    };
-  }, []);
-
-  useEffect(() => {
-    if (!isAudioSettingsReady) {
-      return;
-    }
-    void saveArenaAudioSettings(arenaAudioSettings);
-  }, [arenaAudioSettings, isAudioSettingsReady]);
-
-  useEffect(() => {
-    let cancelled = false;
-    const bootstrapAudioSettings = DEFAULT_ARENA_AUDIO_SETTINGS;
-
-    const initializeArenaAudio = async () => {
-      try {
-        await setAudioModeAsync({
-          playsInSilentMode: true,
-          shouldPlayInBackground: false,
-          interruptionMode: "duckOthers",
-          interruptionModeAndroid: "duckOthers",
-          shouldRouteThroughEarpiece: false,
-        });
-
-        for (const cueKey of ARENA_AUDIO_CUE_ORDER) {
-          const pool: AudioPlayer[] = [];
-          const volume =
-            ARENA_AUDIO_CUE_VOLUMES[cueKey] * bootstrapAudioSettings.sfxVolume;
-          for (
-            let index = 0;
-            index < ARENA_AUDIO_CUE_POOL_SIZE[cueKey];
-            index += 1
-          ) {
-            const player = createAudioPlayer(ARENA_AUDIO_CUE_FILES[cueKey]);
-            player.volume = volume;
-            pool.push(player);
-          }
-          soundPoolsRef.current[cueKey] = pool;
-          soundCursorRef.current[cueKey] = 0;
-          lastSoundAtRef.current[cueKey] = 0;
-        }
-
-        for (const biomeId of ARENA_BIOME_ORDER) {
-          const player = createAudioPlayer(ARENA_BIOME_MUSIC_FILES[biomeId]);
-          player.volume =
-            ARENA_BIOME_MUSIC_VOLUMES[biomeId] *
-            bootstrapAudioSettings.musicVolume;
-          player.loop = true;
-          musicPlayersRef.current[biomeId] = player;
-        }
-
-        if (!cancelled) {
-          setIsArenaAudioReady(true);
-        }
-      } catch (error) {
-        console.warn("Failed to initialize Arena V2 audio", error);
-      }
-    };
-
-    void initializeArenaAudio();
-
-    return () => {
-      cancelled = true;
-      setIsArenaAudioReady(false);
-      activeMusicBiomeRef.current = null;
-      const activeSoundPools = soundPoolsRef.current;
-      soundPoolsRef.current = {};
-      [
-        ...Object.values(activeSoundPools).flatMap((pool) => pool ?? []),
-        ...ARENA_BIOME_ORDER.map(
-          (biomeId) => musicPlayersRef.current[biomeId],
-        ).filter((player): player is AudioPlayer => player !== null),
-      ].forEach((player) => {
-        try {
-          player.remove();
-        } catch {
-          // Ignore removal failures during teardown.
-        }
-      });
-      musicPlayersRef.current = {
-        prismVerge: null,
-        hiveForge: null,
-        vectorSpindle: null,
-      };
-    };
-  }, []);
-
-  useEffect(() => {
-    const subscription = AppState.addEventListener("change", (nextState) => {
-      setIsAppActive(nextState === "active");
-    });
-
-    return () => {
-      subscription.remove();
-    };
-  }, []);
-
-  useEffect(() => {
     if (boardSize.width <= 0 || boardSize.height <= 0) {
       return;
     }
@@ -1519,16 +1360,13 @@ export function ArenaPrototypeScreen({
       playerVisualX.value = boardSize.width / 2;
       if (hasStarted) {
         setGameState((previousState) => {
-          const adjustedState = {
+          return {
             ...previousState,
             playerX: boardSize.width / 2,
           };
-          previousGameStateRef.current = adjustedState;
-          return adjustedState;
         });
       } else {
         const initialState = createInitialArenaState(boardSize.width);
-        previousGameStateRef.current = initialState;
         setGameState(initialState);
         setIsPaused(true);
       }
@@ -1692,7 +1530,7 @@ export function ArenaPrototypeScreen({
   ).join("|");
 
   useEffect(() => {
-    if (!isMetaReady) {
+    if (!isMetaReady || gameState.isDebugDemoRun) {
       return;
     }
     if (discoverySignature === persistedDiscoveryKeyRef.current) {
@@ -1709,7 +1547,12 @@ export function ArenaPrototypeScreen({
       }
       return nextMetaState;
     });
-  }, [discoverySignature, gameState.runSeenTierByEnemy, isMetaReady]);
+  }, [
+    discoverySignature,
+    gameState.isDebugDemoRun,
+    gameState.runSeenTierByEnemy,
+    isMetaReady,
+  ]);
 
   useEffect(() => {
     if (!isMenuOpen) {
@@ -2162,42 +2005,6 @@ export function ArenaPrototypeScreen({
           .join(" • ")
       : null;
 
-  const playArenaSound = useCallback(
-    (cueKey: ArenaAudioCueKey) => {
-      if (
-        !isArenaAudioReady ||
-        !isAppActive ||
-        !arenaAudioSettings.soundEnabled
-      ) {
-        return;
-      }
-
-      const now = Date.now();
-      const minIntervalMs = ARENA_AUDIO_CUE_MIN_INTERVAL_MS[cueKey];
-      const previousAt = lastSoundAtRef.current[cueKey] ?? 0;
-      if (minIntervalMs > 0 && now - previousAt < minIntervalMs) {
-        return;
-      }
-
-      const pool = soundPoolsRef.current[cueKey];
-      if (!pool || pool.length === 0) {
-        return;
-      }
-
-      const cursor = soundCursorRef.current[cueKey] ?? 0;
-      const player = pool[cursor % pool.length];
-      soundCursorRef.current[cueKey] = (cursor + 1) % pool.length;
-      lastSoundAtRef.current[cueKey] = now;
-      try {
-        void player.seekTo(0);
-        player.play();
-      } catch {
-        // Ignore individual playback failures; the pool can continue serving later sounds.
-      }
-    },
-    [arenaAudioSettings.soundEnabled, isAppActive, isArenaAudioReady],
-  );
-
   const canControlShip =
     boardSize.width > 0 &&
     boardSize.height > 0 &&
@@ -2299,99 +2106,6 @@ export function ArenaPrototypeScreen({
   }, [activeCoachHintId]);
 
   useEffect(() => {
-    if (!isArenaAudioReady) {
-      return;
-    }
-
-    for (const cueKey of ARENA_AUDIO_CUE_ORDER) {
-      for (const player of soundPoolsRef.current[cueKey] ?? []) {
-        player.volume =
-          ARENA_AUDIO_CUE_VOLUMES[cueKey] * arenaAudioSettings.sfxVolume;
-      }
-    }
-  }, [arenaAudioSettings.sfxVolume, isArenaAudioReady]);
-
-  useEffect(() => {
-    if (!isArenaAudioReady) {
-      return;
-    }
-
-    for (const biomeId of ARENA_BIOME_ORDER) {
-      const musicPlayer = musicPlayersRef.current[biomeId];
-      if (musicPlayer) {
-        musicPlayer.volume =
-          ARENA_BIOME_MUSIC_VOLUMES[biomeId] * arenaAudioSettings.musicVolume;
-      }
-    }
-  }, [arenaAudioSettings.musicVolume, isArenaAudioReady]);
-
-  useEffect(() => {
-    if (!isArenaAudioReady) {
-      return;
-    }
-
-    const shouldPlayMusic =
-      arenaAudioSettings.musicEnabled &&
-      isAppActive &&
-      hasStarted &&
-      !isPaused &&
-      !isArmoryOpen &&
-      !isMenuOpen &&
-      gameState.status === "running";
-
-    const syncMusic = () => {
-      if (!shouldPlayMusic) {
-        for (const biomeId of ARENA_BIOME_ORDER) {
-          const musicPlayer = musicPlayersRef.current[biomeId];
-          if (musicPlayer) {
-            musicPlayer.pause();
-          }
-        }
-        return;
-      }
-
-      const activeBiomeId = activeBiomeDefinition.id;
-      for (const biomeId of ARENA_BIOME_ORDER) {
-        if (biomeId !== activeBiomeId) {
-          const musicPlayer = musicPlayersRef.current[biomeId];
-          if (musicPlayer) {
-            musicPlayer.pause();
-          }
-        }
-      }
-
-      const activeMusicPlayer = musicPlayersRef.current[activeBiomeId];
-      if (!activeMusicPlayer) {
-        return;
-      }
-
-      try {
-        if (activeMusicBiomeRef.current !== activeBiomeId) {
-          void activeMusicPlayer.seekTo(0);
-          activeMusicPlayer.play();
-        } else if (!activeMusicPlayer.playing) {
-          activeMusicPlayer.play();
-        }
-        activeMusicBiomeRef.current = activeBiomeId;
-      } catch {
-        // Ignore playback failures and allow later state changes to retry.
-      }
-    };
-
-    syncMusic();
-  }, [
-    activeBiomeDefinition.id,
-    arenaAudioSettings.musicEnabled,
-    gameState.status,
-    hasStarted,
-    isAppActive,
-    isArenaAudioReady,
-    isArmoryOpen,
-    isMenuOpen,
-    isPaused,
-  ]);
-
-  useEffect(() => {
     if (
       !hasStarted ||
       gameState.status !== "running" ||
@@ -2429,103 +2143,6 @@ export function ArenaPrototypeScreen({
     };
   }, [sectorBannerTier]);
 
-  useEffect(() => {
-    const previousState = previousGameStateRef.current;
-    if (!hasStarted || previousState === gameState) {
-      previousGameStateRef.current = gameState;
-      return;
-    }
-
-    const previousPlayerBulletIds = new Set(
-      previousState.playerBullets.map((bullet) => bullet.id),
-    );
-    const nextPlayerCueKeys = new Set(
-      gameState.playerBullets
-        .filter((bullet) => !previousPlayerBulletIds.has(bullet.id))
-        .map((bullet) =>
-          getPlayerFireCueKey(bullet.buildFlavor ?? gameState.activeBuild),
-        ),
-    );
-    nextPlayerCueKeys.forEach((cueKey) => {
-      playArenaSound(cueKey);
-    });
-
-    const previousEnemyBulletIds = new Set(
-      previousState.enemyBullets.map((bullet) => bullet.id),
-    );
-    const nextEnemyCueKeys = new Set(
-      gameState.enemyBullets
-        .filter((bullet) => !previousEnemyBulletIds.has(bullet.id))
-        .map((bullet) => getEnemyFireCueKey(bullet.enemyStyle))
-        .filter((cueKey): cueKey is ArenaAudioCueKey => cueKey !== null),
-    );
-    nextEnemyCueKeys.forEach((cueKey) => {
-      playArenaSound(cueKey);
-    });
-
-    const previousHazardsById = new Map(
-      previousState.hazards.map((hazard) => [hazard.id, hazard]),
-    );
-    for (const hazard of gameState.hazards) {
-      const previousHazard = previousHazardsById.get(hazard.id);
-      if (!previousHazard) {
-        playArenaSound("hazardTelegraph");
-      } else if (!previousHazard.triggered && hazard.triggered) {
-        playArenaSound("hazardImpact");
-      }
-    }
-
-    if (
-      gameState.pickupMessage !== previousState.pickupMessage &&
-      gameState.pickupMessage
-    ) {
-      playArenaSound("pickup");
-    }
-    if (previousState.overclockTimer <= 0 && gameState.overclockTimer > 0) {
-      playArenaSound("overdriveStart");
-    } else if (
-      previousState.overclockTimer > 0 &&
-      gameState.overclockTimer <= 0
-    ) {
-      playArenaSound("overdriveEnd");
-    }
-    if (previousState.ultimateTimer <= 0 && gameState.ultimateTimer > 0) {
-      playArenaSound("ultimate");
-    }
-    if (
-      gameState.activeEncounter?.type === "boss" &&
-      (previousState.activeEncounter?.scriptId !==
-        gameState.activeEncounter.scriptId ||
-        previousState.activeEncounter?.startedAtTier !==
-          gameState.activeEncounter.startedAtTier)
-    ) {
-      playArenaSound("bossIntro");
-    }
-    if (
-      gameState.activeEncounter?.type === "boss" &&
-      previousState.activeEncounter?.type === "boss" &&
-      gameState.activeEncounter.bossPhaseIndex >
-        previousState.activeEncounter.bossPhaseIndex
-    ) {
-      playArenaSound("bossPhase");
-    }
-    if (gameState.runBossClears > previousState.runBossClears) {
-      playArenaSound("bossKill");
-    }
-    if (
-      gameState.status === "running" &&
-      (gameState.hull < previousState.hull - 0.01 ||
-        gameState.shield < previousState.shield - 0.01)
-    ) {
-      playArenaSound("playerHit");
-    }
-    if (previousState.status !== "lost" && gameState.status === "lost") {
-      playArenaSound("playerLoss");
-    }
-
-    previousGameStateRef.current = gameState;
-  }, [gameState, hasStarted, playArenaSound]);
-
   const handleBoardLayout = (event: LayoutChangeEvent) => {
     const nextWidth = Math.round(event.nativeEvent.layout.width);
     const nextHeight = Math.round(event.nativeEvent.layout.height);
@@ -2546,10 +2163,19 @@ export function ArenaPrototypeScreen({
     }
 
     setRunEndSummary(nextRunEndSummary);
+    if (gameState.isDebugDemoRun) {
+      return nextRunEndSummary;
+    }
     const runSummary = createArenaRunMetaSummary(gameState);
     setArenaMeta((previousMetaState) => {
-      const runProgressState = applyArenaRunSummary(previousMetaState, runSummary);
-      const nextMetaState = applyArenaCampaignRunResult(runProgressState, gameState);
+      const runProgressState = applyArenaRunSummary(
+        previousMetaState,
+        runSummary,
+      );
+      const nextMetaState = applyArenaCampaignRunResult(
+        runProgressState,
+        gameState,
+      );
       if (nextMetaState !== previousMetaState) {
         void saveArenaMetaState(nextMetaState);
       }
@@ -2583,15 +2209,10 @@ export function ArenaPrototypeScreen({
   };
 
   const handleOpenArmory = () => {
-    if (
-      !hasStarted ||
-      gameState.status !== "running" ||
-      isMenuOpen
-    ) {
+    if (!hasStarted || gameState.status !== "running" || isMenuOpen) {
       return;
     }
     armoryResumeOnCloseRef.current = !isPaused;
-    playArenaSound("armoryOpen");
     setIsPaused(true);
     setIsMenuOpen(false);
     setIsArmoryOpen(true);
@@ -2646,13 +2267,68 @@ export function ArenaPrototypeScreen({
     });
   };
 
+  const createEndlessTier40DemoState = () => {
+    const boardWidth = getDeploymentBoardWidth();
+    const baseState = createInitialArenaState(boardWidth, {
+      runMode: "endless",
+      activeBuild: gameState.activeBuild,
+      isDebugDemoRun: true,
+    });
+    const demoWeapons = { ...baseState.weaponsByBuild };
+
+    for (const buildId of ARENA_BUILD_ORDER) {
+      let nextWeapon = { ...baseState.weaponsByBuild[buildId] };
+      for (const key of ENDLESS_T40_DEMO_CAPPED_UPGRADES) {
+        while (!isArenaArmoryUpgradeMaxed(key, nextWeapon, buildId)) {
+          nextWeapon = ARENA_ARMORY_UPGRADES[key].apply(nextWeapon);
+        }
+      }
+      for (
+        let upgradeIndex = 0;
+        upgradeIndex < ENDLESS_T40_DEMO_DAMAGE_UPGRADES;
+        upgradeIndex += 1
+      ) {
+        nextWeapon = ARENA_ARMORY_UPGRADES.damageMatrix.apply(nextWeapon);
+      }
+      demoWeapons[buildId] = nextWeapon;
+    }
+
+    const hullBonus =
+      (ARENA_ARMORY_UPGRADES.hullWeave.applyMeta?.hullBonus ?? 0) *
+      ENDLESS_T40_DEMO_HULL_UPGRADES;
+    const shieldBonus =
+      (ARENA_ARMORY_UPGRADES.shieldCapacitor.applyMeta?.shieldBonus ?? 0) *
+      ENDLESS_T40_DEMO_SHIELD_UPGRADES;
+
+    return {
+      ...baseState,
+      elapsed: (ENDLESS_T40_DEMO_TIER - 1) * ARENA_TIER_DURATION_SECONDS,
+      nextArmoryCost: ENDLESS_T40_DEMO_NEXT_ARMORY_COST,
+      weapon: demoWeapons[baseState.activeBuild],
+      weaponsByBuild: demoWeapons,
+      maxHull: baseState.maxHull + hullBonus,
+      hull: baseState.maxHull + hullBonus,
+      maxShield: baseState.maxShield + shieldBonus,
+      shield: baseState.maxShield + shieldBonus,
+      enemySpawnCooldown: 0.08,
+      fireCooldown: 0.02,
+      missileCooldown: 0.16,
+      pickupMessage: ENDLESS_T40_DEMO_STATUS_TEXT,
+      pickupTimer: 4.2,
+      encounterAnnouncement: "T40 demo",
+      encounterAnnouncementColor: "#FFD68A",
+      encounterAnnouncementTimer: 1.9,
+      bestTierReached: ENDLESS_T40_DEMO_TIER,
+      lastProcessedDisplayTier: ENDLESS_T40_DEMO_TIER - 1,
+    };
+  };
+
   const deployRun = (
     runMode: ArenaRunMode,
     missionId: ArenaCampaignMissionId | null = null,
   ) => {
     const nextState = createRunState(runMode, missionId);
     playerVisualX.value = getDeploymentBoardWidth() / 2;
-    previousGameStateRef.current = nextState;
     setGameState(nextState);
     setShellMode("arena");
     setHasStarted(true);
@@ -2670,7 +2346,6 @@ export function ArenaPrototypeScreen({
     armoryResumeOnCloseRef.current = false;
     runMetaCommittedRef.current = false;
     lastBiomeBannerKeyRef.current = "";
-    activeMusicBiomeRef.current = null;
   };
 
   const handleOpenHubPanel = (tab: ArenaMenuTab) => {
@@ -2713,8 +2388,32 @@ export function ArenaPrototypeScreen({
     armoryResumeOnCloseRef.current = false;
     runMetaCommittedRef.current = false;
     lastBiomeBannerKeyRef.current = "";
-    activeMusicBiomeRef.current = null;
-    previousGameStateRef.current = nextState;
+  };
+
+  const handleRestartAtTier40Demo = () => {
+    if (gameState.runMode !== "endless") {
+      return;
+    }
+
+    const nextState = createEndlessTier40DemoState();
+    playerVisualX.value = getDeploymentBoardWidth() / 2;
+    setGameState(nextState);
+    setShellMode("arena");
+    setHasStarted(true);
+    setIsPaused(false);
+    setIsMenuOpen(false);
+    setIsArmoryOpen(false);
+    setMenuTab("run");
+    setIsMoveHintPressed(false);
+    setActiveCoachHintId(null);
+    setRunEndSummary(null);
+    setPendingRestartSummary(null);
+    setSectorBannerTier(null);
+    setLossTransitionTimer(0);
+    setHubPanel("root");
+    armoryResumeOnCloseRef.current = false;
+    runMetaCommittedRef.current = false;
+    lastBiomeBannerKeyRef.current = "";
   };
 
   const handleRestart = () => {
@@ -2765,7 +2464,6 @@ export function ArenaPrototypeScreen({
       }
       return applyArenaArmoryUpgrade(previousState, key);
     });
-    playArenaSound("armoryUpgrade");
 
     if (shouldCloseAfterInstall) {
       requestAnimationFrame(() => {
@@ -2877,23 +2575,6 @@ export function ArenaPrototypeScreen({
       }
       return nextMetaState;
     });
-  };
-  const updateArenaAudioSetting = (
-    partialSettings: Partial<ArenaAudioSettings>,
-  ) => {
-    setArenaAudioSettings((previousSettings) => ({
-      ...previousSettings,
-      ...partialSettings,
-    }));
-  };
-  const adjustArenaAudioVolume = (
-    key: "sfxVolume" | "musicVolume",
-    delta: number,
-  ) => {
-    setArenaAudioSettings((previousSettings) => ({
-      ...previousSettings,
-      [key]: clamp(previousSettings[key] + delta, 0, 1),
-    }));
   };
   const hullRatio = gameState.hull / gameState.maxHull;
   const armoryButtonDisabled =
@@ -4786,120 +4467,39 @@ export function ArenaPrototypeScreen({
 
                 <Text style={arenaStyles.menuLabel}>Audio</Text>
                 <View style={arenaStyles.menuRow}>
-                  <View
-                    style={[
-                      arenaStyles.audioControlCard,
-                      {
-                        borderColor: hexToRgba(
-                          activeBiomeDefinition.headerBorder,
-                          0.62,
-                        ),
-                        backgroundColor: hexToRgba(
-                          activeBiomeDefinition.headerBackground,
-                          0.72,
-                        ),
-                      },
-                    ]}
-                  >
-                    <Text style={arenaStyles.audioControlTitle}>Sound</Text>
-                    <Pressable
-                      onPress={() =>
-                        updateArenaAudioSetting({
-                          soundEnabled: !arenaAudioSettings.soundEnabled,
-                        })
-                      }
-                      style={[
-                        arenaStyles.menuButton,
-                        arenaAudioSettings.soundEnabled &&
-                          arenaStyles.menuButtonActive,
-                      ]}
-                    >
-                      <Text style={arenaStyles.menuButtonText}>
-                        {arenaAudioSettings.soundEnabled ? "Enabled" : "Muted"}
-                      </Text>
-                    </Pressable>
-                    <View style={arenaStyles.audioControlValueRow}>
-                      <Pressable
-                        onPress={() =>
-                          adjustArenaAudioVolume("sfxVolume", -0.08)
-                        }
-                        style={arenaStyles.audioAdjustButton}
-                      >
-                        <Text style={arenaStyles.audioAdjustButtonText}>-</Text>
-                      </Pressable>
-                      <Text style={arenaStyles.audioControlValue}>
-                        {Math.round(arenaAudioSettings.sfxVolume * 100)}%
-                      </Text>
-                      <Pressable
-                        onPress={() =>
-                          adjustArenaAudioVolume("sfxVolume", 0.08)
-                        }
-                        style={arenaStyles.audioAdjustButton}
-                      >
-                        <Text style={arenaStyles.audioAdjustButtonText}>+</Text>
-                      </Pressable>
-                    </View>
-                  </View>
-                  <View
-                    style={[
-                      arenaStyles.audioControlCard,
-                      {
-                        borderColor: hexToRgba(
-                          activeBiomeDefinition.headerBorder,
-                          0.62,
-                        ),
-                        backgroundColor: hexToRgba(
-                          activeBiomeDefinition.headerBackground,
-                          0.72,
-                        ),
-                      },
-                    ]}
-                  >
-                    <Text style={arenaStyles.audioControlTitle}>Music</Text>
-                    <Pressable
-                      onPress={() =>
-                        updateArenaAudioSetting({
-                          musicEnabled: !arenaAudioSettings.musicEnabled,
-                        })
-                      }
-                      style={[
-                        arenaStyles.menuButton,
-                        arenaAudioSettings.musicEnabled &&
-                          arenaStyles.menuButtonActive,
-                      ]}
-                    >
-                      <Text style={arenaStyles.menuButtonText}>
-                        {arenaAudioSettings.musicEnabled ? "Enabled" : "Muted"}
-                      </Text>
-                    </Pressable>
-                    <View style={arenaStyles.audioControlValueRow}>
-                      <Pressable
-                        onPress={() =>
-                          adjustArenaAudioVolume("musicVolume", -0.08)
-                        }
-                        style={arenaStyles.audioAdjustButton}
-                      >
-                        <Text style={arenaStyles.audioAdjustButtonText}>-</Text>
-                      </Pressable>
-                      <Text style={arenaStyles.audioControlValue}>
-                        {Math.round(arenaAudioSettings.musicVolume * 100)}%
-                      </Text>
-                      <Pressable
-                        onPress={() =>
-                          adjustArenaAudioVolume("musicVolume", 0.08)
-                        }
-                        style={arenaStyles.audioAdjustButton}
-                      >
-                        <Text style={arenaStyles.audioAdjustButtonText}>+</Text>
-                      </Pressable>
-                    </View>
+                  <View style={arenaStyles.tipStatusCard}>
+                    <Text style={arenaStyles.tipStatusText}>
+                      {ARENA_AUDIO_DISABLED_NOTE}
+                    </Text>
                   </View>
                 </View>
+
+                {gameState.runMode === "endless" ? (
+                  <>
+                    <Text style={arenaStyles.menuLabel}>Testing</Text>
+                    <View style={arenaStyles.menuActions}>
+                      <Pressable
+                        onPress={handleRestartAtTier40Demo}
+                        style={[
+                          arenaStyles.menuActionButton,
+                          arenaStyles.menuActionSecondary,
+                        ]}
+                      >
+                        <Text style={arenaStyles.menuActionText}>
+                          Restart at T40 Demo
+                        </Text>
+                      </Pressable>
+                    </View>
+                  </>
+                ) : null}
 
                 <View style={arenaStyles.menuActions}>
                   <Pressable
                     onPress={handleReturnHomeBase}
-                    style={arenaStyles.menuActionButton}
+                    style={[
+                      arenaStyles.menuActionButton,
+                      arenaStyles.menuActionSecondary,
+                    ]}
                   >
                     <Text style={arenaStyles.menuActionText}>Home Base</Text>
                   </Pressable>
@@ -5417,6 +5017,11 @@ export function ArenaPrototypeScreen({
                   {runEndRewardText ??
                     "No new claimable cosmetics from this run."}
                 </Text>
+                {activeRunEndSummary.progressNote ? (
+                  <Text style={arenaStyles.runSummaryText}>
+                    {activeRunEndSummary.progressNote}
+                  </Text>
+                ) : null}
               </View>
             ) : null}
             {collectionNoticeText && !activeRunEndSummary ? (

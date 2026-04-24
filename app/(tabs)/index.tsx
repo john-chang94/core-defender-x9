@@ -1,6 +1,4 @@
-import type { AudioPlayer } from "expo-audio";
-import { createAudioPlayer, setAudioModeAsync } from "expo-audio";
-import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import type { GestureResponderEvent } from "react-native";
 import {
   Pressable,
@@ -38,13 +36,7 @@ import {
   loadGameMap,
 } from "@/src/game/maps";
 import { cellCenter } from "@/src/game/path";
-import type {
-  GameEvent,
-  GameMapId,
-  GameMode,
-  TargetMode,
-  TowerTypeId,
-} from "@/src/game/types";
+import type { GameMapId, GameMode, TargetMode, TowerTypeId } from "@/src/game/types";
 import { ArenaPrototypeScreen } from "@/src/prototype-v2/ArenaPrototypeScreen";
 import { PrototypeShooterScreen } from "@/src/prototype/PrototypeShooterScreen";
 
@@ -57,198 +49,11 @@ const TARGET_MODE_LABELS: Record<TargetMode, string> = {
 const SIMULATION_STEP_SECONDS = 1 / 60;
 const MAX_CATCH_UP_STEPS = 4;
 const MAX_FRAME_DELTA_SECONDS = 0.1;
-const MAX_SOUNDS_PER_EVENT_BATCH = 6;
-const BACKGROUND_MUSIC_FILE = require("../../assets/awake10_megaWall.mp3");
-const DEFAULT_SFX_VOLUME = 0.8;
-const DEFAULT_MUSIC_VOLUME = 0.45;
-const VOLUME_STEP = 0.1;
+const AUDIO_DISABLED_NOTE =
+  "Audio is temporarily disabled while startup stability is being debugged.";
 
 type SimulationSpeed = 1 | 2 | 3;
 type AppGameId = "defender" | "prototype" | "prototypeV2";
-type SoundEffectKey =
-  | "hit"
-  | "place"
-  | "upgrade"
-  | "sell"
-  | "targetMode"
-  | "pulseFire"
-  | "lanceFire"
-  | "sprayFire"
-  | "bombFire"
-  | "coldFire"
-  | "laserFire"
-  | "bombImpact"
-  | "coldImpact";
-
-const SOUND_FILES: Record<SoundEffectKey, number> = {
-  hit: require("../../assets/sfx/hit.wav"),
-  place: require("../../assets/sfx/place.wav"),
-  upgrade: require("../../assets/sfx/upgrade.wav"),
-  sell: require("../../assets/sfx/sell.wav"),
-  targetMode: require("../../assets/sfx/target-mode.wav"),
-  pulseFire: require("../../assets/sfx/hit.wav"),
-  lanceFire: require("../../assets/sfx/lance-fire.wav"),
-  sprayFire: require("../../assets/sfx/spray-fire.wav"),
-  bombFire: require("../../assets/sfx/bomb-fire.wav"),
-  coldFire: require("../../assets/sfx/cold-fire.wav"),
-  laserFire: require("../../assets/sfx/laser-fire.wav"),
-  bombImpact: require("../../assets/sfx/bomb-hit.wav"),
-  coldImpact: require("../../assets/sfx/cold-hit.wav"),
-};
-
-const SOUND_POOL_SIZE: Record<SoundEffectKey, number> = {
-  hit: 3,
-  place: 2,
-  upgrade: 2,
-  sell: 2,
-  targetMode: 1,
-  pulseFire: 4,
-  lanceFire: 2,
-  sprayFire: 4,
-  bombFire: 2,
-  coldFire: 3,
-  laserFire: 2,
-  bombImpact: 2,
-  coldImpact: 3,
-};
-
-const SOUND_VOLUMES: Record<SoundEffectKey, number> = {
-  hit: 0.24,
-  place: 0.32,
-  upgrade: 0.36,
-  sell: 0.28,
-  targetMode: 0.22,
-  pulseFire: 0.14,
-  lanceFire: 0.24,
-  sprayFire: 0.1,
-  bombFire: 0.22,
-  coldFire: 0.16,
-  laserFire: 0.14,
-  bombImpact: 0.28,
-  coldImpact: 0.18,
-};
-
-const SOUND_MIN_INTERVAL_MS: Record<SoundEffectKey, number> = {
-  hit: 55,
-  place: 0,
-  upgrade: 0,
-  sell: 0,
-  targetMode: 0,
-  pulseFire: 85,
-  lanceFire: 120,
-  sprayFire: 45,
-  bombFire: 140,
-  coldFire: 100,
-  laserFire: 160,
-  bombImpact: 120,
-  coldImpact: 90,
-};
-
-function createEmptySoundPool(): Record<SoundEffectKey, AudioPlayer[]> {
-  return {
-    hit: [],
-    place: [],
-    upgrade: [],
-    sell: [],
-    targetMode: [],
-    pulseFire: [],
-    lanceFire: [],
-    sprayFire: [],
-    bombFire: [],
-    coldFire: [],
-    laserFire: [],
-    bombImpact: [],
-    coldImpact: [],
-  };
-}
-
-function createEmptySoundCursor(): Record<SoundEffectKey, number> {
-  return {
-    hit: 0,
-    place: 0,
-    upgrade: 0,
-    sell: 0,
-    targetMode: 0,
-    pulseFire: 0,
-    lanceFire: 0,
-    sprayFire: 0,
-    bombFire: 0,
-    coldFire: 0,
-    laserFire: 0,
-    bombImpact: 0,
-    coldImpact: 0,
-  };
-}
-
-function clampUnit(value: number): number {
-  return Math.max(0, Math.min(1, value));
-}
-
-function formatVolumePercent(value: number): string {
-  return `${Math.round(clampUnit(value) * 100)}%`;
-}
-
-function mapGameEventToSound(event: GameEvent): SoundEffectKey | null {
-  if (event.type === "spawn") {
-    return null;
-  }
-
-  if (event.type === "targetMode") {
-    return "targetMode";
-  }
-
-  if (event.type === "fire") {
-    if (event.towerType === "bomb") {
-      return "bombFire";
-    }
-    if (event.towerType === "cold") {
-      return "coldFire";
-    }
-    if (event.towerType === "laser") {
-      return "laserFire";
-    }
-    if (event.towerType === "lance") {
-      return "lanceFire";
-    }
-    if (event.towerType === "spray") {
-      return "sprayFire";
-    }
-    if (event.towerType === "pulse") {
-      return "pulseFire";
-    }
-    return null;
-  }
-
-  if (event.type === "hit") {
-    return null;
-  }
-
-  if (event.type === "splash") {
-    return null;
-  }
-
-  if (event.type === "chill") {
-    return null;
-  }
-
-  if (
-    event.type === "muzzle" ||
-    event.type === "burst" ||
-    event.type === "shock"
-  ) {
-    return null;
-  }
-
-  if (
-    event.type === "place" ||
-    event.type === "upgrade" ||
-    event.type === "sell"
-  ) {
-    return event.type;
-  }
-
-  return null;
-}
 
 function DefenseScreen({
   onSwitchGame,
@@ -267,35 +72,6 @@ function DefenseScreen({
   const [hasStarted, setHasStarted] = useState(false);
   const [isPaused, setIsPaused] = useState(true);
   const [isMenuOpen, setIsMenuOpen] = useState(false);
-  const [soundEnabled, setSoundEnabled] = useState(true);
-  const [sfxVolume, setSfxVolume] = useState(DEFAULT_SFX_VOLUME);
-  const [soundsReady, setSoundsReady] = useState(false);
-  const [musicEnabled, setMusicEnabled] = useState(true);
-  const [musicVolume, setMusicVolume] = useState(DEFAULT_MUSIC_VOLUME);
-  const [musicReady, setMusicReady] = useState(false);
-
-  const soundPoolsRef = useRef<Record<SoundEffectKey, AudioPlayer[]>>(
-    createEmptySoundPool(),
-  );
-  const soundCursorRef = useRef<Record<SoundEffectKey, number>>(
-    createEmptySoundCursor(),
-  );
-  const musicPlayerRef = useRef<AudioPlayer | null>(null);
-  const lastSoundAtRef = useRef<Record<SoundEffectKey, number>>({
-    hit: 0,
-    place: 0,
-    upgrade: 0,
-    sell: 0,
-    targetMode: 0,
-    pulseFire: 0,
-    lanceFire: 0,
-    sprayFire: 0,
-    bombFire: 0,
-    coldFire: 0,
-    laserFire: 0,
-    bombImpact: 0,
-    coldImpact: 0,
-  });
   const gameMaps = useMemo(() => listGameMaps(), []);
   const activeLevel = useMemo(
     () =>
@@ -332,178 +108,6 @@ function DefenseScreen({
   );
   const boardWidth = activeMap.cols * cellSize;
   const boardHeight = activeMap.rows * cellSize;
-
-  const playSound = useCallback(
-    (soundKey: SoundEffectKey) => {
-      if (!soundEnabled || !soundsReady || sfxVolume <= 0) {
-        return;
-      }
-
-      const pool = soundPoolsRef.current[soundKey];
-      if (!pool.length) {
-        return;
-      }
-
-      const now = Date.now();
-      const minInterval = SOUND_MIN_INTERVAL_MS[soundKey];
-      const lastPlayedAt = lastSoundAtRef.current[soundKey];
-      if (minInterval > 0 && now - lastPlayedAt < minInterval) {
-        return;
-      }
-      lastSoundAtRef.current[soundKey] = now;
-
-      const nextCursor = soundCursorRef.current[soundKey] % pool.length;
-      soundCursorRef.current[soundKey] = (nextCursor + 1) % pool.length;
-      const player = pool[nextCursor];
-
-      try {
-        void player.seekTo(0);
-        player.play();
-      } catch {
-        // Ignore audio playback errors; gameplay should remain unaffected.
-      }
-    },
-    [soundEnabled, soundsReady, sfxVolume],
-  );
-
-  useEffect(() => {
-    let disposed = false;
-
-    const loadSounds = async () => {
-      try {
-        await setAudioModeAsync({
-          playsInSilentMode: true,
-          shouldPlayInBackground: false,
-          interruptionMode: "duckOthers",
-          interruptionModeAndroid: "duckOthers",
-          shouldRouteThroughEarpiece: false,
-        });
-      } catch (error) {
-        console.warn("Audio mode setup failed", error);
-      }
-
-      const nextPool = createEmptySoundPool();
-      const keys = Object.keys(SOUND_FILES) as SoundEffectKey[];
-      let nextMusicPlayer: AudioPlayer | null = null;
-
-      for (const soundKey of keys) {
-        const poolSize = SOUND_POOL_SIZE[soundKey];
-        for (let index = 0; index < poolSize; index += 1) {
-          try {
-            const player = createAudioPlayer(SOUND_FILES[soundKey]);
-            player.volume = SOUND_VOLUMES[soundKey] * DEFAULT_SFX_VOLUME;
-            nextPool[soundKey].push(player);
-          } catch (error) {
-            console.warn(
-              `Failed to create audio player for ${soundKey}`,
-              error,
-            );
-          }
-        }
-      }
-
-      try {
-        const musicPlayer = createAudioPlayer(BACKGROUND_MUSIC_FILE);
-        musicPlayer.volume = DEFAULT_MUSIC_VOLUME;
-        musicPlayer.loop = true;
-        nextMusicPlayer = musicPlayer;
-      } catch (error) {
-        console.warn("Failed to create background music player", error);
-      }
-
-      if (disposed) {
-        for (const soundKey of keys) {
-          for (const player of nextPool[soundKey]) {
-            player.remove();
-          }
-        }
-        nextMusicPlayer?.remove();
-        return;
-      }
-
-      soundPoolsRef.current = nextPool;
-      musicPlayerRef.current = nextMusicPlayer;
-      const hasAnySounds = keys.some(
-        (soundKey) => nextPool[soundKey].length > 0,
-      );
-      setSoundsReady(hasAnySounds);
-      setMusicReady(Boolean(nextMusicPlayer));
-    };
-
-    void loadSounds();
-
-    return () => {
-      disposed = true;
-      setSoundsReady(false);
-      setMusicReady(false);
-      soundCursorRef.current = createEmptySoundCursor();
-      lastSoundAtRef.current = {
-        hit: 0,
-        place: 0,
-        upgrade: 0,
-        sell: 0,
-        targetMode: 0,
-        pulseFire: 0,
-        lanceFire: 0,
-        sprayFire: 0,
-        bombFire: 0,
-        coldFire: 0,
-        laserFire: 0,
-        bombImpact: 0,
-        coldImpact: 0,
-      };
-
-      const keys = Object.keys(SOUND_FILES) as SoundEffectKey[];
-      const pools = soundPoolsRef.current;
-      soundPoolsRef.current = createEmptySoundPool();
-
-      for (const soundKey of keys) {
-        for (const player of pools[soundKey]) {
-          player.remove();
-        }
-      }
-
-      const musicPlayer = musicPlayerRef.current;
-      musicPlayerRef.current = null;
-      musicPlayer?.remove();
-    };
-  }, []);
-
-  useEffect(() => {
-    const keys = Object.keys(SOUND_FILES) as SoundEffectKey[];
-    const pool = soundPoolsRef.current;
-    const effectiveVolumeMultiplier = soundEnabled ? sfxVolume : 0;
-    for (const soundKey of keys) {
-      for (const player of pool[soundKey]) {
-        player.volume = SOUND_VOLUMES[soundKey] * effectiveVolumeMultiplier;
-      }
-    }
-  }, [soundEnabled, sfxVolume, soundsReady]);
-
-  useEffect(() => {
-    const musicPlayer = musicPlayerRef.current;
-    if (!musicPlayer) {
-      return;
-    }
-
-    const shouldPlay =
-      musicEnabled && hasStarted && !isPaused && gameState.status === "running";
-    musicPlayer.volume = musicEnabled ? musicVolume : 0;
-
-    if (shouldPlay) {
-      musicPlayer.play();
-      return;
-    }
-
-    musicPlayer.pause();
-  }, [
-    gameState.status,
-    hasStarted,
-    isPaused,
-    musicEnabled,
-    musicReady,
-    musicVolume,
-  ]);
 
   useEffect(() => {
     let animationFrameId = 0;
@@ -560,24 +164,6 @@ function DefenseScreen({
       setSelectedPlacedTowerId(null);
     }
   }, [gameState.towers, selectedPlacedTowerId]);
-
-  useEffect(() => {
-    if (!gameState.recentEvents.length) {
-      return;
-    }
-
-    let soundsPlayed = 0;
-    for (const event of gameState.recentEvents) {
-      if (soundsPlayed >= MAX_SOUNDS_PER_EVENT_BATCH) {
-        break;
-      }
-      const soundKey = mapGameEventToSound(event);
-      if (soundKey) {
-        playSound(soundKey);
-        soundsPlayed += 1;
-      }
-    }
-  }, [gameState.recentEvents, playSound]);
 
   const statusText = useMemo(() => {
     if (gameState.status === "won") {
@@ -667,10 +253,6 @@ function DefenseScreen({
     isClassicMode && gameState.status === "won";
 
   const handleRestart = () => {
-    const musicPlayer = musicPlayerRef.current;
-    if (musicPlayer) {
-      void musicPlayer.seekTo(0);
-    }
     setGameState(
       createInitialGameState(
         gameState.mapId,
@@ -972,95 +554,7 @@ function DefenseScreen({
 
               <Text style={styles.menuLabel}>Audio</Text>
               <View style={styles.menuAudioBlock}>
-                <View style={styles.menuAudioRow}>
-                  <Pressable
-                    onPress={() => setSoundEnabled((enabled) => !enabled)}
-                    style={[
-                      styles.menuToggleButton,
-                      !soundEnabled && styles.menuToggleButtonOff,
-                    ]}
-                  >
-                    <Text style={styles.menuToggleButtonText}>
-                      {soundEnabled
-                        ? soundsReady
-                          ? "SFX On"
-                          : "SFX Loading"
-                        : "SFX Off"}
-                    </Text>
-                  </Pressable>
-                  <Pressable
-                    onPress={() =>
-                      setSfxVolume((value) => clampUnit(value - VOLUME_STEP))
-                    }
-                    style={[
-                      styles.menuMiniButton,
-                      !soundsReady && styles.menuMiniButtonDisabled,
-                    ]}
-                    disabled={!soundsReady}
-                  >
-                    <Text style={styles.menuMiniButtonText}>-</Text>
-                  </Pressable>
-                  <Text style={styles.menuAudioValue}>
-                    {formatVolumePercent(sfxVolume)}
-                  </Text>
-                  <Pressable
-                    onPress={() =>
-                      setSfxVolume((value) => clampUnit(value + VOLUME_STEP))
-                    }
-                    style={[
-                      styles.menuMiniButton,
-                      !soundsReady && styles.menuMiniButtonDisabled,
-                    ]}
-                    disabled={!soundsReady}
-                  >
-                    <Text style={styles.menuMiniButtonText}>+</Text>
-                  </Pressable>
-                </View>
-
-                <View style={styles.menuAudioRow}>
-                  <Pressable
-                    onPress={() => setMusicEnabled((enabled) => !enabled)}
-                    style={[
-                      styles.menuToggleButton,
-                      !musicEnabled && styles.menuToggleButtonOff,
-                    ]}
-                  >
-                    <Text style={styles.menuToggleButtonText}>
-                      {musicEnabled
-                        ? musicReady
-                          ? "Music On"
-                          : "Music Loading"
-                        : "Music Off"}
-                    </Text>
-                  </Pressable>
-                  <Pressable
-                    onPress={() =>
-                      setMusicVolume((value) => clampUnit(value - VOLUME_STEP))
-                    }
-                    style={[
-                      styles.menuMiniButton,
-                      !musicReady && styles.menuMiniButtonDisabled,
-                    ]}
-                    disabled={!musicReady}
-                  >
-                    <Text style={styles.menuMiniButtonText}>-</Text>
-                  </Pressable>
-                  <Text style={styles.menuAudioValue}>
-                    {formatVolumePercent(musicVolume)}
-                  </Text>
-                  <Pressable
-                    onPress={() =>
-                      setMusicVolume((value) => clampUnit(value + VOLUME_STEP))
-                    }
-                    style={[
-                      styles.menuMiniButton,
-                      !musicReady && styles.menuMiniButtonDisabled,
-                    ]}
-                    disabled={!musicReady}
-                  >
-                    <Text style={styles.menuMiniButtonText}>+</Text>
-                  </Pressable>
-                </View>
+                <Text style={styles.menuHintText}>{AUDIO_DISABLED_NOTE}</Text>
               </View>
 
               <View style={styles.menuActions}>

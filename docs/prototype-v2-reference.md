@@ -1,7 +1,7 @@
 # Prototype V2 Reference
 
-Snapshot date: `2026-04-22`
-Board version: `v0.73`
+Snapshot date: `2026-04-24`
+Board version: `v0.74`
 
 This document is the current reference for the arena-combat shooter in `/Users/johnchang/Desktop/defender/src/prototype-v2`. It replaces the earlier planning-heavy draft with a snapshot of what is actually implemented today, plus the next major gaps.
 
@@ -25,7 +25,7 @@ Core loop:
 
 This mode is no longer just a redesign concept. It is a production prototype with live combat, encounters, progression, and Skia rendering.
 
-The current build also includes persistent between-run `Codex + Mastery` data stored locally, a scripted encounter registry, a rotating four-boss cadence, named biome sectors, Arena-local audio settings plus music / SFX playback, impact + lane-band hazard telegraphs, one-time coaching chips, a local cosmetic collection / equip layer, and an early cockpit-style Campaign Home Base foundation on top of the meta flow.
+The current build also includes persistent between-run `Codex + Mastery` data stored locally, a scripted encounter registry, a rotating four-boss cadence, named biome sectors, temporarily disabled Arena audio scaffolding, impact + lane-band hazard telegraphs, one-time coaching chips, a local cosmetic collection / equip layer, and an early cockpit-style Campaign Home Base foundation on top of the meta flow.
 
 ## Current Playable State
 
@@ -77,7 +77,7 @@ Other UI behavior:
 - the armory is accessible anytime during a run via the HUD button; if no upgrade choices are pending it opens in browse mode showing upgrade status and the next unlock threshold
 - the armory panel has two sub-tabs: `Upgrades` and `Build`; build selection was moved out of the main menu and into the armory `Build` sub-tab
 - the in-game menu now includes `Run`, `Codex`, `Mastery`, and `Collection` tabs (the `Builds` tab was removed)
-- the `Run` tab now shows active biome / sector info, next boss preview, next reward preview, coaching reset, and Arena-local audio controls
+- the `Run` tab now shows active biome / sector info, next boss preview, next reward preview, coaching reset, a temporary audio-disabled note, and an Endless-only `Restart at T40 Demo` action for non-persistent testing
 - run-end summary panels now show tier reached, bosses cleared, mastery XP granted, and newly claimable cosmetics
 - player death now plays a short closing telemetry transition before the run-end summary appears
 - codex, mastery, and cosmetic collection state persist across relaunches through a versioned AsyncStorage blob
@@ -543,6 +543,14 @@ Primary implementation files:
 - `/Users/johnchang/Desktop/defender/src/prototype-v2/ArenaPrototypeScreen.tsx`
 
 ## Changelog Snapshot
+
+### 2026-04-24
+
+- Advanced arena board label to `v0.74`.
+- Added an Endless `Restart at T40 Demo` action in the `Run` menu. It starts a non-persistent demo run at `T40`, seeds all four builds with maxed capped weapon upgrades plus extra damage, bumps hull / shield for late-tier testing, and keeps progression, rewards, and Codex discoveries from being saved.
+- Temporarily disabled Arena V2 audio initialization / playback and replaced the `Run`-tab audio controls with a stability note while first-launch crashes are investigated.
+- Slightly increased default `Fracture Core` fire rate by lowering its live fire-interval floor from `0.32` to `0.30`, and synced the matching cap tables used by Endless / Campaign upgrade logic.
+- Disabled the classic defense screen audio loader path as well so the app no longer initializes `expo-audio` on launch or after mode switching.
 
 ### 2026-04-22
 

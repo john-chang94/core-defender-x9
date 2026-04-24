@@ -574,6 +574,7 @@ export type ArenaRunMetaSummary = {
 export type ArenaGameState = {
   status: 'running' | 'lost' | 'won';
   runMode: ArenaRunMode;
+  isDebugDemoRun: boolean;
   campaignMissionId: ArenaCampaignMissionId | null;
   campaignTargetTier: number | null;
   campaignShieldId: ArenaCampaignShieldId | null;

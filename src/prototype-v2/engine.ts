@@ -907,7 +907,7 @@ export function getArenaActiveWeapon(state: ArenaGameState): ArenaWeapon {
       nextWeapon = {
         ...nextWeapon,
         damage: Math.round(nextWeapon.damage * 2.10),
-        fireInterval: Math.max(0.32, nextWeapon.fireInterval * 2.3),
+        fireInterval: Math.max(0.30, nextWeapon.fireInterval * 2.3),
         shotCount: Math.min(3, Math.max(1, nextWeapon.shotCount)),
         pierce: Math.min(4, nextWeapon.pierce + 1),
         bulletSpeed: Math.min(1500, nextWeapon.bulletSpeed + 20),
@@ -3028,6 +3028,7 @@ export function createInitialArenaState(
   boardWidth: number,
   options?: {
     runMode?: ArenaGameState['runMode'];
+    isDebugDemoRun?: boolean;
     campaignMissionId?: ArenaCampaignMissionId | null;
     campaignTargetTier?: number | null;
     campaignShieldId?: ArenaCampaignShieldId | null;
@@ -3042,6 +3043,7 @@ export function createInitialArenaState(
   return {
     status: 'running',
     runMode: options?.runMode ?? 'endless',
+    isDebugDemoRun: options?.isDebugDemoRun ?? false,
     campaignMissionId: options?.campaignMissionId ?? null,
     campaignTargetTier: options?.campaignTargetTier ?? null,
     campaignShieldId: options?.campaignShieldId ?? null,
