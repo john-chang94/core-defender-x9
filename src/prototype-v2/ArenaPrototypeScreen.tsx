@@ -1670,6 +1670,14 @@ export function ArenaPrototypeScreen({
       "buildCrest",
     ),
   );
+  const playerHullBaseColor = "#E7F1FF";
+  const playerHullEdgeColor = "#91A8C8";
+  const playerHullPanelColor = "#14253B";
+  const playerHullPanelEdgeColor = "#2E4B6A";
+  const playerAccentStripColor = activeAccentDefinition.primaryColor;
+  const playerWingAccentColor = activeAccentDefinition.secondaryColor;
+  const playerCanopyColor = hexToRgba(activeAccentDefinition.detailColor, 0.84);
+  const playerEngineGlowColor = activeAccentDefinition.glowColor;
   const claimableCosmeticIds = getArenaClaimableCosmeticIds(arenaMeta);
   const claimableCosmeticIdSet = new Set(claimableCosmeticIds);
   const pendingClaimableNoticeIds = pendingCollectionNoticeIds.filter((cosmeticId) =>
@@ -3648,10 +3656,25 @@ export function ArenaPrototypeScreen({
               style={[
                 arenaStyles.playerThrusterGlow,
                 {
-                  backgroundColor: hexToRgba(
-                    activeAccentDefinition.glowColor,
-                    0.3,
-                  ),
+                  backgroundColor: hexToRgba(playerEngineGlowColor, 0.3),
+                },
+              ]}
+            />
+            <View
+              style={[
+                arenaStyles.playerWingPlateLeft,
+                {
+                  backgroundColor: playerHullBaseColor,
+                  borderColor: playerHullEdgeColor,
+                },
+              ]}
+            />
+            <View
+              style={[
+                arenaStyles.playerWingPlateRight,
+                {
+                  backgroundColor: playerHullBaseColor,
+                  borderColor: playerHullEdgeColor,
                 },
               ]}
             />
@@ -3659,7 +3682,7 @@ export function ArenaPrototypeScreen({
               style={[
                 arenaStyles.playerWingBaseLeft,
                 {
-                  borderRightColor: activeAccentDefinition.secondaryColor,
+                  borderRightColor: playerWingAccentColor,
                 },
               ]}
             />
@@ -3667,7 +3690,23 @@ export function ArenaPrototypeScreen({
               style={[
                 arenaStyles.playerWingBaseRight,
                 {
-                  borderLeftColor: activeAccentDefinition.secondaryColor,
+                  borderLeftColor: playerWingAccentColor,
+                },
+              ]}
+            />
+            <View
+              style={[
+                arenaStyles.playerWingTipLeft,
+                {
+                  backgroundColor: hexToRgba(playerEngineGlowColor, 0.72),
+                },
+              ]}
+            />
+            <View
+              style={[
+                arenaStyles.playerWingTipRight,
+                {
+                  backgroundColor: hexToRgba(playerEngineGlowColor, 0.72),
                 },
               ]}
             />
@@ -3675,7 +3714,7 @@ export function ArenaPrototypeScreen({
               style={[
                 arenaStyles.playerRearFinLeft,
                 {
-                  backgroundColor: activeAccentDefinition.secondaryColor,
+                  backgroundColor: playerWingAccentColor,
                 },
               ]}
             />
@@ -3683,7 +3722,7 @@ export function ArenaPrototypeScreen({
               style={[
                 arenaStyles.playerRearFinRight,
                 {
-                  backgroundColor: activeAccentDefinition.secondaryColor,
+                  backgroundColor: playerWingAccentColor,
                 },
               ]}
             />
@@ -3691,17 +3730,50 @@ export function ArenaPrototypeScreen({
               style={[
                 arenaStyles.playerFuselage,
                 {
-                  backgroundColor: activeAccentDefinition.primaryColor,
-                  borderColor: activeAccentDefinition.detailColor,
+                  backgroundColor: playerHullBaseColor,
+                  borderColor: playerHullEdgeColor,
                 },
               ]}
             >
               <View
                 style={[
+                  arenaStyles.playerFuselagePanel,
+                  {
+                    backgroundColor: playerHullPanelColor,
+                    borderColor: hexToRgba(playerHullPanelEdgeColor, 0.92),
+                  },
+                ]}
+              />
+              <View
+                style={[
+                  arenaStyles.playerFuselageStripeLeft,
+                  {
+                    backgroundColor: hexToRgba(playerAccentStripColor, 0.78),
+                  },
+                ]}
+              />
+              <View
+                style={[
+                  arenaStyles.playerFuselageStripeRight,
+                  {
+                    backgroundColor: hexToRgba(playerAccentStripColor, 0.78),
+                  },
+                ]}
+              />
+              <View
+                style={[
                   arenaStyles.playerCanopy,
                   {
-                    backgroundColor: activeAccentDefinition.detailColor,
-                    borderColor: activeAccentDefinition.glowColor,
+                    backgroundColor: playerCanopyColor,
+                    borderColor: playerEngineGlowColor,
+                  },
+                ]}
+              />
+              <View
+                style={[
+                  arenaStyles.playerCanopyCore,
+                  {
+                    backgroundColor: hexToRgba(playerHullBaseColor, 0.94),
                   },
                 ]}
               />
@@ -3709,7 +3781,23 @@ export function ArenaPrototypeScreen({
                 style={[
                   arenaStyles.playerSpine,
                   {
-                    backgroundColor: activeAccentDefinition.secondaryColor,
+                    backgroundColor: playerAccentStripColor,
+                  },
+                ]}
+              />
+              <View
+                style={[
+                  arenaStyles.playerIntakeLeft,
+                  {
+                    backgroundColor: hexToRgba(playerEngineGlowColor, 0.38),
+                  },
+                ]}
+              />
+              <View
+                style={[
+                  arenaStyles.playerIntakeRight,
+                  {
+                    backgroundColor: hexToRgba(playerEngineGlowColor, 0.38),
                   },
                 ]}
               />
@@ -3736,9 +3824,43 @@ export function ArenaPrototypeScreen({
             </View>
             <View
               style={[
+                arenaStyles.playerNoseShadow,
+                {
+                  borderBottomColor: playerHullPanelColor,
+                },
+              ]}
+            />
+            <View
+              style={[
                 arenaStyles.playerNose,
                 {
-                  borderBottomColor: activeAccentDefinition.detailColor,
+                  borderBottomColor: playerHullBaseColor,
+                },
+              ]}
+            />
+            <View
+              style={[
+                arenaStyles.playerNoseCore,
+                {
+                  borderBottomColor: playerCanopyColor,
+                },
+              ]}
+            />
+            <View
+              style={[
+                arenaStyles.playerEnginePodLeft,
+                {
+                  backgroundColor: playerHullPanelColor,
+                  borderColor: hexToRgba(playerHullPanelEdgeColor, 0.9),
+                },
+              ]}
+            />
+            <View
+              style={[
+                arenaStyles.playerEnginePodRight,
+                {
+                  backgroundColor: playerHullPanelColor,
+                  borderColor: hexToRgba(playerHullPanelEdgeColor, 0.9),
                 },
               ]}
             />
@@ -3746,7 +3868,7 @@ export function ArenaPrototypeScreen({
               style={[
                 arenaStyles.playerEngineLeft,
                 {
-                  backgroundColor: activeAccentDefinition.glowColor,
+                  backgroundColor: playerEngineGlowColor,
                 },
               ]}
             />
@@ -3754,7 +3876,7 @@ export function ArenaPrototypeScreen({
               style={[
                 arenaStyles.playerEngineRight,
                 {
-                  backgroundColor: activeAccentDefinition.glowColor,
+                  backgroundColor: playerEngineGlowColor,
                 },
               ]}
             />
@@ -6847,8 +6969,8 @@ const arenaStyles = StyleSheet.create({
   },
   playerShell: {
     position: "absolute",
-    width: 68,
-    height: 48,
+    width: 82,
+    height: 62,
     alignItems: "center",
   },
   playerShellHit: {
@@ -6925,119 +7047,248 @@ const arenaStyles = StyleSheet.create({
   },
   playerThrusterGlow: {
     position: "absolute",
-    bottom: -1,
-    width: 52,
-    height: 16,
+    bottom: -2,
+    width: 60,
+    height: 20,
     borderRadius: 999,
     backgroundColor: "rgba(110, 231, 255, 0.2)",
   },
+  playerWingPlateLeft: {
+    position: "absolute",
+    left: 8,
+    top: 24,
+    width: 24,
+    height: 13,
+    borderRadius: 5,
+    borderWidth: 1.1,
+    transform: [{ rotate: "-26deg" }],
+  },
+  playerWingPlateRight: {
+    position: "absolute",
+    right: 8,
+    top: 24,
+    width: 24,
+    height: 13,
+    borderRadius: 5,
+    borderWidth: 1.1,
+    transform: [{ rotate: "26deg" }],
+  },
   playerFuselage: {
-    width: 22,
-    height: 31,
-    borderTopLeftRadius: 5,
-    borderTopRightRadius: 5,
-    borderBottomLeftRadius: 2,
-    borderBottomRightRadius: 2,
+    width: 24,
+    height: 38,
+    borderTopLeftRadius: 7,
+    borderTopRightRadius: 7,
+    borderBottomLeftRadius: 4,
+    borderBottomRightRadius: 4,
     backgroundColor: "#5BDDF9",
-    borderWidth: 1.2,
+    borderWidth: 1.1,
     borderColor: "#E9FCFF",
     alignItems: "center",
     justifyContent: "flex-start",
+    overflow: "hidden",
+  },
+  playerFuselagePanel: {
+    position: "absolute",
+    left: 3,
+    right: 3,
+    top: 11,
+    bottom: 4,
+    borderRadius: 5,
+    borderWidth: 1,
+  },
+  playerFuselageStripeLeft: {
+    position: "absolute",
+    left: 3,
+    top: 13,
+    width: 2,
+    height: 17,
+    borderRadius: 2,
+  },
+  playerFuselageStripeRight: {
+    position: "absolute",
+    right: 3,
+    top: 13,
+    width: 2,
+    height: 17,
+    borderRadius: 2,
   },
   playerCanopy: {
-    marginTop: 5,
-    width: 8,
-    height: 14,
-    borderTopLeftRadius: 4,
-    borderTopRightRadius: 4,
-    borderBottomLeftRadius: 2,
-    borderBottomRightRadius: 2,
+    marginTop: 4,
+    width: 10,
+    height: 17,
+    borderTopLeftRadius: 5,
+    borderTopRightRadius: 5,
+    borderBottomLeftRadius: 3,
+    borderBottomRightRadius: 3,
     backgroundColor: "#FFF0CA",
     borderWidth: 1,
     borderColor: "#FFF9EA",
   },
+  playerCanopyCore: {
+    position: "absolute",
+    top: 8,
+    width: 2,
+    height: 10,
+    borderRadius: 2,
+  },
   playerSpine: {
-    marginTop: 2,
-    width: 3,
-    height: 9,
-    borderRadius: 1,
+    marginTop: 4,
+    width: 4,
+    height: 10,
+    borderRadius: 2,
     backgroundColor: "#218EC0",
+  },
+  playerIntakeLeft: {
+    position: "absolute",
+    left: 3,
+    bottom: 7,
+    width: 4,
+    height: 7,
+    borderRadius: 2,
+  },
+  playerIntakeRight: {
+    position: "absolute",
+    right: 3,
+    bottom: 7,
+    width: 4,
+    height: 7,
+    borderRadius: 2,
+  },
+  playerNoseShadow: {
+    position: "absolute",
+    top: -12,
+    width: 0,
+    height: 0,
+    borderLeftWidth: 7,
+    borderRightWidth: 7,
+    borderBottomWidth: 19,
+    borderLeftColor: "transparent",
+    borderRightColor: "transparent",
+    borderBottomColor: "#10233B",
   },
   playerNose: {
     position: "absolute",
-    top: -8,
+    top: -11,
     width: 0,
     height: 0,
-    borderLeftWidth: 9,
-    borderRightWidth: 9,
-    borderBottomWidth: 17,
+    borderLeftWidth: 6,
+    borderRightWidth: 6,
+    borderBottomWidth: 18,
     borderLeftColor: "transparent",
     borderRightColor: "transparent",
     borderBottomColor: "#FFE7B0",
   },
+  playerNoseCore: {
+    position: "absolute",
+    top: -5,
+    width: 0,
+    height: 0,
+    borderLeftWidth: 3,
+    borderRightWidth: 3,
+    borderBottomWidth: 10,
+    borderLeftColor: "transparent",
+    borderRightColor: "transparent",
+    borderBottomColor: "#AEEBFF",
+  },
   playerWingBaseLeft: {
     position: "absolute",
     left: 5,
-    top: 14,
+    top: 20,
     width: 0,
     height: 0,
-    borderTopWidth: 8,
-    borderBottomWidth: 19,
-    borderRightWidth: 30,
+    borderTopWidth: 5,
+    borderBottomWidth: 10,
+    borderRightWidth: 28,
     borderTopColor: "transparent",
     borderBottomColor: "transparent",
     borderRightColor: "#2D79BD",
-    transform: [{ rotate: "-10deg" }],
+    transform: [{ rotate: "-18deg" }],
   },
   playerWingBaseRight: {
     position: "absolute",
     right: 5,
-    top: 14,
+    top: 20,
     width: 0,
     height: 0,
-    borderTopWidth: 8,
-    borderBottomWidth: 19,
-    borderLeftWidth: 30,
+    borderTopWidth: 5,
+    borderBottomWidth: 10,
+    borderLeftWidth: 28,
     borderTopColor: "transparent",
     borderBottomColor: "transparent",
     borderLeftColor: "#2D79BD",
-    transform: [{ rotate: "10deg" }],
+    transform: [{ rotate: "18deg" }],
+  },
+  playerWingTipLeft: {
+    position: "absolute",
+    left: 1,
+    top: 34,
+    width: 17,
+    height: 6,
+    borderRadius: 3,
+    transform: [{ rotate: "28deg" }],
+  },
+  playerWingTipRight: {
+    position: "absolute",
+    right: 1,
+    top: 34,
+    width: 17,
+    height: 6,
+    borderRadius: 3,
+    transform: [{ rotate: "-28deg" }],
   },
   playerRearFinLeft: {
     position: "absolute",
-    left: 22,
-    bottom: 7,
-    width: 6,
-    height: 14,
-    borderRadius: 1,
+    left: 23,
+    bottom: 12,
+    width: 5,
+    height: 16,
+    borderRadius: 2,
     backgroundColor: "#2D79BD",
-    transform: [{ rotate: "23deg" }],
+    transform: [{ rotate: "30deg" }],
   },
   playerRearFinRight: {
     position: "absolute",
-    right: 22,
-    bottom: 7,
-    width: 6,
-    height: 14,
-    borderRadius: 1,
+    right: 23,
+    bottom: 12,
+    width: 5,
+    height: 16,
+    borderRadius: 2,
     backgroundColor: "#2D79BD",
-    transform: [{ rotate: "-23deg" }],
+    transform: [{ rotate: "-30deg" }],
+  },
+  playerEnginePodLeft: {
+    position: "absolute",
+    left: 25,
+    bottom: 7,
+    width: 8,
+    height: 15,
+    borderRadius: 3,
+    borderWidth: 1,
+  },
+  playerEnginePodRight: {
+    position: "absolute",
+    right: 25,
+    bottom: 7,
+    width: 8,
+    height: 15,
+    borderRadius: 3,
+    borderWidth: 1,
   },
   playerEngineLeft: {
     position: "absolute",
-    left: 26,
+    left: 27,
     bottom: 1,
     width: 4,
-    height: 10,
+    height: 11,
     borderRadius: 2,
     backgroundColor: "#FFDCA1",
   },
   playerEngineRight: {
     position: "absolute",
-    right: 26,
+    right: 27,
     bottom: 1,
     width: 4,
-    height: 10,
+    height: 11,
     borderRadius: 2,
     backgroundColor: "#FFDCA1",
   },
@@ -7711,10 +7962,10 @@ const arenaStyles = StyleSheet.create({
   },
   playerCrestWrap: {
     position: "absolute",
-    left: 26,
-    top: 12,
-    width: 16,
-    height: 16,
+    left: 33,
+    top: 19,
+    width: 14,
+    height: 14,
     borderRadius: 999,
     borderWidth: 1,
     alignItems: "center",

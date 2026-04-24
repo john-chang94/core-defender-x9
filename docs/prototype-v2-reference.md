@@ -1,7 +1,7 @@
 # Prototype V2 Reference
 
 Snapshot date: `2026-04-24`
-Board version: `v0.75`
+Board version: `v0.76`
 
 This document is the current reference for the arena-combat shooter in `/Users/johnchang/Desktop/defender/src/prototype-v2`. It replaces the earlier planning-heavy draft with a snapshot of what is actually implemented today, plus the next major gaps.
 
@@ -71,7 +71,7 @@ Other UI behavior:
 - enemy health numbers are rendered as floating labels over enemies
 - drop labels are rendered under field pickups
 - the player ship now sits higher in the lower arena to keep the live view clearer under the player’s finger
-- the default ship silhouette is now a sharper low-poly rail-shooter hull with a pointed nose, swept triangular wings, rear fins, and twin engine slits
+- the default ship silhouette is now a sharper low-poly rail-shooter hull with a metallic spear fuselage, slimmer canopy, swept side plates, accent-lit stabilizers, and twin engine slits
 - the arena board, enemy hulls, projectile cores, hits, drops, and ship glow now use a darker neon cyberpunk-space palette pass with cached starfield / panel framing to improve contrast without adding heavy runtime effects
 - a semi-transparent move hint sits below the ship and hides while the player is pressing in that control zone
 - one-time coaching chips can appear during live play for movement, armory queueing, build switching, overdrive, ultimate charge, hazards, boss phases, Collection claims, and high-tier goals; `Reset tips` in the `Run` menu clears the seen state
@@ -547,6 +547,8 @@ Primary implementation files:
 
 ### 2026-04-24
 
+- Advanced arena board label to `v0.76`.
+- Reworked the live player ship silhouette toward a sleeker interceptor profile: metallic central hull, slimmer canopy, sharper spear nose, swept wing plates, accent-lit side fins, and cleaner twin engine pods while keeping build-color trim and glow.
 - Advanced arena board label to `v0.75`.
 - Applied a palette-first cyberpunk-space art pass to Arena V2: darker biome bases, brighter neon role colors, cached starfield / panel framing in the board background, and cleaner projectile / hit / drop color treatment.
 - Slightly boosted the player ship glow so the active build accent reads more clearly against the darker arena.
