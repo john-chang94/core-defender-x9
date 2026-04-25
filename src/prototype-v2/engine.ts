@@ -9,6 +9,7 @@ import {
   ARENA_MIN_ENEMY_CRUISE_Y_RATIO,
   ARENA_PLAYER_FLOOR_OFFSET,
   ARENA_PLAYER_HEIGHT,
+  ARENA_PLAYER_HITBOX_HALF_WIDTH,
   ARENA_SHIELD_REGEN_DELAY_SECONDS,
   ARENA_SHIELD_REGEN_PER_SECOND,
   ARENA_TIER_DURATION_SECONDS,
@@ -55,6 +56,7 @@ const ARENA_MAX_ULTIMATE_CHARGE = 100;
 const ARENA_ULTIMATE_DURATION_SECONDS = 1.15;
 const ARENA_BUILD_DEFAULT: ArenaBuildId = 'railFocus';
 const ARENA_GLOBAL_HEALTH_MULTIPLIER = 1.52;
+const ARENA_ABSOLUTE_ENEMY_CAP = 14;
 const ARENA_MAX_HAZARDS = 6;
 const ARENA_MAX_LANE_BAND_HAZARDS = 3;
 const ARENA_DAMAGE_ULTIMATE_CHARGE_SCALE = 0.035;
@@ -165,6 +167,10 @@ function getArenaPlayerBulletCap(state: ArenaGameState) {
   }
 
   return Math.max(50, cap);
+}
+
+function getArenaLiveEnemyCount(state: ArenaGameState) {
+  return state.enemies.filter((enemy) => enemy.health > 0).length;
 }
 
 function createArenaEffect(
@@ -957,22 +963,19 @@ function getRapidCycleUpgradeCount(weapon: ArenaWeapon) {
 }
 
 export function getArenaActiveEnemyCap(displayTier: number) {
-  if (displayTier <= 4) {
-    return 5;
-  }
-  if (displayTier <= 9) {
-    return 6;
-  }
-  if (displayTier <= 14) {
-    return 7;
-  }
-  if (displayTier <= 20) {
-    return 8;
-  }
-  if (displayTier <= 28) {
-    return 9;
-  }
-  return 10;
+  const tierCap =
+    displayTier <= 4
+      ? 5
+      : displayTier <= 9
+        ? 6
+        : displayTier <= 14
+          ? 7
+          : displayTier <= 20
+            ? 8
+            : displayTier <= 28
+              ? 9
+              : 10;
+  return Math.min(ARENA_ABSOLUTE_ENEMY_CAP, tierCap);
 }
 
 function getArenaEnemyBulletCap(displayTier: number) {
@@ -1180,6 +1183,9 @@ function spawnScriptSteps(
   let anchorEnemyId: string | null = initialAnchorId;
 
   for (const step of script.steps) {
+    if (getArenaLiveEnemyCount(state) >= ARENA_ABSOLUTE_ENEMY_CAP) {
+      break;
+    }
     const laneIndex =
       step.laneIndex ??
       clamp(centerLane + (step.laneOffset ?? 0), 0, Math.max(0, lanes.length - 1));
@@ -1199,6 +1205,9 @@ function spawnScriptSteps(
           : undefined,
       encounterTag: scriptId,
     });
+    if (!enemy) {
+      break;
+    }
     if (step.anchor) {
       anchorEnemyId = enemy.id;
     }
@@ -1209,7 +1218,7 @@ function spawnScriptSteps(
 
 function spawnFormationGroup(state: ArenaGameState, boardWidth: number, boardHeight: number, displayTier: number) {
   const activeEnemyCap = getArenaActiveEnemyCap(displayTier);
-  const remainingCapacity = activeEnemyCap - state.enemies.length;
+  const remainingCapacity = activeEnemyCap - getArenaLiveEnemyCount(state);
   if (remainingCapacity <= 0 || displayTier < 5) {
     return false;
   }
@@ -2064,6 +2073,9 @@ function spawnEnemy(
     encounterTag?: ArenaEncounter['scriptId'] | null;
   }
 ) {
+  if (getArenaLiveEnemyCount(state) >= ARENA_ABSOLUTE_ENEMY_CAP) {
+    return null;
+  }
   const displayTier = getArenaDisplayTier(state.elapsed);
   const config = ARENA_ENEMY_CONFIG[kind];
   const lanes = getSpawnLanes(boardWidth);
@@ -2182,7 +2194,7 @@ function spawnEnemy(
 function spawnEnemyGroup(state: ArenaGameState, boardWidth: number, boardHeight: number) {
   const displayTier = getArenaDisplayTier(state.elapsed);
   const activeEnemyCap = getArenaActiveEnemyCap(displayTier);
-  if (state.enemies.length >= activeEnemyCap) {
+  if (getArenaLiveEnemyCount(state) >= activeEnemyCap) {
     return;
   }
 
@@ -2196,7 +2208,7 @@ function spawnEnemyGroup(state: ArenaGameState, boardWidth: number, boardHeight:
   const primaryKind = randomChoice(kindPool);
   spawnEnemy(state, boardWidth, boardHeight, primaryKind, { laneIndex });
 
-  const remainingCapacity = activeEnemyCap - state.enemies.length;
+  const remainingCapacity = activeEnemyCap - getArenaLiveEnemyCount(state);
   if (remainingCapacity <= 0) {
     return;
   }
@@ -2494,7 +2506,7 @@ function processCarrierDeployments(
       continue;
     }
 
-    const remainingCapacity = activeEnemyCap - state.enemies.filter((enemy) => enemy.health > 0).length;
+    const remainingCapacity = activeEnemyCap - getArenaLiveEnemyCount(state);
     if (remainingCapacity <= 0) {
       carrier.specialCooldown = 0.8;
       continue;
@@ -3017,9 +3029,9 @@ function createPlayerVolley(state: ArenaGameState, boardHeight: number) {
 function getPlayerHitbox(state: ArenaGameState, boardHeight: number) {
   const top = getPlayerShipTop(boardHeight);
   return {
-    left: state.playerX - 18,
+    left: state.playerX - ARENA_PLAYER_HITBOX_HALF_WIDTH,
     top,
-    right: state.playerX + 18,
+    right: state.playerX + ARENA_PLAYER_HITBOX_HALF_WIDTH,
     bottom: top + ARENA_PLAYER_HEIGHT,
   };
 }
@@ -3551,10 +3563,10 @@ export function tickArenaState(
       spawnEnemyGroup(nextState, boardWidth, boardHeight);
       nextState.enemySpawnCooldown += getArenaSpawnCooldown(
         displayTier,
-        nextState.enemies.length,
+        getArenaLiveEnemyCount(nextState),
         nextState.enemyBullets.length
       );
-      if (nextState.enemies.length >= getArenaActiveEnemyCap(displayTier)) {
+      if (getArenaLiveEnemyCount(nextState) >= getArenaActiveEnemyCap(displayTier)) {
         break;
       }
     }
