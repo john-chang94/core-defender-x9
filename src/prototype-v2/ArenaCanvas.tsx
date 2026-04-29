@@ -641,12 +641,41 @@ function createStaticBackgroundScene({
   theme: ArenaBiomeDefinition;
 }) {
   const enemyZoneHeight = boardHeight * ARENA_ENEMY_ZONE_RATIO;
+  const playerZoneHeight = boardHeight - enemyZoneHeight;
+
+  // Decorative lane marker x-positions (5 vertical dividers)
+  const laneXRatios = [0.165, 0.33, 0.5, 0.665, 0.835];
+
+  // Diamond ring decorations centered in the player zone
+  const dCx = boardWidth * 0.5;
+  const dCy = enemyZoneHeight + playerZoneHeight * 0.44;
+  const outerDR = Math.min(boardWidth * 0.43, playerZoneHeight * 0.38);
+  const innerDR = outerDR * 0.55;
+  const outerDiamond = Skia.Path.Make();
+  outerDiamond.moveTo(dCx, dCy - outerDR);
+  outerDiamond.lineTo(dCx + outerDR, dCy);
+  outerDiamond.lineTo(dCx, dCy + outerDR);
+  outerDiamond.lineTo(dCx - outerDR, dCy);
+  outerDiamond.close();
+  const innerDiamond = Skia.Path.Make();
+  innerDiamond.moveTo(dCx, dCy - innerDR);
+  innerDiamond.lineTo(dCx + innerDR, dCy);
+  innerDiamond.lineTo(dCx, dCy + innerDR);
+  innerDiamond.lineTo(dCx - innerDR, dCy);
+  innerDiamond.close();
 
   return (
     <Group>
       <Rect x={0} y={0} width={boardWidth} height={boardHeight} color={theme.base} />
       <Circle cx={boardWidth * 0.18} cy={boardHeight * 0.1} r={boardWidth * 0.28} color={theme.auraA} />
       <Circle cx={boardWidth * 0.86} cy={boardHeight * 0.86} r={boardWidth * 0.32} color={theme.auraB} />
+      {/* Soft ambient glow behind player ship */}
+      <Circle
+        cx={boardWidth * 0.5}
+        cy={boardHeight * 0.9}
+        r={boardWidth * 0.4}
+        color={withAlpha(theme.pulse, 0.09)}
+      />
       {STARFIELD_POINTS.map((star, index) => (
         <Circle
           key={`arena-star-${index}`}
@@ -663,6 +692,29 @@ function createStaticBackgroundScene({
           )}
         />
       ))}
+      {/* Neon lane markers — 3-layer stack for subtle glow effect */}
+      {laneXRatios.map((lx, index) => (
+        <Group key={`arena-lane-${index}`}>
+          <Line
+            p1={vec(boardWidth * lx, 0)}
+            p2={vec(boardWidth * lx, boardHeight)}
+            color={withAlpha('#040810', 0.55)}
+            strokeWidth={6}
+          />
+          <Line
+            p1={vec(boardWidth * lx, 0)}
+            p2={vec(boardWidth * lx, boardHeight)}
+            color={withAlpha(theme.flow, 0.18)}
+            strokeWidth={2.8}
+          />
+          <Line
+            p1={vec(boardWidth * lx, 0)}
+            p2={vec(boardWidth * lx, boardHeight)}
+            color={withAlpha(theme.flow, 0.30)}
+            strokeWidth={1}
+          />
+        </Group>
+      ))}
       <Rect x={0} y={0} width={boardWidth} height={enemyZoneHeight} color={theme.enemyZone} />
       <RoundedRect
         x={14}
@@ -671,6 +723,19 @@ function createStaticBackgroundScene({
         height={2}
         r={999}
         color={theme.boundary}
+      />
+      {/* Decorative diamond ring in player zone */}
+      <Path
+        path={outerDiamond}
+        style="stroke"
+        strokeWidth={1.6}
+        color={withAlpha(theme.accentColor, 0.12)}
+      />
+      <Path
+        path={innerDiamond}
+        style="stroke"
+        strokeWidth={1.0}
+        color={withAlpha(theme.flow, 0.14)}
       />
       {CYBER_PANEL_FRAMES.map((panel, index) => {
         const panelX = boardWidth * panel.x;
@@ -719,14 +784,14 @@ function createStaticBackgroundScene({
               p1={vec(boardWidth * segment.x1, boardHeight * segment.y1)}
               p2={vec(boardWidth * segment.x2, boardHeight * segment.y2)}
               color={withAlpha('#060A14', 0.52)}
-              strokeWidth={3.2}
+              strokeWidth={4.0}
               strokeCap="round"
             />
             <Line
               p1={vec(boardWidth * segment.x1, boardHeight * segment.y1)}
               p2={vec(boardWidth * segment.x2, boardHeight * segment.y2)}
-              color={withAlpha(accentColor, 0.3)}
-              strokeWidth={1.15}
+              color={withAlpha(accentColor, 0.46)}
+              strokeWidth={1.4}
               strokeCap="round"
             />
           </Group>
