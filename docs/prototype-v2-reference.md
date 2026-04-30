@@ -1,7 +1,7 @@
 # Prototype V2 Reference
 
-Snapshot date: `2026-04-24`
-Board version: `v0.77`
+Snapshot date: `2026-04-29`
+Board version: `v0.79`
 
 This document is the current reference for the arena-combat shooter in `/Users/johnchang/Desktop/defender/src/prototype-v2`. It replaces the earlier planning-heavy draft with a snapshot of what is actually implemented today, plus the next major gaps.
 
@@ -517,6 +517,12 @@ Current Skia-rendered layers include:
 - high-tier projectile caps tighten further at `T45` and `T60`, with extra shedding for `Missile Command` during overdrive under high combat stress
 - extreme render stress now applies an additional projectile / VFX render-budget step to smooth late-tier swarm + ultimate overlaps
 
+### Current stability protections
+
+- the RAF simulation tick loop wraps `tickArenaState` in a `try/catch`; any JS exception is logged to the console and the previous frame's state is preserved so the game loop continues rather than crashing the component
+- `startEncounter` skips starting a boss encounter if the entity cap is already full when the boss tier fires, preventing an immediate phantom boss-clear that corrupts encounter state
+- `<ArenaCanvas>` is wrapped in a React error boundary (`ArenaCanvasErrorBoundary`); a Skia render crash is caught and logged without taking down the rest of the screen
+
 ### Current known performance hotspots
 
 The build reached `T60` in playtest with mostly stable performance, but these are still the most expensive combat situations:
@@ -544,6 +550,13 @@ Primary implementation files:
 - `/Users/johnchang/Desktop/defender/src/prototype-v2/ArenaPrototypeScreen.tsx`
 
 ## Changelog Snapshot
+
+### 2026-04-29
+
+- Advanced arena board label to `v0.79`.
+- Added a `try/catch` around the `tickArenaState` call inside the RAF `setGameState` updater. Any JS exception during simulation now logs `[ArenaGame] tickArenaState crash:` with the full stack to the console and returns the previous state instead of crashing the component tree.
+- Fixed a boss-encounter race condition in `startEncounter` (`engine.ts`): if the entity cap (`14`) is already full when a boss tier fires, `spawnScriptSteps` returns `null` for the anchor enemy. Previously this created an `activeEncounter` with `anchorEnemyId: null` that immediately self-cleared on the same tick, falsely incrementing `runBossClearsByEnemy` and corrupting encounter state. The boss encounter is now silently skipped instead.
+- Added `ArenaCanvasErrorBoundary` — a React class error boundary wrapping `<ArenaCanvas>` in `ArenaPrototypeScreen.tsx`. A Skia render crash is now caught, logged as `[ArenaCanvas] render crash:`, and replaced with a plain dark background instead of crashing the whole screen.
 
 ### 2026-04-24
 

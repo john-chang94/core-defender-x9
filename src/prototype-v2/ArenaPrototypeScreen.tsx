@@ -1,4 +1,5 @@
 import {
+  Component,
   useCallback,
   useEffect,
   useLayoutEffect,
@@ -6,6 +7,7 @@ import {
   useRef,
   useState,
 } from "react";
+import type { ReactNode } from "react";
 import type { LayoutChangeEvent } from "react-native";
 import {
   Pressable,
@@ -217,6 +219,32 @@ const ARENA_COACH_HINT_COPY: Record<
   },
 };
 const ARENA_LOSS_TRANSITION_SECONDS = 1.35;
+
+class ArenaCanvasErrorBoundary extends Component<
+  { children: ReactNode },
+  { hasError: boolean }
+> {
+  constructor(props: { children: ReactNode }) {
+    super(props);
+    this.state = { hasError: false };
+  }
+
+  static getDerivedStateFromError() {
+    return { hasError: true };
+  }
+
+  componentDidCatch(error: unknown) {
+    console.error("[ArenaCanvas] render crash:", error);
+  }
+
+  render() {
+    if (this.state.hasError) {
+      return <View style={{ flex: 1, backgroundColor: "#0a0a12" }} />;
+    }
+    return this.props.children;
+  }
+}
+
 const ENDLESS_T40_DEMO_TIER = 40;
 const ENDLESS_T40_DEMO_DAMAGE_UPGRADES = 8;
 const ENDLESS_T40_DEMO_HULL_UPGRADES = 6;
@@ -1459,16 +1487,21 @@ export function ArenaPrototypeScreen({
           if (stepDurations.length === 0 && nextState === previousState) {
             return previousState;
           }
-          for (let index = 0; index < stepDurations.length; index += 1) {
-            if (nextState.status !== "running") {
-              break;
+          try {
+            for (let index = 0; index < stepDurations.length; index += 1) {
+              if (nextState.status !== "running") {
+                break;
+              }
+              nextState = tickArenaState(
+                nextState,
+                stepDurations[index],
+                boardSize.width,
+                boardSize.height,
+              );
             }
-            nextState = tickArenaState(
-              nextState,
-              stepDurations[index],
-              boardSize.width,
-              boardSize.height,
-            );
+          } catch (error) {
+            console.error("[ArenaGame] tickArenaState crash:", error);
+            return previousState;
           }
           return nextState;
         });
@@ -3619,13 +3652,15 @@ export function ArenaPrototypeScreen({
             },
           ]}
         >
-          <ArenaCanvas
-            boardWidth={boardSize.width}
-            boardHeight={boardSize.height}
-            biomeDefinition={activeBiomeDefinition}
-            state={gameState}
-            vfxQuality={vfxQuality}
-          />
+          <ArenaCanvasErrorBoundary>
+            <ArenaCanvas
+              boardWidth={boardSize.width}
+              boardHeight={boardSize.height}
+              biomeDefinition={activeBiomeDefinition}
+              state={gameState}
+              vfxQuality={vfxQuality}
+            />
+          </ArenaCanvasErrorBoundary>
 
           <GestureDetector gesture={panGesture}>
             <View style={arenaStyles.gestureLayer} />

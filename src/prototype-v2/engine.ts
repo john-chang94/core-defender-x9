@@ -2262,6 +2262,12 @@ function startEncounter(state: ArenaGameState, boardWidth: number, boardHeight: 
   clearEncounterHazards(state);
   const anchorEnemyId = spawnScriptSteps(state, boardWidth, boardHeight, encounter.scriptId, encounter.anchorEnemyId, healthScale, rewardScale);
 
+  // If the anchor enemy couldn't spawn (entity cap was full), skip starting the encounter
+  // rather than creating one that immediately self-clears on the same tick.
+  if (encounter.type === 'boss' && anchorEnemyId === null) {
+    return;
+  }
+
   state.activeEncounter = {
     ...encounter,
     anchorEnemyId,
