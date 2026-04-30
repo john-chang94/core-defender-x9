@@ -46,7 +46,9 @@ import {
   getArenaCampaignLevelProgress,
   getArenaCampaignRunXp,
   getArenaCampaignWeaponSlotCount,
+  getNextActiveCampaignMission,
 } from "./campaign";
+import { HomeBaseScreen } from "./homebase/HomeBaseScreen";
 import {
   ARENA_ENEMY_ORDER,
   ARENA_FIXED_STEP_SECONDS,
@@ -1682,7 +1684,7 @@ export function ArenaPrototypeScreen({
   const hubCampaignShipStatBonuses = getArenaCampaignShipStatBonuses(
     arenaMeta.campaign.shipStatUpgrades,
   );
-  const activeMission = ARENA_CAMPAIGN_MISSIONS.prismVergeRecon;
+  const activeMission = ARENA_CAMPAIGN_MISSIONS[getNextActiveCampaignMission(arenaMeta.campaign.missionProgress)];
   const activeBannerDefinition = getArenaCosmeticDefinition(
     getArenaEquippedGlobalCosmeticId(arenaMeta, "banner"),
   );
@@ -2285,6 +2287,16 @@ export function ArenaPrototypeScreen({
         baseCampaignState.weapon,
         arenaMeta.campaign.weaponUpgrades[weaponId],
       );
+      const slot2WeaponId = campaignWeaponSlotCount >= 2
+        ? arenaMeta.campaign.loadout.weaponSlots[1]
+        : null;
+      const upgradedSlot2Weapon = slot2WeaponId
+        ? applyArenaCampaignWeaponUpgrades(
+            slot2WeaponId,
+            { ...baseCampaignState.weapon },
+            arenaMeta.campaign.weaponUpgrades[slot2WeaponId],
+          )
+        : null;
       const shipStatBonuses = getArenaCampaignShipStatBonuses(
         arenaMeta.campaign.shipStatUpgrades,
       );
@@ -2295,6 +2307,8 @@ export function ArenaPrototypeScreen({
           ...baseCampaignState.weaponsByBuild,
           [ARENA_CAMPAIGN_WEAPONS[weaponId].buildId]: upgradedWeapon,
         },
+        activeCampaignWeaponSlot: 0 as 0 | 1,
+        campaignWeaponSlots: [upgradedWeapon, upgradedSlot2Weapon] as [typeof upgradedWeapon, typeof upgradedSlot2Weapon],
         maxHull: baseCampaignState.maxHull + shipStatBonuses.health,
         hull: baseCampaignState.hull + shipStatBonuses.health,
         maxShield: baseCampaignState.maxShield + shipStatBonuses.shield,
@@ -2665,6 +2679,31 @@ export function ArenaPrototypeScreen({
       activateArenaUltimate(previousState, boardSize.width, boardSize.height),
     );
   };
+  const handleToggleCampaignWeaponSlot = () => {
+    if (!isCampaignRun || campaignWeaponSlotCount < 2) return;
+    setGameState((prev) => {
+      const nextSlot = (prev.activeCampaignWeaponSlot === 0 ? 1 : 0) as 0 | 1;
+      const nextWeapon = prev.campaignWeaponSlots[nextSlot];
+      if (!nextWeapon) return prev;
+      const slotWeaponId = arenaMeta.campaign.loadout.weaponSlots[nextSlot];
+      const nextBuildId = slotWeaponId
+        ? ARENA_CAMPAIGN_WEAPONS[slotWeaponId].buildId
+        : prev.activeBuild;
+      return setArenaBuild(
+        {
+          ...prev,
+          activeCampaignWeaponSlot: nextSlot,
+          weapon: nextWeapon,
+          weaponsByBuild: {
+            ...prev.weaponsByBuild,
+            [nextBuildId]: nextWeapon,
+          },
+        },
+        nextBuildId,
+      );
+    });
+  };
+
   const activeMissionProgress =
     arenaMeta.campaign.missionProgress[activeMission.id];
   const hubMissionBestTier = activeMissionProgress?.bestTier ?? 1;
@@ -2714,12 +2753,27 @@ export function ArenaPrototypeScreen({
 
   if (shellMode === "hub") {
     return (
-      <SafeAreaView
-        style={[
-          arenaStyles.container,
-          isPortraitViewport && arenaStyles.containerPortrait,
-        ]}
-      >
+      <HomeBaseScreen
+        arenaMeta={arenaMeta}
+        isMetaReady={isMetaReady}
+        onLaunchMission={(missionId) => deployRun("campaign", missionId)}
+        onLaunchEndless={() => deployRun("endless")}
+        onSwitchGame={handleSwitchGame}
+        onClaimCosmetic={handleClaimCosmetic}
+        onClaimAllCosmetics={handleClaimReadyCosmetics}
+        onEquipCosmetic={handleEquipCosmetic}
+        onEquipWeapon={handleEquipCampaignWeapon}
+        onEquipShield={handleEquipCampaignShield}
+        onUpgradeWeapon={handleUpgradeCampaignWeapon}
+        onUpgradeShipStat={handleUpgradeCampaignShipStat}
+      />
+    );
+  }
+
+  // ── DEAD CODE BLOCK (replaced by HomeBaseScreen) ──
+  if (false as boolean) {
+    return (
+      <SafeAreaView>
         <View style={arenaStyles.hubFixedScreen}>
           <View style={arenaStyles.hubFixedTopBar}>
             <View
@@ -4136,7 +4190,36 @@ export function ArenaPrototypeScreen({
                 />
               </View>
             </Pressable>
-          ) : (
+          ) : null}
+
+          {isCampaignRun && campaignWeaponSlotCount >= 2 ? (
+            <Pressable
+              onPress={handleToggleCampaignWeaponSlot}
+              disabled={!hasStarted || gameState.status !== "running" || isPaused || isMenuOpen}
+              style={[
+                arenaStyles.sideControlButton,
+                arenaStyles.sideControlButtonLeft,
+                {
+                  top: sideControlTop + 64,
+                  borderColor: "#385673",
+                  backgroundColor: "rgba(10, 20, 30, 0.9)",
+                  width: 46,
+                  height: 46,
+                },
+                (!hasStarted || gameState.status !== "running" || isPaused || isMenuOpen) &&
+                  arenaStyles.sideControlButtonDisabled,
+              ]}
+            >
+              <Text style={{ fontSize: 14, color: "#80D4FF", fontWeight: "700", textAlign: "center" }}>
+                {gameState.activeCampaignWeaponSlot === 0 ? "1▶2" : "◀1"}
+              </Text>
+              <Text style={{ fontSize: 8, color: "#4A7090", textAlign: "center", marginTop: 1 }}>
+                SLOT
+              </Text>
+            </Pressable>
+          ) : null}
+
+          {!isCampaignRun ? (
             <Pressable
               onPress={handleOpenArmory}
               disabled={armoryButtonDisabled}
@@ -4202,7 +4285,7 @@ export function ArenaPrototypeScreen({
                 </View>
               ) : null}
             </Pressable>
-          )}
+          ) : null}
 
           <Pressable
             onPress={handleActivateUltimate}

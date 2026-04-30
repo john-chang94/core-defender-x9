@@ -25,7 +25,12 @@ export type ArenaProjectileOwner = 'player' | 'enemy';
 export type ArenaProjectileKind = 'primary' | 'missile' | 'shard' | 'enemy';
 export type ArenaBuildId = 'railFocus' | 'novaBloom' | 'missileCommand' | 'fractureCore';
 export type ArenaRunMode = 'endless' | 'campaign';
-export type ArenaCampaignMissionId = 'prismVergeRecon';
+export type ArenaCampaignMissionId =
+  | 'prismVergeRecon'
+  | 'hiveForgeAssault'
+  | 'vectorSpindlePurge'
+  | 'eclipseEdgeBreak'
+  | 'nexusGateSiege';
 export type ArenaCampaignWeaponId = 'railCannon' | 'bloomEmitter' | 'missileRack' | 'fractureDriver';
 export type ArenaCampaignShieldId = 'aegisDampener' | 'pointScreen';
 export type ArenaCampaignWeaponUpgradeKey = 'damage' | 'guns' | 'cycle' | 'velocity' | 'stability';
@@ -428,7 +433,16 @@ export type ArenaUnlockEntry = {
   sourceMilestoneId: string | null;
 };
 
-export type ArenaCosmeticSlot = 'banner' | 'codexFrame' | 'buildAccent' | 'buildCrest';
+export type ArenaCosmeticSlot =
+  | 'banner'
+  | 'codexFrame'
+  | 'buildAccent'
+  | 'buildCrest'
+  | 'shipSkin'
+  | 'projectileVfx'
+  | 'biomeTheme'
+  | 'weaponTrail'
+  | 'ultimateVfx';
 export type ArenaCosmeticState = 'locked' | 'claimable' | 'owned';
 export type ArenaCosmeticDisplayState = ArenaCosmeticState | 'equipped';
 export type ArenaCosmeticSourceType = 'default' | 'reward' | 'season' | 'premium';
@@ -517,6 +531,11 @@ export type ArenaCoachHintEntry = {
   seenAt: string | null;
 };
 
+export type ArenaSeasonPassState = {
+  tier: number;
+  xp: number;
+};
+
 export type ArenaMetaState = {
   version: number;
   lastUpdatedAt: string;
@@ -528,6 +547,8 @@ export type ArenaMetaState = {
   equippedCosmetics: ArenaEquippedCosmetics;
   coachHints: ArenaCoachHintValueMap<ArenaCoachHintEntry>;
   campaign: ArenaCampaignState;
+  isPremium: boolean;
+  seasonPass: ArenaSeasonPassState;
 };
 
 export type ArenaCampaignMissionProgress = {
@@ -601,6 +622,8 @@ export type ArenaGameState = {
   ultimateColumns: number[];
   weapon: ArenaWeapon;
   weaponsByBuild: ArenaBuildValueMap<ArenaWeapon>;
+  activeCampaignWeaponSlot: 0 | 1;
+  campaignWeaponSlots: [ArenaWeapon | null, ArenaWeapon | null];
   enemies: ArenaEnemy[];
   drops: ArenaDrop[];
   hazards: ArenaHazard[];

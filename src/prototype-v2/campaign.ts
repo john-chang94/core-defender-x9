@@ -221,9 +221,80 @@ export const ARENA_CAMPAIGN_MISSIONS: Record<ArenaCampaignMissionId, ArenaCampai
     rewardXp: 140,
     bossLabel: 'Prism Core',
   },
+  hiveForgeAssault: {
+    id: 'hiveForgeAssault',
+    label: 'Hive Forge Assault',
+    zoneLabel: 'Map 02',
+    summary: 'Push through the Hive Forge sector and shut down the Carrier boss.',
+    biomeTier: 7,
+    targetTier: 12,
+    recommendedLevel: 3,
+    rewardXp: 220,
+    bossLabel: 'Hive Carrier',
+  },
+  vectorSpindlePurge: {
+    id: 'vectorSpindlePurge',
+    label: 'Vector Spindle Purge',
+    zoneLabel: 'Map 03',
+    summary: 'Break the Vector Spindle formation lines and destroy the Loom core.',
+    biomeTier: 13,
+    targetTier: 18,
+    recommendedLevel: 5,
+    rewardXp: 320,
+    bossLabel: 'Vector Loom',
+  },
+  eclipseEdgeBreak: {
+    id: 'eclipseEdgeBreak',
+    label: 'Eclipse Edge Break',
+    zoneLabel: 'Map 04',
+    summary: 'Flank the Eclipse perimeter and neutralize the Talon command ship.',
+    biomeTier: 19,
+    targetTier: 24,
+    recommendedLevel: 7,
+    rewardXp: 440,
+    bossLabel: 'Eclipse Talon',
+  },
+  nexusGateSiege: {
+    id: 'nexusGateSiege',
+    label: 'Nexus Gate Siege',
+    zoneLabel: 'Map 05',
+    summary: 'Final assault on the Nexus Gate. Breach the last defense line.',
+    biomeTier: 25,
+    targetTier: 30,
+    recommendedLevel: 9,
+    rewardXp: 600,
+    bossLabel: 'Nexus Warden',
+  },
 };
 
-export const ARENA_CAMPAIGN_MISSION_ORDER: ArenaCampaignMissionId[] = ['prismVergeRecon'];
+export const ARENA_CAMPAIGN_MISSION_ORDER: ArenaCampaignMissionId[] = [
+  'prismVergeRecon',
+  'hiveForgeAssault',
+  'vectorSpindlePurge',
+  'eclipseEdgeBreak',
+  'nexusGateSiege',
+];
+
+export function isCampaignMissionUnlocked(
+  missionId: ArenaCampaignMissionId,
+  missionProgress: Record<ArenaCampaignMissionId, { completed: boolean }>,
+): boolean {
+  const index = ARENA_CAMPAIGN_MISSION_ORDER.indexOf(missionId);
+  if (index <= 0) return true;
+  const previousMissionId = ARENA_CAMPAIGN_MISSION_ORDER[index - 1];
+  return missionProgress[previousMissionId]?.completed ?? false;
+}
+
+export function getNextActiveCampaignMission(
+  missionProgress: Record<ArenaCampaignMissionId, { completed: boolean }>,
+): ArenaCampaignMissionId {
+  for (const missionId of ARENA_CAMPAIGN_MISSION_ORDER) {
+    if (!missionProgress[missionId]?.completed) {
+      return missionId;
+    }
+  }
+  return ARENA_CAMPAIGN_MISSION_ORDER[ARENA_CAMPAIGN_MISSION_ORDER.length - 1];
+}
 
 export function getArenaCampaignLevelFromXp(xp: number) {
   let level = 1;

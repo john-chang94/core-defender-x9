@@ -63,7 +63,7 @@ import type {
 } from './types';
 
 export const ARENA_META_STORAGE_KEY = 'arena-v2-meta-v1';
-export const ARENA_META_VERSION = 10;
+export const ARENA_META_VERSION = 11;
 export const ARENA_BUILD_MASTERY_THRESHOLDS = [0, 100, 220, 360, 520, 700, 900, 1120, 1360, 1620, 1900] as const;
 
 export const ARENA_COACH_HINT_ORDER: ArenaCoachHintId[] = [
@@ -904,6 +904,8 @@ export function createArenaMetaState(): ArenaMetaState {
     equippedCosmetics: createEquippedCosmetics(),
     coachHints: createArenaCoachHintValueMap((hintId) => createCoachHintEntry(hintId)),
     campaign: createCampaignState(),
+    isPremium: false,
+    seasonPass: { tier: 0, xp: 0 },
   };
 }
 
@@ -972,6 +974,15 @@ function normalizeArenaMetaState(raw: unknown): ArenaMetaState {
   const equippedCosmetics = normalizeEquippedCosmetics(candidate.equippedCosmetics, cosmeticProgress.nextCosmetics);
   const normalizedCampaign = normalizeCampaignState(candidate.campaign);
 
+  const isPremium = typeof (candidate as Partial<ArenaMetaState>).isPremium === 'boolean'
+    ? (candidate as Partial<ArenaMetaState>).isPremium as boolean
+    : false;
+  const rawSeasonPass = (candidate as Partial<ArenaMetaState>).seasonPass;
+  const seasonPass = {
+    tier: Math.max(0, Math.floor(Number(rawSeasonPass?.tier) || 0)),
+    xp: Math.max(0, Math.floor(Number(rawSeasonPass?.xp) || 0)),
+  };
+
   return {
     version: ARENA_META_VERSION,
     lastUpdatedAt: unlockedAt,
@@ -983,6 +994,20 @@ function normalizeArenaMetaState(raw: unknown): ArenaMetaState {
     equippedCosmetics,
     coachHints: normalizedCoachHints,
     campaign: normalizedCampaign,
+    isPremium,
+    seasonPass,
+  };
+}
+
+export function awardSeasonPassXp(metaState: ArenaMetaState, xp: number): ArenaMetaState {
+  if (xp <= 0) return metaState;
+  const nextXp = metaState.seasonPass.xp + xp;
+  const xpPerTier = 500;
+  const nextTier = Math.floor(nextXp / xpPerTier);
+  return {
+    ...metaState,
+    lastUpdatedAt: new Date().toISOString(),
+    seasonPass: { tier: nextTier, xp: nextXp },
   };
 }
 

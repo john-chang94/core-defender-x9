@@ -3088,6 +3088,8 @@ export function createInitialArenaState(
     ultimateColumns: [],
     weapon: baseWeaponsByBuild[activeBuild],
     weaponsByBuild: baseWeaponsByBuild,
+    activeCampaignWeaponSlot: 0,
+    campaignWeaponSlots: [null, null],
     enemies: [],
     drops: [],
     hazards: [],
