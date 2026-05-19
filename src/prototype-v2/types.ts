@@ -360,6 +360,12 @@ export type ArenaArmoryChoice = {
   source: 'standard' | 'boss';
 };
 
+export type ArenaBuildArmoryProgress = {
+  salvage: number;
+  nextArmoryCost: number;
+  availableArmoryChoices: number;
+};
+
 export type ArenaCodexEnemyEntry = {
   kind: ArenaEnemyKind;
   label: string;
@@ -622,6 +628,7 @@ export type ArenaGameState = {
   ultimateColumns: number[];
   weapon: ArenaWeapon;
   weaponsByBuild: ArenaBuildValueMap<ArenaWeapon>;
+  armoryProgressByBuild: ArenaBuildValueMap<ArenaBuildArmoryProgress>;
   activeCampaignWeaponSlot: 0 | 1;
   campaignWeaponSlots: [ArenaWeapon | null, ArenaWeapon | null];
   enemies: ArenaEnemy[];

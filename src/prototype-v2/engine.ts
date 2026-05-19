@@ -28,6 +28,7 @@ import {
 import type {
   ArenaBuildId,
   ArenaArmoryUpgradeKey,
+  ArenaBuildArmoryProgress,
   ArenaBuildValueMap,
   ArenaCampaignMissionId,
   ArenaCampaignShieldId,
@@ -67,6 +68,7 @@ const ARENA_KILL_ULTIMATE_CHARGE_CAP = 5.2;
 const ARENA_RAIL_PRECISION_ULTIMATE_CHARGE = 0.28;
 const ARENA_MINI_BOSS_CLEAR_ULTIMATE_CHARGE = 10;
 const ARENA_BOSS_CLEAR_ULTIMATE_CHARGE = 20;
+const ARENA_INITIAL_ARMORY_COST = 160;
 
 function clamp(value: number, min: number, max: number) {
   return Math.max(min, Math.min(max, value));
@@ -91,6 +93,36 @@ function createBuildValueMap<T>(factory: (buildId: ArenaBuildId) => T): ArenaBui
     missileCommand: factory('missileCommand'),
     fractureCore: factory('fractureCore'),
   };
+}
+
+function createInitialBuildArmoryProgress(): ArenaBuildArmoryProgress {
+  return {
+    salvage: 0,
+    nextArmoryCost: ARENA_INITIAL_ARMORY_COST,
+    availableArmoryChoices: 0,
+  };
+}
+
+function cloneBuildArmoryProgressMap(
+  progressByBuild: ArenaBuildValueMap<ArenaBuildArmoryProgress>
+): ArenaBuildValueMap<ArenaBuildArmoryProgress> {
+  return createBuildValueMap((buildId) => ({ ...progressByBuild[buildId] }));
+}
+
+function syncActiveArmoryProgressFields(state: ArenaGameState) {
+  const progress = state.armoryProgressByBuild[state.activeBuild];
+  state.salvage = progress.salvage;
+  state.nextArmoryCost = progress.nextArmoryCost;
+  state.availableArmoryChoices = progress.availableArmoryChoices;
+}
+
+function addActiveBuildSalvage(state: ArenaGameState, amount: number) {
+  const progress = state.armoryProgressByBuild[state.activeBuild];
+  state.armoryProgressByBuild[state.activeBuild] = {
+    ...progress,
+    salvage: progress.salvage + amount,
+  };
+  syncActiveArmoryProgressFields(state);
 }
 
 function createEnemyValueMap<T>(factory: (kind: ArenaEnemyKind) => T): ArenaEnemyValueMap<T> {
@@ -2417,19 +2449,34 @@ function getNextArmoryIncrement(currentCost: number) {
   return 40;
 }
 
-function awardAffordableArmoryChoices(state: ArenaGameState) {
+function settleAffordableArmoryProgress(progress: ArenaBuildArmoryProgress) {
+  const nextProgress = { ...progress };
   let grantedChoices = 0;
-  while (state.salvage >= state.nextArmoryCost) {
-    state.salvage -= state.nextArmoryCost;
-    state.nextArmoryCost += getNextArmoryIncrement(state.nextArmoryCost);
-    state.availableArmoryChoices += 1;
+  while (nextProgress.salvage >= nextProgress.nextArmoryCost) {
+    nextProgress.salvage -= nextProgress.nextArmoryCost;
+    nextProgress.nextArmoryCost += getNextArmoryIncrement(nextProgress.nextArmoryCost);
+    nextProgress.availableArmoryChoices += 1;
     grantedChoices += 1;
   }
+  return { progress: nextProgress, grantedChoices };
+}
+
+function awardAffordableArmoryChoices(state: ArenaGameState) {
+  const { progress, grantedChoices } = settleAffordableArmoryProgress(
+    state.armoryProgressByBuild[state.activeBuild]
+  );
+  state.armoryProgressByBuild[state.activeBuild] = progress;
+  syncActiveArmoryProgressFields(state);
   return grantedChoices;
 }
 
 function awardBossArmoryChoice(state: ArenaGameState) {
-  state.availableArmoryChoices += 1;
+  const progress = state.armoryProgressByBuild[state.activeBuild];
+  state.armoryProgressByBuild[state.activeBuild] = {
+    ...progress,
+    availableArmoryChoices: progress.availableArmoryChoices + 1,
+  };
+  syncActiveArmoryProgressFields(state);
   return 1;
 }
 
@@ -2712,7 +2759,7 @@ function applyDamageToEnemy(
   }
   state.score += enemy.reward;
   if (state.runMode !== 'campaign') {
-    state.salvage += Math.max(7, Math.round(enemy.reward / 9.5));
+    addActiveBuildSalvage(state, Math.max(7, Math.round(enemy.reward / 9.5)));
   }
   queueEffect(state, 'burst', enemy.x, enemy.y, enemy.size * 1.24, enemy.color, {
     flavor: 'enemy',
@@ -3058,6 +3105,8 @@ export function createInitialArenaState(
     ...createBuildValueMap(() => ({ ...BASE_ARENA_WEAPON })),
     missileCommand: { ...BASE_ARENA_WEAPON, shotCount: 2 },
   };
+  const armoryProgressByBuild = createBuildValueMap(() => createInitialBuildArmoryProgress());
+  const activeArmoryProgress = armoryProgressByBuild[activeBuild];
   return {
     status: 'running',
     runMode: options?.runMode ?? 'endless',
@@ -3069,9 +3118,9 @@ export function createInitialArenaState(
     shieldAbilityTimer: 0,
     elapsed: 0,
     score: 0,
-    salvage: 0,
-    nextArmoryCost: 160,
-    availableArmoryChoices: 0,
+    salvage: activeArmoryProgress.salvage,
+    nextArmoryCost: activeArmoryProgress.nextArmoryCost,
+    availableArmoryChoices: activeArmoryProgress.availableArmoryChoices,
     activeBuild,
     playerX: boardWidth / 2,
     hull: 100,
@@ -3088,6 +3137,7 @@ export function createInitialArenaState(
     ultimateColumns: [],
     weapon: baseWeaponsByBuild[activeBuild],
     weaponsByBuild: baseWeaponsByBuild,
+    armoryProgressByBuild,
     activeCampaignWeaponSlot: 0,
     campaignWeaponSlots: [null, null],
     enemies: [],
@@ -3381,6 +3431,11 @@ export function applyArenaArmoryUpgrade(
   const shieldBonus = definition.applyMeta?.shieldBonus ?? 0;
   const nextWeapon = definition.apply(previousState.weapon);
   const remainingChoices = Math.max(0, previousState.availableArmoryChoices - 1);
+  const currentArmoryProgress = previousState.armoryProgressByBuild[previousState.activeBuild];
+  const nextArmoryProgress = {
+    ...currentArmoryProgress,
+    availableArmoryChoices: remainingChoices,
+  };
   const nextMissileState = {
     ...previousState,
     weapon: nextWeapon,
@@ -3392,6 +3447,10 @@ export function applyArenaArmoryUpgrade(
     weaponsByBuild: {
       ...previousState.weaponsByBuild,
       [previousState.activeBuild]: nextWeapon,
+    },
+    armoryProgressByBuild: {
+      ...previousState.armoryProgressByBuild,
+      [previousState.activeBuild]: nextArmoryProgress,
     },
     maxHull: previousState.maxHull + hullBonus,
     hull: Math.min(previousState.maxHull + hullBonus, previousState.hull + hullBonus),
@@ -3422,12 +3481,28 @@ export function setArenaBuild(previousState: ArenaGameState, nextBuild: ArenaBui
     ...previousState.weaponsByBuild,
     [previousState.activeBuild]: previousState.weapon,
   };
+  const updatedArmoryProgressByBuild: ArenaBuildValueMap<ArenaBuildArmoryProgress> = {
+    ...previousState.armoryProgressByBuild,
+    [previousState.activeBuild]: {
+      ...previousState.armoryProgressByBuild[previousState.activeBuild],
+      salvage: previousState.salvage,
+      nextArmoryCost: previousState.nextArmoryCost,
+      availableArmoryChoices: previousState.availableArmoryChoices,
+    },
+  };
   const nextWeapon = updatedWeaponsByBuild[nextBuild];
+  const settledNextArmoryProgress = settleAffordableArmoryProgress(updatedArmoryProgressByBuild[nextBuild]);
+  updatedArmoryProgressByBuild[nextBuild] = settledNextArmoryProgress.progress;
+  const nextArmoryProgress = settledNextArmoryProgress.progress;
   return {
     ...previousState,
     activeBuild: nextBuild,
+    salvage: nextArmoryProgress.salvage,
+    nextArmoryCost: nextArmoryProgress.nextArmoryCost,
+    availableArmoryChoices: nextArmoryProgress.availableArmoryChoices,
     weapon: nextWeapon,
     weaponsByBuild: updatedWeaponsByBuild,
+    armoryProgressByBuild: updatedArmoryProgressByBuild,
     playerBullets: [],
     fireCooldown: nextBuild === 'missileCommand' ? 0 : Math.max(0, Math.min(nextWeapon.fireInterval, previousState.fireCooldown)),
     missileCooldown: nextBuild === 'missileCommand' ? 0.32 : previousState.missileCooldown,
@@ -3435,7 +3510,10 @@ export function setArenaBuild(previousState: ArenaGameState, nextBuild: ArenaBui
     missileBurstInterval: 0,
     pendingMissileOffsets: [],
     pendingMissileDamageScale: 1,
-    pickupMessage: `${ARENA_BUILD_META[nextBuild].label} online`,
+    pickupMessage:
+      settledNextArmoryProgress.grantedChoices > 0
+        ? `${ARENA_BUILD_META[nextBuild].label} online. ${getArmoryReadyMessage(nextArmoryProgress.availableArmoryChoices)}`
+        : `${ARENA_BUILD_META[nextBuild].label} online`,
     pickupTimer: 1.8,
   };
 }
@@ -3461,6 +3539,8 @@ export function tickArenaState(
     ...previousState,
     elapsed: previousState.elapsed + deltaSeconds,
     salvage: previousState.salvage,
+    nextArmoryCost: previousState.nextArmoryCost,
+    availableArmoryChoices: previousState.availableArmoryChoices,
     hull: previousState.hull,
     shield: previousState.shield,
     shieldRegenCooldown: Math.max(0, previousState.shieldRegenCooldown - deltaSeconds),
@@ -3496,6 +3576,7 @@ export function tickArenaState(
     enemies: [],
     hazards: previousState.hazards.map((hazard) => ({ ...hazard })),
     weapon: previousState.weapon,
+    armoryProgressByBuild: cloneBuildArmoryProgressMap(previousState.armoryProgressByBuild),
     activeEncounter: previousState.activeEncounter ? { ...previousState.activeEncounter } : null,
     nextHazardId: previousState.nextHazardId,
     bestTierReached: previousState.bestTierReached,
@@ -4137,7 +4218,7 @@ export function tickArenaState(
           nextState.score += 55;
           nextState.pickupMessage = 'Combat data secured';
         } else {
-          nextState.salvage += 55;
+          addActiveBuildSalvage(nextState, 55);
           const grantedChoices = !nextState.activeEncounter ? awardAffordableArmoryChoices(nextState) : 0;
           nextState.pickupMessage =
             grantedChoices > 0 ? getArmoryReadyMessage(nextState.availableArmoryChoices) : 'Salvage burst secured';
@@ -4165,7 +4246,7 @@ export function tickArenaState(
       const completedEncounter = nextState.activeEncounter;
       nextState.activeEncounter = null;
       if (nextState.runMode !== 'campaign') {
-        nextState.salvage += completedEncounter.rewardSalvage;
+        addActiveBuildSalvage(nextState, completedEncounter.rewardSalvage);
       }
       addUltimateCharge(
         nextState,

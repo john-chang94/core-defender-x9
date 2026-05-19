@@ -2330,6 +2330,7 @@ export function ArenaPrototypeScreen({
       isDebugDemoRun: true,
     });
     const demoWeapons = { ...baseState.weaponsByBuild };
+    const demoArmoryProgressByBuild = { ...baseState.armoryProgressByBuild };
 
     for (const buildId of ARENA_BUILD_ORDER) {
       let nextWeapon = { ...baseState.weaponsByBuild[buildId] };
@@ -2346,6 +2347,10 @@ export function ArenaPrototypeScreen({
         nextWeapon = ARENA_ARMORY_UPGRADES.damageMatrix.apply(nextWeapon);
       }
       demoWeapons[buildId] = nextWeapon;
+      demoArmoryProgressByBuild[buildId] = {
+        ...baseState.armoryProgressByBuild[buildId],
+        nextArmoryCost: ENDLESS_T40_DEMO_NEXT_ARMORY_COST,
+      };
     }
 
     const hullBonus =
@@ -2361,6 +2366,7 @@ export function ArenaPrototypeScreen({
       nextArmoryCost: ENDLESS_T40_DEMO_NEXT_ARMORY_COST,
       weapon: demoWeapons[baseState.activeBuild],
       weaponsByBuild: demoWeapons,
+      armoryProgressByBuild: demoArmoryProgressByBuild,
       maxHull: baseState.maxHull + hullBonus,
       hull: baseState.maxHull + hullBonus,
       maxShield: baseState.maxShield + shieldBonus,

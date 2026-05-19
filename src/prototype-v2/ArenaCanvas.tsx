@@ -112,6 +112,225 @@ const CYBER_TRACE_SEGMENTS = [
   { x1: 0.52, y1: 0.74, x2: 0.52, y2: 0.9, accent: 'warm' },
 ] as const;
 
+/** Normalized point for ratio-space hull / trace geometry */
+type ArenaBgRatioPt = { readonly x: number; readonly y: number };
+
+/** Large irregular hull-panel outlines ( schematic / plating ) — drawn behind the fine grid */
+const IRREGULAR_HULL_PANELS: readonly (readonly ArenaBgRatioPt[])[] = [
+  [
+    { x: 0.02, y: 0.2 },
+    { x: 0.2, y: 0.16 },
+    { x: 0.24, y: 0.34 },
+    { x: 0.08, y: 0.39 },
+  ],
+  [
+    { x: 0.73, y: 0.02 },
+    { x: 0.98, y: 0.05 },
+    { x: 0.96, y: 0.22 },
+    { x: 0.82, y: 0.23 },
+    { x: 0.7, y: 0.12 },
+  ],
+  [
+    { x: 0.35, y: 0.04 },
+    { x: 0.64, y: 0.03 },
+    { x: 0.67, y: 0.14 },
+    { x: 0.5, y: 0.2 },
+    { x: 0.32, y: 0.13 },
+  ],
+  [
+    { x: 0.88, y: 0.34 },
+    { x: 0.99, y: 0.41 },
+    { x: 0.97, y: 0.58 },
+    { x: 0.85, y: 0.55 },
+    { x: 0.83, y: 0.42 },
+  ],
+  [
+    { x: 0.0, y: 0.48 },
+    { x: 0.11, y: 0.44 },
+    { x: 0.15, y: 0.62 },
+    { x: 0.03, y: 0.68 },
+  ],
+  [
+    { x: 0.26, y: 0.52 },
+    { x: 0.48, y: 0.46 },
+    { x: 0.55, y: 0.64 },
+    { x: 0.38, y: 0.72 },
+    { x: 0.2, y: 0.66 },
+  ],
+  [
+    { x: 0.58, y: 0.82 },
+    { x: 0.82, y: 0.78 },
+    { x: 0.9, y: 0.92 },
+    { x: 0.62, y: 0.98 },
+  ],
+] as const;
+
+/** Flat-top hex centers in ratio space; `skip` lists edge indices 0..5 to omit ( cracked / broken silhouette ) */
+const BACKGROUND_BROKEN_HEXES: readonly {
+  readonly cx: number;
+  readonly cy: number;
+  readonly r: number;
+  readonly skip: readonly number[];
+}[] = [
+  { cx: 0.17, cy: 0.17, r: 0.068, skip: [0, 1] },
+  { cx: 0.83, cy: 0.19, r: 0.056, skip: [3, 4] },
+  { cx: 0.12, cy: 0.36, r: 0.048, skip: [2] },
+  { cx: 0.76, cy: 0.42, r: 0.05, skip: [5, 0] },
+  { cx: 0.5, cy: 0.28, r: 0.042, skip: [1, 2, 3] },
+  { cx: 0.9, cy: 0.68, r: 0.054, skip: [4] },
+  { cx: 0.28, cy: 0.82, r: 0.06, skip: [2, 3] },
+  { cx: 0.65, cy: 0.72, r: 0.045, skip: [5] },
+] as const;
+
+/** Orthogonal chip-style traces ( ratios ); rendered above the grid with warm glow */
+const CHIP_TRACE_CHAINS: readonly (readonly ArenaBgRatioPt[])[] = [
+  [
+    { x: 0.04, y: 0.92 },
+    { x: 0.04, y: 0.64 },
+    { x: 0.14, y: 0.52 },
+    { x: 0.14, y: 0.36 },
+    { x: 0.25, y: 0.28 },
+    { x: 0.25, y: 0.1 },
+  ],
+  [
+    { x: 0.96, y: 0.88 },
+    { x: 0.96, y: 0.58 },
+    { x: 0.86, y: 0.46 },
+    { x: 0.86, y: 0.22 },
+  ],
+  [
+    { x: 0.5, y: 0.06 },
+    { x: 0.5, y: 0.18 },
+    { x: 0.38, y: 0.26 },
+    { x: 0.62, y: 0.26 },
+    { x: 0.5, y: 0.34 },
+  ],
+  [
+    { x: 0.32, y: 0.7 },
+    { x: 0.32, y: 0.52 },
+    { x: 0.46, y: 0.44 },
+    { x: 0.46, y: 0.32 },
+  ],
+  [
+    { x: 0.7, y: 0.76 },
+    { x: 0.84, y: 0.76 },
+    { x: 0.84, y: 0.6 },
+    { x: 0.72, y: 0.52 },
+    { x: 0.72, y: 0.38 },
+  ],
+  [
+    { x: 0.08, y: 0.72 },
+    { x: 0.2, y: 0.72 },
+    { x: 0.2, y: 0.56 },
+    { x: 0.1, y: 0.48 },
+  ],
+  [
+    { x: 0.55, y: 0.58 },
+    { x: 0.68, y: 0.58 },
+    { x: 0.68, y: 0.46 },
+  ],
+  [
+    { x: 0.92, y: 0.12 },
+    { x: 0.78, y: 0.12 },
+    { x: 0.78, y: 0.28 },
+    { x: 0.9, y: 0.32 },
+  ],
+  [
+    { x: 0.4, y: 0.88 },
+    { x: 0.58, y: 0.88 },
+    { x: 0.58, y: 0.76 },
+    { x: 0.44, y: 0.7 },
+  ],
+] as const;
+
+const TECH_DECAL_DOTS: readonly { readonly x: number; readonly y: number; readonly r: number }[] = [
+  { x: 0.21, y: 0.24, r: 0.9 },
+  { x: 0.27, y: 0.31, r: 0.7 },
+  { x: 0.44, y: 0.12, r: 0.8 },
+  { x: 0.6, y: 0.08, r: 0.65 },
+  { x: 0.79, y: 0.08, r: 0.75 },
+  { x: 0.52, y: 0.48, r: 0.6 },
+  { x: 0.18, y: 0.54, r: 0.55 },
+  { x: 0.07, y: 0.78, r: 0.7 },
+  { x: 0.33, y: 0.92, r: 0.65 },
+  { x: 0.81, y: 0.5, r: 0.6 },
+  { x: 0.93, y: 0.44, r: 0.55 },
+  { x: 0.64, y: 0.34, r: 0.5 },
+  { x: 0.4, y: 0.62, r: 0.55 },
+  { x: 0.26, y: 0.44, r: 0.45 },
+  { x: 0.73, y: 0.88, r: 0.62 },
+  { x: 0.86, y: 0.82, r: 0.5 },
+  { x: 0.5, y: 0.22, r: 0.48 },
+  { x: 0.15, y: 0.08, r: 0.55 },
+  { x: 0.58, y: 0.92, r: 0.52 },
+  { x: 0.95, y: 0.92, r: 0.58 },
+] as const;
+
+const TECH_DECAL_LINES: readonly {
+  readonly x1: number;
+  readonly y1: number;
+  readonly x2: number;
+  readonly y2: number;
+}[] = [
+  { x1: 0.22, y1: 0.08, x2: 0.3, y2: 0.08 },
+  { x1: 0.48, y1: 0.42, x2: 0.56, y2: 0.42 },
+  { x1: 0.68, y1: 0.16, x2: 0.76, y2: 0.16 },
+  { x1: 0.12, y1: 0.62, x2: 0.18, y2: 0.62 },
+  { x1: 0.84, y1: 0.38, x2: 0.84, y2: 0.44 },
+  { x1: 0.36, y1: 0.78, x2: 0.36, y2: 0.84 },
+  { x1: 0.06, y1: 0.32, x2: 0.06, y2: 0.38 },
+  { x1: 0.92, y1: 0.54, x2: 0.98, y2: 0.54 },
+  { x1: 0.52, y1: 0.64, x2: 0.6, y2: 0.64 },
+  { x1: 0.74, y1: 0.7, x2: 0.82, y2: 0.7 },
+  { x1: 0.19, y1: 0.46, x2: 0.26, y2: 0.46 },
+  { x1: 0.41, y1: 0.38, x2: 0.41, y2: 0.44 },
+  { x1: 0.62, y1: 0.12, x2: 0.62, y2: 0.18 },
+  { x1: 0.3, y1: 0.18, x2: 0.36, y2: 0.22 },
+  { x1: 0.11, y1: 0.86, x2: 0.17, y2: 0.86 },
+  { x1: 0.88, y1: 0.72, x2: 0.94, y2: 0.74 },
+] as const;
+
+/** Edge i connects vertex i → vertex (i+1) % 6 on a flat-top hex */
+function buildBrokenHexPath(cx: number, cy: number, r: number, skipEdges: readonly number[]) {
+  const skip = new Set(skipEdges);
+  const corners: { x: number; y: number }[] = [];
+  for (let i = 0; i < 6; i += 1) {
+    const a = (Math.PI / 3) * i - Math.PI / 6;
+    corners.push({ x: cx + r * Math.cos(a), y: cy + r * Math.sin(a) });
+  }
+  const path = Skia.Path.Make();
+  let needMove = true;
+  for (let i = 0; i < 6; i += 1) {
+    if (skip.has(i)) {
+      needMove = true;
+      continue;
+    }
+    const c0 = corners[i]!;
+    const c1 = corners[(i + 1) % 6]!;
+    if (needMove) {
+      path.moveTo(c0.x, c0.y);
+      needMove = false;
+    } else {
+      path.lineTo(c0.x, c0.y);
+    }
+    path.lineTo(c1.x, c1.y);
+  }
+  return path;
+}
+
+function ratioPolygonPath(boardWidth: number, boardHeight: number, points: readonly ArenaBgRatioPt[]) {
+  const path = Skia.Path.Make();
+  if (points.length < 2) {
+    return path;
+  }
+  path.moveTo(boardWidth * points[0]!.x, boardHeight * points[0]!.y);
+  for (let i = 1; i < points.length; i += 1) {
+    path.lineTo(boardWidth * points[i]!.x, boardHeight * points[i]!.y);
+  }
+  path.close();
+  return path;
+}
+
 type OverdriveCrackSegment = {
   x1: number;
   y1: number;
@@ -692,6 +911,39 @@ function createStaticBackgroundScene({
           )}
         />
       ))}
+      {IRREGULAR_HULL_PANELS.map((panel, index) => (
+        <Path
+          key={`arena-hull-${index}`}
+          path={ratioPolygonPath(boardWidth, boardHeight, panel)}
+          style="stroke"
+          strokeWidth={1}
+          color={withAlpha(theme.headerBorder, 0.2)}
+        />
+      ))}
+      {BACKGROUND_BROKEN_HEXES.map((hx, index) => {
+        const px = boardWidth * hx.cx;
+        const py = boardHeight * hx.cy;
+        const rPx = Math.min(boardWidth, boardHeight) * hx.r;
+        const brokenPath = buildBrokenHexPath(px, py, rPx, hx.skip);
+        return (
+          <Group key={`arena-bhex-${index}`}>
+            <Path
+              path={brokenPath}
+              style="stroke"
+              strokeWidth={2.5}
+              color={withAlpha('#080612', 0.58)}
+              strokeJoin="round"
+            />
+            <Path
+              path={brokenPath}
+              style="stroke"
+              strokeWidth={1.05}
+              color={withAlpha(theme.headerBorder, 0.28)}
+              strokeJoin="round"
+            />
+          </Group>
+        );
+      })}
       {/* Neon lane markers — 3-layer stack for subtle glow effect */}
       {laneXRatios.map((lx, index) => (
         <Group key={`arena-lane-${index}`}>
@@ -776,6 +1028,24 @@ function createStaticBackgroundScene({
           </Group>
         );
       })}
+      {verticalGridLines.map((x, index) => (
+        <Line
+          key={`arena-bg-v-${index}`}
+          p1={vec(x, 0)}
+          p2={vec(x, boardHeight)}
+          color={theme.grid}
+          strokeWidth={1}
+        />
+      ))}
+      {horizontalGridLines.map((y, index) => (
+        <Line
+          key={`arena-bg-h-${index}`}
+          p1={vec(0, y)}
+          p2={vec(boardWidth, y)}
+          color={theme.grid}
+          strokeWidth={1}
+        />
+      ))}
       {CYBER_TRACE_SEGMENTS.map((segment, index) => {
         const accentColor = segment.accent === 'warm' ? theme.boundary : theme.flow;
         return (
@@ -797,22 +1067,59 @@ function createStaticBackgroundScene({
           </Group>
         );
       })}
-      {verticalGridLines.map((x, index) => (
+      {CHIP_TRACE_CHAINS.flatMap((chain, chainIndex) =>
+        chain.length < 2
+          ? []
+          : chain.slice(0, -1).map((_, segIndex) => {
+              const a = chain[segIndex]!;
+              const b = chain[segIndex + 1]!;
+              return (
+                <Group key={`arena-chip-${chainIndex}-${segIndex}`}>
+                  <Line
+                    p1={vec(boardWidth * a.x, boardHeight * a.y)}
+                    p2={vec(boardWidth * b.x, boardHeight * b.y)}
+                    color={withAlpha('#1A0A04', 0.65)}
+                    strokeWidth={3.8}
+                    strokeCap="square"
+                  />
+                  <Line
+                    p1={vec(boardWidth * a.x, boardHeight * a.y)}
+                    p2={vec(boardWidth * b.x, boardHeight * b.y)}
+                    color={withAlpha('#FF8F42', 0.5)}
+                    strokeWidth={1.3}
+                    strokeCap="square"
+                  />
+                </Group>
+              );
+            })
+      )}
+      {CHIP_TRACE_CHAINS.flatMap((chain, chainIndex) =>
+        chain.map((pt, nodeIndex) => (
+          <Circle
+            key={`arena-chip-node-${chainIndex}-${nodeIndex}`}
+            cx={boardWidth * pt.x}
+            cy={boardHeight * pt.y}
+            r={nodeIndex === 0 || nodeIndex === chain.length - 1 ? 2.1 : 1.5}
+            color={withAlpha('#FFD4A8', 0.42)}
+          />
+        ))
+      )}
+      {TECH_DECAL_LINES.map((seg, index) => (
         <Line
-          key={`arena-bg-v-${index}`}
-          p1={vec(x, 0)}
-          p2={vec(x, boardHeight)}
-          color={theme.grid}
-          strokeWidth={1}
+          key={`arena-tline-${index}`}
+          p1={vec(boardWidth * seg.x1, boardHeight * seg.y1)}
+          p2={vec(boardWidth * seg.x2, boardHeight * seg.y2)}
+          color={withAlpha(theme.flow, 0.14)}
+          strokeWidth={0.9}
         />
       ))}
-      {horizontalGridLines.map((y, index) => (
-        <Line
-          key={`arena-bg-h-${index}`}
-          p1={vec(0, y)}
-          p2={vec(boardWidth, y)}
-          color={theme.grid}
-          strokeWidth={1}
+      {TECH_DECAL_DOTS.map((d, index) => (
+        <Circle
+          key={`arena-tdot-${index}`}
+          cx={boardWidth * d.x}
+          cy={boardHeight * d.y}
+          r={d.r}
+          color={withAlpha(theme.grid, 0.35)}
         />
       ))}
     </Group>

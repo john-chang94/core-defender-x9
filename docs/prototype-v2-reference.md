@@ -1,7 +1,7 @@
 # Prototype V2 Reference
 
-Snapshot date: `2026-04-29`
-Board version: `v0.79`
+Snapshot date: `2026-04-30`
+Board version: `v0.81`
 
 This document is the current reference for the arena-combat shooter in `/Users/johnchang/Desktop/defender/src/prototype-v2`. It replaces the earlier planning-heavy draft with a snapshot of what is actually implemented today, plus the next major gaps.
 
@@ -59,7 +59,7 @@ Top-level HUD currently shows:
 - projectile speed
 - health bar with current / max
 - shield bar with current / max
-- salvage bar with current / next draft requirement
+- active build salvage bar with current / next draft requirement
 - armory button with available upgrade count / ready glow
 - ultimate charge button / ready state
 
@@ -256,21 +256,21 @@ Current visual behavior:
 
 ### Salvage economy
 
-- enemies grant score and salvage on kill
-- `salvageBurst` field drops grant additional salvage
-- salvage progress is always visible in the HUD
+- enemies grant score and active-build salvage on kill
+- `salvageBurst` field drops grant additional salvage to the active build
+- salvage progress is tracked per build and is always visible in the HUD for the active build
 
 ### Standard armory drafts
 
-- the first draft threshold starts at `120`; early thresholds were deliberately kept higher so upgrades do not arrive trivially in the first few tiers
-- each next standard draft increases by `80`
-- when salvage reaches the threshold, the run banks an available armory upgrade instead of interrupting the fight
-- the armory button lights up when one or more upgrades are available
-- multiple armory upgrades can queue if the player keeps collecting salvage before opening the armory
+- each build's first draft threshold starts at `160`; early thresholds were deliberately kept higher so upgrades do not arrive trivially in the first few tiers
+- each next standard draft for that build starts by increasing `80`, then tapers to `60` and `40` at higher costs
+- when the active build's salvage reaches its threshold, the run banks an available armory upgrade for that build instead of interrupting the fight
+- the armory button lights up when the active build has one or more upgrades available
+- multiple armory upgrades can queue per build if the player keeps collecting salvage before opening the armory
 
 ### Boss cache drafts
 
-- boss clears add a free armory upgrade to the same available-upgrade queue
+- boss clears add a free armory upgrade to the active build's available-upgrade queue
 - boss rewards no longer force an immediate armory pause
 
 ### Current armory upgrade set
@@ -291,8 +291,9 @@ Current behavior:
 - upgrades that are maxed are disabled instead of disappearing
 - maxed upgrades show a `MAX` overlay in the modal
 - upgrade caps for `Twin Array` (max shot count) and `Rapid Cycle` (fire interval floor) are enforced per active build using `weaponsByBuild`, so each build tracks its own independent weapon state
-- in browse mode (no pending choices) all upgrade cards are disabled and the prompt shows the next unlock threshold
+- in browse mode (no pending choices) all upgrade cards are disabled and the prompt shows the active build's next unlock threshold
 - each build maintains its own weapon in `weaponsByBuild`; switching builds restores the stored weapon for that build, preserving per-build upgrade progress independently
+- each build also maintains its own armory salvage, next draft threshold, and queued upgrade count in `armoryProgressByBuild`; switching builds restores that build's in-run XP state
 
 Practical meanings and caps:
 
@@ -468,7 +469,7 @@ The arena board is rendered with Skia.
 
 Current Skia-rendered layers include:
 
-- static background snapshot
+- static background snapshot (fine grid, irregular hull-panel strokes, cracked / partial hex silhouettes, neon lane guides, cyber traces and orange “chip” traces with joints, micro schematic decals; traces draw above the grid)
 - moving background streaks / plates / atmosphere layers
 - enemy hulls
 - enemy bullets
@@ -550,6 +551,16 @@ Primary implementation files:
 - `/Users/johnchang/Desktop/defender/src/prototype-v2/ArenaPrototypeScreen.tsx`
 
 ## Changelog Snapshot
+
+### 2026-05-19
+
+- Advanced arena board label to `v0.81`.
+- Added per-build armory progression in `armoryProgressByBuild`, so each build now keeps its own salvage XP, next standard draft threshold, and queued upgrade count when switching builds mid-run.
+
+### 2026-04-30
+
+- Advanced arena board label to `v0.80`.
+- Expanded the baked arena background in `ArenaCanvas.tsx`: irregular polygon panel outlines, broken flat-top hex edges, orthogonal orange circuit-style trace chains with node dots, and faint tech tick marks — layered with existing grid and cyber traces (traces now render above the grid).
 
 ### 2026-04-29
 
